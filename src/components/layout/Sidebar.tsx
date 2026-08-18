@@ -12,6 +12,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import logoBlue from '@/assets/logo/logo-horizontal-blue.png';
 
 export interface NavItem {
   label: string;
@@ -67,25 +68,23 @@ interface SidebarProps {
   currentRole?: string;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentRole = 'todos' }) => {
+export const Sidebar: React.FC<SidebarProps> = () => {
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 h-screen sticky top-0">
+    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 h-screen sticky top-0 z-30">
       <div>
-        {/* Header / Logo */}
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-cyan-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-brand-500/20">
-            OU
-          </div>
-          <div>
-            <h1 className="font-bold text-slate-100 text-base leading-tight">OrtoUnifase</h1>
-            <p className="text-xs text-slate-400">Portal de Gestão</p>
-          </div>
+        {/* Header with Official OrtoUnifase Logo */}
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <img
+            src={logoBlue}
+            alt="OrtoUnifase"
+            className="h-10 object-contain max-w-[180px]"
+          />
         </div>
 
         {/* Navigation Items */}
         <div className="p-4 space-y-6">
           <div>
-            <div className="px-3 mb-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+            <div className="px-3 mb-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
               Navegação Interna
             </div>
             <nav className="space-y-1">
@@ -97,28 +96,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentRole = 'todos' }) => {
                     to={item.path}
                     className={({ isActive }) =>
                       cn(
-                        'flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all group',
+                        'flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group',
                         isActive
-                          ? 'bg-brand-500/10 text-brand-400 border border-brand-500/20 shadow-sm'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                          ? 'bg-brand-50 text-brand-600 border border-brand-200 shadow-sm font-semibold'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
                       )
                     }
                   >
                     <div className="flex items-center gap-3">
                       <Icon className={cn(
                         "w-4 h-4 transition-colors",
-                        item.isExtraProtected ? "text-amber-400" : "group-hover:text-brand-400"
+                        item.isExtraProtected ? "text-amber-500" : "group-hover:text-brand-500 text-slate-500"
                       )} />
                       <span>{item.label}</span>
                     </div>
 
                     {item.badge ? (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                        <Sparkles className="w-2.5 h-2.5" />
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5 text-amber-600" />
                         {item.badge}
                       </span>
                     ) : (
-                      <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-500" />
+                      <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400" />
                     )}
                   </NavLink>
                 );
@@ -129,20 +128,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentRole = 'todos' }) => {
       </div>
 
       {/* Footer / User Profile & Logout Link */}
-      <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+      <div className="p-4 border-t border-slate-100 bg-slate-50/60">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-semibold text-slate-300">
+            <div className="w-8 h-8 rounded-full bg-brand-100 border border-brand-200 flex items-center justify-center text-xs font-bold text-brand-700">
               AD
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-medium text-slate-200 truncate">Usuário Teste</p>
-              <p className="text-[10px] text-slate-400 truncate capitalize">Papel: Multi-Acesso</p>
+              <p className="text-xs font-semibold text-slate-800 truncate">Usuário Teste</p>
+              <p className="text-[10px] text-slate-500 truncate capitalize">Multi-Acesso</p>
             </div>
           </div>
           <NavLink
             to="/login"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
             title="Sair para tela de login"
           >
             <LogOut className="w-4 h-4" />

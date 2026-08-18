@@ -4,25 +4,25 @@
 
 @layer base {
   body {
-    @apply min-h-screen bg-slate-950 text-slate-100;
+    @apply min-h-screen bg-slate-50 text-slate-900;
   }
 }
 
-/* Custom scrollbars for clean internal dashboard look */
+/* Custom scrollbars for clean light mode internal dashboard look */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #94a3b8;
 }
