@@ -12,7 +12,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import logoBlue from '@/assets/logo/logo-horizontal-blue.png';
+import logoOfficial from '@/assets/logo/logo-official.png';
 
 export interface NavItem {
   label: string;
@@ -72,12 +72,12 @@ export const Sidebar: React.FC<SidebarProps> = () => {
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 h-screen sticky top-0 z-30">
       <div>
-        {/* Header with Official OrtoUnifase Logo */}
+        {/* Header with Specific Official OrtoUnifase Logo */}
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <img
-            src={logoBlue}
+            src={logoOfficial}
             alt="OrtoUnifase"
-            className="h-10 object-contain max-w-[180px]"
+            className="h-11 object-contain max-w-[190px]"
           />
         </div>
 

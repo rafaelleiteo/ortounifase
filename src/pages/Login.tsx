@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthLayout } from '@/components/layout/AuthLayout';
 import { KeyRound, Mail, ArrowRight, Shield, AlertCircle } from 'lucide-react';
-import logoBlue from '@/assets/logo/logo-horizontal-blue.png';
+import logoOfficial from '@/assets/logo/logo-official.png';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -28,9 +28,9 @@ export const Login: React.FC = () => {
         {/* Brand Official Logo Header */}
         <div className="text-center mb-6 pt-2">
           <img
-            src={logoBlue}
+            src={logoOfficial}
             alt="Ortodontia Unifase Logo"
-            className="h-14 mx-auto object-contain mb-3"
+            className="h-16 mx-auto object-contain mb-3"
           />
           <h2 className="text-xl font-bold text-slate-800 tracking-tight">Acesso ao Sistema</h2>
           <p className="text-xs text-slate-500 mt-1">Digite suas credenciais corporativas para entrar</p>
