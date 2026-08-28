@@ -8,6 +8,7 @@ import { ProfessorPage } from '@/pages/ProfessorPage';
 import { SecretariaPage } from '@/pages/SecretariaPage';
 import { CoordenadorPage } from '@/pages/CoordenadorPage';
 import { FinanceiroPage } from '@/pages/FinanceiroPage';
+import { MateriaisPage } from '@/pages/MateriaisPage';
 
 export const App: React.FC = () => {
   return (
@@ -22,6 +23,7 @@ export const App: React.FC = () => {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/aluno" element={<AlunoPage />} />
           <Route path="/professor" element={<ProfessorPage />} />
+          <Route path="/materiais" element={<MateriaisPage />} />
           <Route path="/secretaria" element={<SecretariaPage />} />
           <Route path="/coordenador" element={<CoordenadorPage />} />
 
