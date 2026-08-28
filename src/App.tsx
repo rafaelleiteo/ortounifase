@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from '@/contexts/AuthContext';
 import { Login } from '@/pages/Login';
 import { Dashboard } from '@/pages/Dashboard';
 import { AlunoPage } from '@/pages/AlunoPage';
@@ -10,26 +11,28 @@ import { FinanceiroPage } from '@/pages/FinanceiroPage';
 
 export const App: React.FC = () => {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Public / Auth Route */}
-        <Route path="/login" element={<Login />} />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Public / Auth Route */}
+          <Route path="/login" element={<Login />} />
 
-        {/* Internal Application Routes */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/aluno" element={<AlunoPage />} />
-        <Route path="/professor" element={<ProfessorPage />} />
-        <Route path="/secretaria" element={<SecretariaPage />} />
-        <Route path="/coordenador" element={<CoordenadorPage />} />
+          {/* Internal Application Routes */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/aluno" element={<AlunoPage />} />
+          <Route path="/professor" element={<ProfessorPage />} />
+          <Route path="/secretaria" element={<SecretariaPage />} />
+          <Route path="/coordenador" element={<CoordenadorPage />} />
 
-        {/* Extra Protected Route (Extension point for PIN / 2FA) */}
-        <Route path="/coordenador/financeiro" element={<FinanceiroPage />} />
+          {/* Extra Protected Route */}
+          <Route path="/coordenador/financeiro" element={<FinanceiroPage />} />
 
-        {/* Fallback wildcard route */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </BrowserRouter>
+          {/* Fallback wildcard route */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 };
 

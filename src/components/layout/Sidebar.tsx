@@ -9,16 +9,19 @@ import {
   LayoutDashboard,
   LogOut,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Package
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
+import { useAuth } from '@/contexts/AuthContext';
 
 export interface NavItem {
   label: string;
   path: string;
   icon: React.ElementType;
-  role: 'aluno' | 'professor' | 'secretaria' | 'coordenador';
+  roleRequired?: Array<'coordenador' | 'admin_master' | 'professor'>;
+  moduloRequired?: string;
   badge?: string;
   isExtraProtected?: boolean;
 }
@@ -28,51 +31,73 @@ const navItems: NavItem[] = [
     label: 'Visão Geral',
     path: '/dashboard',
     icon: LayoutDashboard,
-    role: 'aluno',
   },
   {
     label: 'Área do Aluno',
     path: '/aluno',
     icon: GraduationCap,
-    role: 'aluno',
   },
   {
     label: 'Área do Professor',
     path: '/professor',
     icon: UserCheck,
-    role: 'professor',
+    roleRequired: ['professor', 'coordenador', 'admin_master'],
+  },
+  {
+    label: 'Catálogo de Materiais',
+    path: '/materiais',
+    icon: Package,
+    moduloRequired: 'materiais',
   },
   {
     label: 'Secretaria',
     path: '/secretaria',
     icon: ClipboardList,
-    role: 'secretaria',
+    roleRequired: ['coordenador', 'admin_master'],
   },
   {
     label: 'Coordenação Geral',
     path: '/coordenador',
     icon: ShieldAlert,
-    role: 'coordenador',
+    roleRequired: ['coordenador', 'admin_master'],
   },
   {
     label: 'Módulo Financeiro',
     path: '/coordenador/financeiro',
     icon: DollarSign,
-    role: 'coordenador',
+    roleRequired: ['coordenador', 'admin_master'],
     badge: 'Camada Extra',
     isExtraProtected: true,
   },
 ];
 
-interface SidebarProps {
-  currentRole?: string;
-}
+export const Sidebar: React.FC = () => {
+  const { profile, logout, hasPermission } = useAuth();
 
-export const Sidebar: React.FC<SidebarProps> = () => {
+  const userRole = profile?.papel || 'coordenador'; // Default fallback for dev layout preview if unauthenticated
+  const userName = profile?.nome || 'Usuário Autenticado';
+
+  const visibleNavItems = navItems.filter((item) => {
+    // Coordenador and Admin Master see all items
+    if (userRole === 'coordenador' || userRole === 'admin_master') return true;
+
+    // Check specific module permission if specified
+    if (item.moduloRequired) {
+      return hasPermission(item.moduloRequired, false);
+    }
+
+    // Check role requirements
+    if (item.roleRequired) {
+      return item.roleRequired.includes(userRole);
+    }
+
+    return true;
+  });
+
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 h-screen sticky top-0 z-30">
       <div>
-        {/* Header with Specific Official OrtoUnifase Logo */}
+        {/* Header with Official OrtoUnifase Logo */}
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <img
             src={logoOfficial}
@@ -88,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = () => {
               Navegação Interna
             </div>
             <nav className="space-y-1">
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <NavLink
@@ -127,25 +152,25 @@ export const Sidebar: React.FC<SidebarProps> = () => {
         </div>
       </div>
 
-      {/* Footer / User Profile & Logout Link */}
+      {/* Footer / User Profile & Logout */}
       <div className="p-4 border-t border-slate-100 bg-slate-50/60">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-brand-100 border border-brand-200 flex items-center justify-center text-xs font-bold text-brand-700">
-              AD
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-8 h-8 rounded-full bg-brand-100 border border-brand-200 flex items-center justify-center text-xs font-bold text-brand-700 shrink-0">
+              {userName.substring(0, 2).toUpperCase()}
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-slate-800 truncate">Usuário Teste</p>
-              <p className="text-[10px] text-slate-500 truncate capitalize">Multi-Acesso</p>
+              <p className="text-xs font-semibold text-slate-800 truncate">{userName}</p>
+              <p className="text-[10px] text-slate-500 truncate capitalize">Papel: {userRole}</p>
             </div>
           </div>
-          <NavLink
-            to="/login"
+          <button
+            onClick={() => logout()}
             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-            title="Sair para tela de login"
+            title="Sair da conta"
           >
             <LogOut className="w-4 h-4" />
-          </NavLink>
+          </button>
         </div>
       </div>
     </aside>
