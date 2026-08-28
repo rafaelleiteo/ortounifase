@@ -14,7 +14,8 @@ import {
   Loader2,
   Send,
   X,
-  FilePlus2,
+  FileText,
+  PackagePlus,
   Lock,
   Tag
 } from 'lucide-react';
@@ -55,13 +56,23 @@ export const MateriaisPage: React.FC = () => {
   // Cart state (Local React Session State)
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  // Manual Item Modal
-  const [showManualModal, setShowManualModal] = useState<boolean>(false);
-  const [manualDescricao, setManualDescricao] = useState<string>('');
-  const [manualUnidade, setManualUnidade] = useState<string>('Unidade');
-  const [manualQuantidade, setManualQuantidade] = useState<number>(1);
+  // 1. Modal: Item Avulso (Só este pedido)
+  const [showAvulsoModal, setShowAvulsoModal] = useState<boolean>(false);
+  const [avulsoDescricao, setAvulsoDescricao] = useState<string>('');
+  const [avulsoUnidade, setAvulsoUnidade] = useState<string>('Unidade');
+  const [avulsoQuantidade, setAvulsoQuantidade] = useState<number>(1);
 
-  // Edit Material Modal
+  // 2. Modal: Cadastrar Novo Item no Catálogo
+  const [showNewMaterialModal, setShowNewMaterialModal] = useState<boolean>(false);
+  const [newDescricao, setNewDescricao] = useState<string>('');
+  const [newUnidade, setNewUnidade] = useState<string>('und');
+  const [newCategoria, setNewCategoria] = useState<string>('OUTROS MATERIAIS CONSUMO (consumíveis)');
+  const [newMarca, setNewMarca] = useState<string>('');
+  const [newQtdRef, setNewQtdRef] = useState<string>('');
+  const [newQtdCart, setNewQtdCart] = useState<number>(1);
+  const [savingNewMaterial, setSavingNewMaterial] = useState<boolean>(false);
+
+  // 3. Modal: Editar Material Existente
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [editDescricao, setEditDescricao] = useState<string>('');
   const [editUnidade, setEditUnidade] = useState<string>('');
@@ -112,8 +123,8 @@ export const MateriaisPage: React.FC = () => {
   );
 
   // Cart Handlers
-  const handleAddToCart = (material: Material) => {
-    const qtd = itemQuantities[material.id] || 1;
+  const handleAddToCart = (material: Material, qtdToAdd?: number) => {
+    const qtd = qtdToAdd || itemQuantities[material.id] || 1;
     const existingIndex = cart.findIndex((item) => item.material_id === material.id);
 
     if (existingIndex >= 0) {
@@ -129,30 +140,76 @@ export const MateriaisPage: React.FC = () => {
         quantidade: qtd,
         isManual: false,
       };
-      setCart([...cart, newItem]);
+      setCart((prev) => [...prev, newItem]);
     }
     // Reset temporary quantity input
     setItemQuantities({ ...itemQuantities, [material.id]: 1 });
   };
 
-  const handleAddManualItem = (e: React.FormEvent) => {
+  // Option 1: Add Avulso Item (Temporary, only this order)
+  const handleAddAvulsoItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualDescricao.trim()) return;
+    if (!avulsoDescricao.trim()) return;
 
     const newItem: CartItem = {
       id: `manual-${Date.now()}`,
       material_id: null,
-      descricao: manualDescricao.trim(),
-      unidade: manualUnidade.trim() || 'Unidade',
-      quantidade: manualQuantidade > 0 ? manualQuantidade : 1,
+      descricao: avulsoDescricao.trim(),
+      unidade: avulsoUnidade.trim() || 'Unidade',
+      quantidade: avulsoQuantidade > 0 ? avulsoQuantidade : 1,
       isManual: true,
     };
 
     setCart([...cart, newItem]);
-    setManualDescricao('');
-    setManualUnidade('Unidade');
-    setManualQuantidade(1);
-    setShowManualModal(false);
+    setAvulsoDescricao('');
+    setAvulsoUnidade('Unidade');
+    setAvulsoQuantidade(1);
+    setShowAvulsoModal(false);
+  };
+
+  // Option 2: Register New Permanent Material in Database & Add to Cart
+  const handleCreateAndAddMaterial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDescricao.trim()) return;
+
+    setSavingNewMaterial(true);
+    try {
+      const { data: created, error } = await supabase
+        .from('materiais')
+        .insert({
+          descricao_completa: newDescricao.trim(),
+          unidade: newUnidade.trim() || 'und',
+          categoria: newCategoria.trim() || null,
+          marca: newMarca.trim() || null,
+          quantidade_referencia: newQtdRef ? parseFloat(newQtdRef) : null,
+        })
+        .select()
+        .single();
+
+      if (error || !created) {
+        alert(`Erro ao cadastrar material no banco: ${error?.message}`);
+        return;
+      }
+
+      // Refresh list
+      await fetchMateriais();
+
+      // Automatically add newly created material as catalog item in cart
+      handleAddToCart(created, newQtdCart > 0 ? newQtdCart : 1);
+
+      // Reset modal inputs
+      setNewDescricao('');
+      setNewUnidade('und');
+      setNewCategoria('OUTROS MATERIAIS CONSUMO (consumíveis)');
+      setNewMarca('');
+      setNewQtdRef('');
+      setNewQtdCart(1);
+      setShowNewMaterialModal(false);
+    } catch (err: any) {
+      alert(`Erro: ${err.message}`);
+    } finally {
+      setSavingNewMaterial(false);
+    }
   };
 
   const handleRemoveFromCart = (id: string) => {
@@ -216,13 +273,13 @@ export const MateriaisPage: React.FC = () => {
     setOrderSuccess(null);
 
     try {
-      // 1. Inserir registro na tabela pedidos
+      // 1. Inserir registro na tabela pedidos (Fallback temporário: rleiteoliveira@gmail.com)
       const { data: newPedido, error: pedidoError } = await supabase
         .from('pedidos')
         .insert({
           usuario_id: user.id,
           status: 'rascunho',
-          email_destino: 'rafael.leite@prof.unifase-rj.edu.br',
+          email_destino: 'rleiteoliveira@gmail.com',
         })
         .select()
         .single();
@@ -304,7 +361,7 @@ export const MateriaisPage: React.FC = () => {
                 <span className="text-[11px] font-mono text-emerald-700">{orderSuccess.timestamp}</span>
               </div>
               <p className="text-xs text-emerald-800 mt-1">
-                O pedido <strong>#{orderSuccess.pedidoId.substring(0, 8)}</strong> foi registrado e notificado para o e-mail de destino (<code>rafael.leite@prof.unifase-rj.edu.br</code>).
+                O pedido <strong>#{orderSuccess.pedidoId.substring(0, 8)}</strong> foi registrado e notificado para o e-mail de destino (<code>rleiteoliveira@gmail.com</code>).
               </p>
             </div>
             <button
@@ -330,8 +387,9 @@ export const MateriaisPage: React.FC = () => {
           </div>
         )}
 
-        {/* Header Controls: Search & Add Manual Item */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+        {/* Header Controls: Search + 2 Distinct Buttons */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+          {/* Search Input */}
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -343,13 +401,30 @@ export const MateriaisPage: React.FC = () => {
             />
           </div>
 
-          <button
-            onClick={() => setShowManualModal(true)}
-            className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-xs transition-colors"
-          >
-            <FilePlus2 className="w-4 h-4 text-brand-600" />
-            <span>Adicionar Item Manual</span>
-          </button>
+          {/* 2 Distinct Actions */}
+          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+            {/* Action 1: Item Avulso (Só este pedido) - Secondary Style */}
+            <button
+              onClick={() => setShowAvulsoModal(true)}
+              className="flex-1 sm:flex-initial px-3.5 py-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-xs"
+              title="Incluir item avulso diretamente no carrinho sem salvar no catálogo"
+            >
+              <FileText className="w-4 h-4 text-slate-600" />
+              <span>Item avulso (só este pedido)</span>
+            </button>
+
+            {/* Action 2: Cadastrar novo item na lista - Primary Brand Style */}
+            {canEdit && (
+              <button
+                onClick={() => setShowNewMaterialModal(true)}
+                className="flex-1 sm:flex-initial px-3.5 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-md shadow-brand-500/20 transition-all active:scale-[0.99]"
+                title="Cadastrar item permanente no banco de dados materiais e adicionar ao carrinho"
+              >
+                <PackagePlus className="w-4 h-4" />
+                <span>Cadastrar no catálogo</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Main Grid: Materials List + Cart Drawer */}
@@ -363,7 +438,7 @@ export const MateriaisPage: React.FC = () => {
                   <h3 className="text-sm font-bold text-slate-800">Insumos Pré-Cadastrados</h3>
                 </div>
                 <span className="text-xs text-slate-400 font-medium">
-                  {filteredMateriais.length} item(ns) encontrado(s)
+                  {filteredMateriais.length} item(ns) cadastrado(s)
                 </span>
               </div>
 
@@ -378,14 +453,14 @@ export const MateriaisPage: React.FC = () => {
                   <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center mb-3">
                     <Package className="w-6 h-6" />
                   </div>
-                  <h4 className="text-sm font-bold text-slate-700 mb-1">Nenhum Material Cadastrado</h4>
+                  <h4 className="text-sm font-bold text-slate-700 mb-1">Nenhum Material Encontrado</h4>
                   <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-                    A tabela de materiais está vazia. Você pode utilizar o botão <strong>"Adicionar Item Manual"</strong> acima para incluir demandas avulsas diretamente no carrinho.
+                    Nenhum item corresponde à busca. Cadastre um novo insumo permanente pelo botão <strong>"Cadastrar no catálogo"</strong> ou adicione uma demanda temporária via <strong>"Item avulso"</strong>.
                   </p>
                 </div>
               ) : (
                 /* LIST OF MATERIALS */
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
                   {filteredMateriais.map((mat) => {
                     const currentQtd = itemQuantities[mat.id] || 1;
                     return (
@@ -502,13 +577,13 @@ export const MateriaisPage: React.FC = () => {
                   <ShoppingCart className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                   <p className="text-xs font-medium">Seu carrinho está vazio.</p>
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Adicione materiais da lista ou crie itens manuais para solicitar.
+                    Adicione materiais da lista ou crie itens avulsos para solicitar.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {/* Cart Items List */}
-                  <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
                     {cart.map((item) => (
                       <div
                         key={item.id}
@@ -519,7 +594,7 @@ export const MateriaisPage: React.FC = () => {
                             <h5 className="text-xs font-bold text-slate-800 truncate">{item.descricao}</h5>
                             {item.isManual && (
                               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200">
-                                Manual
+                                Avulso
                               </span>
                             )}
                           </div>
@@ -572,7 +647,7 @@ export const MateriaisPage: React.FC = () => {
                     </button>
 
                     <p className="text-[10px] text-slate-400 text-center leading-tight">
-                      O pedido será registrado e disparado automaticamente para o e-mail cadastrado via Edge Function.
+                      O pedido será registrado e disparado automaticamente por e-mail via Resend API.
                     </p>
                   </div>
                 </div>
@@ -582,33 +657,36 @@ export const MateriaisPage: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL: Adicionar Item Manual */}
-      {showManualModal && (
+      {/* MODAL 1: Item Avulso (Só este pedido) */}
+      {showAvulsoModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-fadeIn">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <FilePlus2 className="w-5 h-5 text-brand-600" />
-                <h3 className="text-sm font-bold text-slate-800">Adicionar Item Manual</h3>
+                <FileText className="w-5 h-5 text-slate-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Item Avulso (Só este pedido)</h3>
+                  <p className="text-[11px] text-slate-500">Inclui uma demanda temporária diretamente no carrinho sem salvar no catálogo.</p>
+                </div>
               </div>
               <button
-                onClick={() => setShowManualModal(false)}
-                className="text-slate-400 hover:text-slate-600"
+                onClick={() => setShowAvulsoModal(false)}
+                className="text-slate-400 hover:text-slate-600 shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddManualItem} className="space-y-4">
+            <form onSubmit={handleAddAvulsoItem} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Descrição Livre do Material *
+                  Descrição do Item Avulso *
                 </label>
                 <input
                   type="text"
-                  value={manualDescricao}
-                  onChange={(e) => setManualDescricao(e.target.value)}
-                  placeholder="Ex: Fio ortodôntico Niti .016 especial..."
+                  value={avulsoDescricao}
+                  onChange={(e) => setAvulsoDescricao(e.target.value)}
+                  placeholder="Ex: Fio ortodôntico Niti .016 sob medida..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:bg-white"
                   required
                 />
@@ -620,8 +698,8 @@ export const MateriaisPage: React.FC = () => {
                   <input
                     type="number"
                     min="1"
-                    value={manualQuantidade}
-                    onChange={(e) => setManualQuantidade(parseInt(e.target.value) || 1)}
+                    value={avulsoQuantidade}
+                    onChange={(e) => setAvulsoQuantidade(parseInt(e.target.value) || 1)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
                     required
                   />
@@ -631,8 +709,8 @@ export const MateriaisPage: React.FC = () => {
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Unidade *</label>
                   <input
                     type="text"
-                    value={manualUnidade}
-                    onChange={(e) => setManualUnidade(e.target.value)}
+                    value={avulsoUnidade}
+                    onChange={(e) => setAvulsoUnidade(e.target.value)}
                     placeholder="Ex: Caixa, Pacote, Unidade"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
                     required
@@ -643,14 +721,14 @@ export const MateriaisPage: React.FC = () => {
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setShowManualModal(false)}
+                  onClick={() => setShowAvulsoModal(false)}
                   className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors"
                 >
                   Incluir no Carrinho
                 </button>
@@ -660,7 +738,127 @@ export const MateriaisPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Editar Material no Banco (Requer pode_editar = true) */}
+      {/* MODAL 2: Cadastrar Novo Item na Lista (Permanente no Banco materiais) */}
+      {showNewMaterialModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <PackagePlus className="w-5 h-5 text-brand-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Cadastrar Novo Item no Catálogo</h3>
+                  <p className="text-[11px] text-slate-500">Salva um novo registro permanente no banco de dados e adiciona ao carrinho.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowNewMaterialModal(false)}
+                className="text-slate-400 hover:text-slate-600 shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAndAddMaterial} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Descrição Completa *
+                </label>
+                <input
+                  type="text"
+                  value={newDescricao}
+                  onChange={(e) => setNewDescricao(e.target.value)}
+                  placeholder="Ex: Alicate de corte distal ortodôntico..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:bg-white"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Unidade *</label>
+                  <input
+                    type="text"
+                    value={newUnidade}
+                    onChange={(e) => setNewUnidade(e.target.value)}
+                    placeholder="Ex: und, kit, pct, rolo"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Marca (opcional)</label>
+                  <input
+                    type="text"
+                    value={newMarca}
+                    onChange={(e) => setNewMarca(e.target.value)}
+                    placeholder="Ex: Morelli, Orthometric"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Categoria *</label>
+                <input
+                  type="text"
+                  value={newCategoria}
+                  onChange={(e) => setNewCategoria(e.target.value)}
+                  placeholder="Ex: BROCAS, FIOS ORTODÔNTICOS, APARELHOS..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Qtd. Referência (opcional)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={newQtdRef}
+                    onChange={(e) => setNewQtdRef(e.target.value)}
+                    placeholder="Ex: 10"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Adicionar ao Carrinho (Qtd) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newQtdCart}
+                    onChange={(e) => setNewQtdCart(parseInt(e.target.value) || 1)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowNewMaterialModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingNewMaterial}
+                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
+                >
+                  {savingNewMaterial && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Salvar no Banco & Adicionar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Editar Material Existente no Banco */}
       {editingMaterial && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-fadeIn">

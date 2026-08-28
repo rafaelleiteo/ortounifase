@@ -55,7 +55,7 @@ serve(async (req) => {
     // 2. Busca os itens do pedido com os detalhes do material
     const { data: itens, error: itensError } = await supabaseAdmin
       .from("itens_pedido")
-      .select("*, materiais(descricao_completa, categoria)")
+      .select("*, materiais(descricao_completa, categoria, marca)")
       .eq("pedido_id", pedido_id);
 
     if (itensError) {
@@ -66,17 +66,18 @@ serve(async (req) => {
     }
 
     // 3. Monta o corpo em HTML formatado para o e-mail
-    // Fallback atualizado para rafael.leite@prof.unifase-rj.edu.br
-    const emailDestino = pedido.email_destino || "rafael.leite@prof.unifase-rj.edu.br";
+    // Fallback temporário para teste de envio via Resend: rleiteoliveira@gmail.com
+    const emailDestino = pedido.email_destino || "rleiteoliveira@gmail.com";
     const solicitanteNome = pedido.perfis?.nome || "Solicitante OrtoUnifase";
     
     const tabelaItensHtml = (itens || []).map((item, index) => {
       const descricao = item.descricao_manual || item.materiais?.descricao_completa || "Item sem descrição";
       const categoria = item.materiais?.categoria ? ` (${item.materiais.categoria})` : "";
+      const marca = item.materiais?.marca ? ` - Marca: ${item.materiais.marca}` : "";
       return `
         <tr>
           <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">${index + 1}</td>
-          <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;"><strong>${descricao}</strong>${categoria}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;"><strong>${descricao}</strong>${categoria}${marca}</td>
           <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: center;">${item.quantidade}</td>
           <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: center;">${item.unidade}</td>
         </tr>
