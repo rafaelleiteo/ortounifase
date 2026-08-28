@@ -15,7 +15,8 @@ import {
   Send,
   X,
   FilePlus2,
-  Lock
+  Lock,
+  Tag
 } from 'lucide-react';
 
 export interface Material {
@@ -23,6 +24,8 @@ export interface Material {
   descricao_completa: string;
   unidade: string;
   categoria?: string;
+  marca?: string;
+  quantidade_referencia?: number;
   criado_em?: string;
 }
 
@@ -36,7 +39,7 @@ export interface CartItem {
 }
 
 export const MateriaisPage: React.FC = () => {
-  const { user, profile, hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
 
   const canView = hasPermission('materiais', false);
   const canEdit = hasPermission('materiais', true);
@@ -63,6 +66,8 @@ export const MateriaisPage: React.FC = () => {
   const [editDescricao, setEditDescricao] = useState<string>('');
   const [editUnidade, setEditUnidade] = useState<string>('');
   const [editCategoria, setEditCategoria] = useState<string>('');
+  const [editMarca, setEditMarca] = useState<string>('');
+  const [editQtdRef, setEditQtdRef] = useState<string>('');
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
 
   // Order Submission State
@@ -102,7 +107,8 @@ export const MateriaisPage: React.FC = () => {
   // Filtered materials
   const filteredMateriais = materiais.filter((m) =>
     m.descricao_completa.toLowerCase().includes(search.toLowerCase()) ||
-    (m.categoria && m.categoria.toLowerCase().includes(search.toLowerCase()))
+    (m.categoria && m.categoria.toLowerCase().includes(search.toLowerCase())) ||
+    (m.marca && m.marca.toLowerCase().includes(search.toLowerCase()))
   );
 
   // Cart Handlers
@@ -167,6 +173,8 @@ export const MateriaisPage: React.FC = () => {
     setEditDescricao(material.descricao_completa);
     setEditUnidade(material.unidade);
     setEditCategoria(material.categoria || '');
+    setEditMarca(material.marca || '');
+    setEditQtdRef(material.quantidade_referencia ? String(material.quantidade_referencia) : '');
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -181,6 +189,8 @@ export const MateriaisPage: React.FC = () => {
           descricao_completa: editDescricao.trim(),
           unidade: editUnidade.trim(),
           categoria: editCategoria.trim() || null,
+          marca: editMarca.trim() || null,
+          quantidade_referencia: editQtdRef ? parseFloat(editQtdRef) : null,
         })
         .eq('id', editingMaterial.id);
 
@@ -237,7 +247,7 @@ export const MateriaisPage: React.FC = () => {
       }
 
       // 3. Chamar Edge Function enviar-pedido
-      const { data: fnData, error: fnError } = await supabase.functions.invoke('enviar-pedido', {
+      const { error: fnError } = await supabase.functions.invoke('enviar-pedido', {
         body: { pedido_id: newPedido.id },
       });
 
@@ -328,7 +338,7 @@ export const MateriaisPage: React.FC = () => {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por descrição ou categoria..."
+              placeholder="Buscar por descrição, categoria ou marca..."
               className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 shadow-xs"
             />
           </div>
@@ -363,7 +373,7 @@ export const MateriaisPage: React.FC = () => {
                   <span className="text-xs">Carregando catálogo de materiais...</span>
                 </div>
               ) : filteredMateriais.length === 0 ? (
-                /* EMPTY STATE (As requested, when no materials exist yet) */
+                /* EMPTY STATE */
                 <div className="py-12 px-4 text-center border-2 border-dashed border-slate-200 rounded-xl">
                   <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center mb-3">
                     <Package className="w-6 h-6" />
@@ -384,15 +394,26 @@ export const MateriaisPage: React.FC = () => {
                         className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-300 transition-colors"
                       >
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h4 className="text-xs font-bold text-slate-800">{mat.descricao_completa}</h4>
                             {mat.categoria && (
                               <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-brand-50 text-brand-700 border border-brand-200">
                                 {mat.categoria}
                               </span>
                             )}
+                            {mat.marca && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1">
+                                <Tag className="w-2.5 h-2.5 text-slate-500" />
+                                {mat.marca}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-[11px] text-slate-500 font-medium">Unidade: {mat.unidade}</span>
+                          <div className="flex items-center gap-3 text-[11px] text-slate-500 font-medium mt-1">
+                            <span>Unidade: {mat.unidade}</span>
+                            {mat.quantidade_referencia && (
+                              <span>Qtd. Ref: {mat.quantidade_referencia}</span>
+                            )}
+                          </div>
                         </div>
 
                         {/* Controls: Quantity + Add to Cart + Edit */}
@@ -689,6 +710,31 @@ export const MateriaisPage: React.FC = () => {
                     value={editCategoria}
                     onChange={(e) => setEditCategoria(e.target.value)}
                     placeholder="Ex: Ortodontia, Consumo"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Marca</label>
+                  <input
+                    type="text"
+                    value={editMarca}
+                    onChange={(e) => setEditMarca(e.target.value)}
+                    placeholder="Ex: Morelli, 3M"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Qtd. Referência</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editQtdRef}
+                    onChange={(e) => setEditQtdRef(e.target.value)}
+                    placeholder="Ex: 10"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-brand-500 focus:bg-white"
                   />
                 </div>

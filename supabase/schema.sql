@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS public.materiais (
     descricao_completa TEXT NOT NULL,
     unidade TEXT NOT NULL,
     categoria TEXT,
+    marca TEXT,
+    quantidade_referencia NUMERIC,
     criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
