@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS public.pedidos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     usuario_id UUID NOT NULL REFERENCES public.perfis(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'rascunho' CHECK (status IN ('rascunho', 'enviado')),
-    email_destino TEXT DEFAULT 'rafael@versa3d.com.br',
+    email_destino TEXT DEFAULT 'rafael.leite@prof.unifase-rj.edu.br',
     criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
     enviado_em TIMESTAMPTZ
 );

@@ -66,8 +66,8 @@ serve(async (req) => {
     }
 
     // 3. Monta o corpo em HTML formatado para o e-mail
-    // Fallback temporário para teste de envio via Resend: rafael@versa3d.com.br
-    const emailDestino = pedido.email_destino || "rafael@versa3d.com.br";
+    // Destino padrão: rafael.leite@prof.unifase-rj.edu.br
+    const emailDestino = pedido.email_destino || "rafael.leite@prof.unifase-rj.edu.br";
     const solicitanteNome = pedido.perfis?.nome || "Solicitante OrtoUnifase";
     
     const tabelaItensHtml = (itens || []).map((item, index) => {

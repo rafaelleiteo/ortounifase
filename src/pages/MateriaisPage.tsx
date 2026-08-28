@@ -273,13 +273,13 @@ export const MateriaisPage: React.FC = () => {
     setOrderSuccess(null);
 
     try {
-      // 1. Inserir registro na tabela pedidos (Fallback temporário: rafael@versa3d.com.br)
+      // 1. Inserir registro na tabela pedidos
       const { data: newPedido, error: pedidoError } = await supabase
         .from('pedidos')
         .insert({
           usuario_id: user.id,
           status: 'rascunho',
-          email_destino: 'rafael@versa3d.com.br',
+          email_destino: 'rafael.leite@prof.unifase-rj.edu.br',
         })
         .select()
         .single();
@@ -361,7 +361,7 @@ export const MateriaisPage: React.FC = () => {
                 <span className="text-[11px] font-mono text-emerald-700">{orderSuccess.timestamp}</span>
               </div>
               <p className="text-xs text-emerald-800 mt-1">
-                O pedido <strong>#{orderSuccess.pedidoId.substring(0, 8)}</strong> foi registrado e notificado para o e-mail de destino (<code>rafael@versa3d.com.br</code>).
+                O pedido <strong>#{orderSuccess.pedidoId.substring(0, 8)}</strong> foi registrado e notificado para o e-mail de destino (<code>rafael.leite@prof.unifase-rj.edu.br</code>).
               </p>
             </div>
             <button
