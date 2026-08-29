@@ -120,7 +120,7 @@ serve(async (req) => {
       </div>
     `;
 
-    // 4. Envio via API REST do Resend
+    // 4. Envio via API REST do Resend (Domínio Verificado: ortounifase.com.br)
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -128,7 +128,7 @@ serve(async (req) => {
         "Authorization": `Bearer ${resendApiKey}`,
       },
       body: JSON.stringify({
-        from: "OrtoUnifase Pedidos <onboarding@resend.dev>",
+        from: "OrtoUnifase Pedidos <pedidos@ortounifase.com.br>",
         to: [emailDestino],
         subject: `[Pedido de Materiais] #${pedido.id.substring(0, 8)} - ${solicitanteNome}`,
         html: htmlBody,
