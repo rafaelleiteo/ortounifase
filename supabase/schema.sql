@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS public.permissoes_modulo (
     CONSTRAINT uq_usuario_modulo UNIQUE (usuario_id, modulo)
 );
 
+-- 2B. TABELA DE PERMISSÕES POR PAPEL (GLOBAL)
+CREATE TABLE IF NOT EXISTS public.permissoes_papel (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    papel TEXT NOT NULL CHECK (papel IN ('aluno', 'professor', 'admin_master')),
+    modulo TEXT NOT NULL,
+    pode_ver BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT uq_papel_modulo UNIQUE (papel, modulo)
+);
+
+
 -- 3. TABELA DE ALUNOS
 CREATE TABLE IF NOT EXISTS public.alunos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

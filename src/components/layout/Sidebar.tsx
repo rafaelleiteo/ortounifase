@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   GraduationCap,
@@ -10,7 +10,9 @@ import {
   LogOut,
   ChevronRight,
   Sparkles,
-  Package
+  Package,
+  SlidersHorizontal,
+  Eye
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
@@ -20,8 +22,8 @@ export interface NavItem {
   label: string;
   path: string;
   icon: React.ElementType;
-  roleRequired?: Array<'coordenador' | 'admin_master' | 'professor'>;
-  moduloRequired?: string;
+  moduloKey: string;
+  roleRequired?: Array<'coordenador' | 'admin_master' | 'professor' | 'aluno'>;
   badge?: string;
   isExtraProtected?: boolean;
 }
@@ -31,40 +33,51 @@ const navItems: NavItem[] = [
     label: 'Visão Geral',
     path: '/dashboard',
     icon: LayoutDashboard,
+    moduloKey: 'dashboard',
   },
   {
     label: 'Área do Aluno',
     path: '/aluno',
     icon: GraduationCap,
+    moduloKey: 'aluno',
   },
   {
     label: 'Área do Professor',
     path: '/professor',
     icon: UserCheck,
-    roleRequired: ['professor', 'coordenador', 'admin_master'],
+    moduloKey: 'professor',
   },
   {
     label: 'Catálogo de Materiais',
     path: '/materiais',
     icon: Package,
-    moduloRequired: 'materiais',
+    moduloKey: 'materiais',
   },
   {
     label: 'Secretaria',
     path: '/secretaria',
     icon: ClipboardList,
+    moduloKey: 'secretaria',
+  },
+  {
+    label: 'Controle de Acessos',
+    path: '/coordenador/acesso',
+    icon: SlidersHorizontal,
+    moduloKey: 'coordenador',
     roleRequired: ['coordenador', 'admin_master'],
   },
   {
     label: 'Coordenação Geral',
     path: '/coordenador',
     icon: ShieldAlert,
+    moduloKey: 'coordenador',
     roleRequired: ['coordenador', 'admin_master'],
   },
   {
     label: 'Módulo Financeiro',
     path: '/coordenador/financeiro',
     icon: DollarSign,
+    moduloKey: 'coordenador',
     roleRequired: ['coordenador', 'admin_master'],
     badge: 'Camada Extra',
     isExtraProtected: true,
@@ -72,26 +85,19 @@ const navItems: NavItem[] = [
 ];
 
 export const Sidebar: React.FC = () => {
-  const { profile, logout, hasPermission } = useAuth();
+  const { profile, logout, hasPermission, effectiveRole, previewRole } = useAuth();
 
-  const userRole = profile?.papel || 'coordenador'; // Default fallback for dev layout preview if unauthenticated
+  const userRole = profile?.papel || 'coordenador';
   const userName = profile?.nome || 'Usuário Autenticado';
 
   const visibleNavItems = navItems.filter((item) => {
-    // Coordenador and Admin Master see all items
-    if (userRole === 'coordenador' || userRole === 'admin_master') return true;
+    if (effectiveRole === 'coordenador' || effectiveRole === 'admin_master') return true;
 
-    // Check specific module permission if specified
-    if (item.moduloRequired) {
-      return hasPermission(item.moduloRequired, false);
+    if (item.roleRequired && !item.roleRequired.includes(effectiveRole as any)) {
+      return false;
     }
 
-    // Check role requirements
-    if (item.roleRequired) {
-      return item.roleRequired.includes(userRole);
-    }
-
-    return true;
+    return hasPermission(item.moduloKey);
   });
 
   return (
@@ -109,9 +115,18 @@ export const Sidebar: React.FC = () => {
         {/* Navigation Items */}
         <div className="p-4 space-y-6">
           <div>
-            <div className="px-3 mb-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-              Navegação Interna
+            <div className="px-3 mb-2 flex items-center justify-between">
+              <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                Navegação Interna
+              </span>
+              {previewRole && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                  <Eye className="w-2.5 h-2.5 text-amber-600" />
+                  Preview: {effectiveRole}
+                </span>
+              )}
             </div>
+
             <nav className="space-y-1">
               {visibleNavItems.map((item) => {
                 const Icon = item.icon;
@@ -161,7 +176,9 @@ export const Sidebar: React.FC = () => {
             </div>
             <div className="overflow-hidden">
               <p className="text-xs font-semibold text-slate-800 truncate">{userName}</p>
-              <p className="text-[10px] text-slate-500 truncate capitalize">Papel: {userRole}</p>
+              <p className="text-[10px] text-slate-500 truncate capitalize">
+                Papel: {userRole} {previewRole ? `(ver como ${effectiveRole})` : ''}
+              </p>
             </div>
           </div>
           <button

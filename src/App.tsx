@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Login } from '@/pages/Login';
@@ -7,6 +7,7 @@ import { AlunoPage } from '@/pages/AlunoPage';
 import { ProfessorPage } from '@/pages/ProfessorPage';
 import { SecretariaPage } from '@/pages/SecretariaPage';
 import { CoordenadorPage } from '@/pages/CoordenadorPage';
+import { AcessoPage } from '@/pages/AcessoPage';
 import { FinanceiroPage } from '@/pages/FinanceiroPage';
 import { MateriaisPage } from '@/pages/MateriaisPage';
 
@@ -26,6 +27,7 @@ export const App: React.FC = () => {
           <Route path="/materiais" element={<MateriaisPage />} />
           <Route path="/secretaria" element={<SecretariaPage />} />
           <Route path="/coordenador" element={<CoordenadorPage />} />
+          <Route path="/coordenador/acesso" element={<AcessoPage />} />
 
           {/* Extra Protected Route */}
           <Route path="/coordenador/financeiro" element={<FinanceiroPage />} />
