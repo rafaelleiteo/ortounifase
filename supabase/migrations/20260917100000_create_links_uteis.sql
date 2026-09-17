@@ -22,10 +22,10 @@ ON CONFLICT DO NOTHING;
 -- Habilita RLS
 ALTER TABLE public.links_uteis ENABLE ROW LEVEL SECURITY;
 
--- Leitura liberada para qualquer usuário autenticado
+-- Leitura liberada para qualquer usuário
 DROP POLICY IF EXISTS "Ver links_uteis" ON public.links_uteis;
 CREATE POLICY "Ver links_uteis" ON public.links_uteis
-    FOR SELECT USING (auth.role() = 'authenticated');
+    FOR SELECT USING (true);
 
 -- Escrita (insert/update/delete) liberada apenas para coordenador e admin_master
 DROP POLICY IF EXISTS "Gerenciar links_uteis" ON public.links_uteis;

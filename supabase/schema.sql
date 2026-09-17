@@ -211,3 +211,13 @@ CREATE POLICY "Editar itens do pedido" ON public.itens_pedido
 
 -- RLS: ALUNOS (RLS Ativado sem políticas públicas abertas)
 ALTER TABLE public.alunos ENABLE ROW LEVEL SECURITY;
+
+-- RLS: LINKS ÚTEIS
+ALTER TABLE public.links_uteis ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Ver links_uteis" ON public.links_uteis
+    FOR SELECT USING (true);
+
+CREATE POLICY "Gerenciar links_uteis" ON public.links_uteis
+    FOR ALL USING (public.get_user_papel(auth.uid()) IN ('coordenador', 'admin_master'));
+
