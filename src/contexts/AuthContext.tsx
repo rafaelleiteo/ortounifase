@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import {
@@ -31,6 +31,7 @@ interface AuthContextType {
   profile: Perfil | null;
   permissions: PermissaoModulo[];
   rolePermissions: PermissaoPapel[];
+  rolePermissionsError: string | null;
   previewRole: PreviewRole;
   effectiveRole: 'coordenador' | 'admin_master' | 'professor' | 'aluno';
   loading: boolean;
@@ -49,12 +50,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<Perfil | null>(null);
   const [permissions, setPermissions] = useState<PermissaoModulo[]>([]);
   const [rolePermissions, setRolePermissions] = useState<PermissaoPapel[]>([]);
+  const [rolePermissionsError, setRolePermissionsError] = useState<string | null>(null);
   const [previewRole, setPreviewRole] = useState<PreviewRole>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   const loadRolePermissions = async () => {
-    const data = await fetchPermissoesPapel();
-    setRolePermissions(data);
+    try {
+      setRolePermissionsError(null);
+      const data = await fetchPermissoesPapel();
+      setRolePermissions(data);
+    } catch (err: any) {
+      console.error('Erro ao carregar permissões por papel do Supabase:', err);
+      setRolePermissions([]);
+      setRolePermissionsError(err.message || 'Falha ao consultar tabela permissoes_papel no Supabase.');
+    }
   };
 
   const fetchUserData = async (authUser: User) => {
@@ -82,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setPermissions(permData || []);
 
-      // 3. Fetch Permissões Globais por Papel
+      // 3. Fetch Permissões Globais por Papel (estrito Supabase)
       await loadRolePermissions();
     } catch (err) {
       console.error('Erro ao carregar dados de autenticação:', err);
@@ -151,8 +160,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     : realRole;
 
   const updateRolePermission = async (papel: Papel, modulo: string, pode_ver: boolean) => {
-    const result = await apiUpdatePermissaoPapel(papel, modulo, pode_ver);
-    setRolePermissions(result.data);
+    await apiUpdatePermissaoPapel(papel, modulo, pode_ver);
+    await loadRolePermissions();
   };
 
   const hasPermission = (modulo: string, requireEdit: boolean = false): boolean => {
@@ -178,6 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile,
         permissions,
         rolePermissions,
+        rolePermissionsError,
         previewRole,
         effectiveRole,
         loading,

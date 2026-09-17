@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -12,13 +12,22 @@ import {
   CheckCircle2,
   RefreshCw,
   Info,
-  SlidersHorizontal
+  SlidersHorizontal,
+  AlertTriangle,
+  Database
 } from 'lucide-react';
 
 export const AcessoPage: React.FC = () => {
-  const { rolePermissions, updateRolePermission, refreshRolePermissions } = useAuth();
+  const {
+    rolePermissions,
+    rolePermissionsError,
+    updateRolePermission,
+    refreshRolePermissions
+  } = useAuth();
+
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [feedbackKey, setFeedbackKey] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const isPodeVer = (papel: Papel, moduloKey: string): boolean => {
     const item = rolePermissions.find((p) => p.papel === papel && p.modulo === moduloKey);
@@ -28,23 +37,36 @@ export const AcessoPage: React.FC = () => {
   const handleToggle = async (papel: Papel, moduloKey: string, currentValue: boolean) => {
     const cellKey = `${papel}:${moduloKey}`;
     setSavingKey(cellKey);
+    setActionError(null);
     const newValue = !currentValue;
 
-    await updateRolePermission(papel, moduloKey, newValue);
-
-    setSavingKey(null);
-    setFeedbackKey(cellKey);
-    setTimeout(() => {
-      setFeedbackKey((prev) => (prev === cellKey ? null : prev));
-    }, 1800);
+    try {
+      await updateRolePermission(papel, moduloKey, newValue);
+      setFeedbackKey(cellKey);
+      setTimeout(() => {
+        setFeedbackKey((prev) => (prev === cellKey ? null : prev));
+      }, 1800);
+    } catch (err: any) {
+      console.error('Erro ao salvar no Supabase:', err);
+      setActionError(err.message || 'Erro ao salvar alteração no Supabase.');
+    } finally {
+      setSavingKey(null);
+    }
   };
 
   const handleRestoreDefaults = async () => {
-    for (const item of DEFAULT_PERMISSOES_PAPEL) {
-      await updateRolePermission(item.papel, item.modulo, item.pode_ver);
+    setActionError(null);
+    try {
+      for (const item of DEFAULT_PERMISSOES_PAPEL) {
+        await updateRolePermission(item.papel, item.modulo, item.pode_ver);
+      }
+      await refreshRolePermissions();
+    } catch (err: any) {
+      setActionError(`Erro ao restaurar padrões no banco: ${err.message}`);
     }
-    await refreshRolePermissions();
   };
+
+  const displayError = rolePermissionsError || actionError;
 
   return (
     <DashboardLayout
@@ -52,6 +74,37 @@ export const AcessoPage: React.FC = () => {
       pageSubtitle="Matriz global de permissões de módulos para Aluno, Professor e Admin Master"
     >
       <div className="space-y-6">
+        {/* Banner de Erro Real do Banco de Dados (Sem Mascaramento Silencioso) */}
+        {displayError && (
+          <div className="bg-rose-50 border border-rose-300 rounded-xl p-5 shadow-xs space-y-3">
+            <div className="flex items-start gap-3 text-rose-900">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Erro de Banco de Dados no Supabase</h4>
+                <p className="text-xs text-rose-700 mt-0.5">{displayError}</p>
+                <p className="text-xs text-rose-800 mt-2 font-medium">
+                  A tabela <code className="bg-rose-100 px-1 py-0.5 rounded font-mono">permissoes_papel</code> precisa ser criada fisicamente no banco de dados do Supabase executando o script de migração no SQL Editor do Console do Supabase.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 text-slate-100 p-3 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-[11px] text-slate-400">
+                <span className="flex items-center gap-1.5"><Database className="w-3.5 h-3.5" /> 20260916120000_create_permissoes_papel.sql</span>
+              </div>
+              <pre className="pt-2 text-[11px] leading-relaxed text-emerald-400">
+{`CREATE TABLE IF NOT EXISTS public.permissoes_papel (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    papel TEXT NOT NULL CHECK (papel IN ('aluno', 'professor', 'admin_master')),
+    modulo TEXT NOT NULL,
+    pode_ver BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT uq_papel_modulo UNIQUE (papel, modulo)
+);`}
+              </pre>
+            </div>
+          </div>
+        )}
+
         {/* Banner Informativo */}
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-4">
@@ -60,10 +113,10 @@ export const AcessoPage: React.FC = () => {
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-800">
-                Gestão Global de Permissões
+                Gestão Global de Permissões (Estrito Supabase)
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-                As alterações realizadas nesta matriz aplicam-se imediatamente a todos os usuários da plataforma com base no seu papel cadastrado. O Coordenador continua com acesso irrestrito a todos os módulos.
+                As alterações realizadas nesta matriz gravam diretamente na tabela <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-700">permissoes_papel</code> no Supabase. O Coordenador continua com acesso irrestrito a todos os módulos.
               </p>
             </div>
           </div>
@@ -71,10 +124,10 @@ export const AcessoPage: React.FC = () => {
           <button
             onClick={handleRestoreDefaults}
             className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors shrink-0 cursor-pointer"
-            title="Restaurar padrão inicial do sistema"
+            title="Restaurar padrão inicial do sistema no banco de dados"
           >
             <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-            <span>Restaurar Padrões</span>
+            <span>Restaurar Padrões no Banco</span>
           </button>
         </div>
 
@@ -88,7 +141,7 @@ export const AcessoPage: React.FC = () => {
               </h4>
             </div>
             <span className="text-[11px] text-slate-500 font-medium">
-              Salvamento automático em tempo real ao marcar/desmarcar
+              Persistência direta no Supabase
             </span>
           </div>
 
@@ -141,17 +194,17 @@ export const AcessoPage: React.FC = () => {
                               <input
                                 type="checkbox"
                                 checked={active}
-                                disabled={isSaving}
+                                disabled={isSaving || !!rolePermissionsError}
                                 onChange={() => handleToggle(papel, modulo.key, active)}
                                 className="sr-only peer"
                               />
-                              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 hover:opacity-90"></div>
+                              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:left-[2px] after:top-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 hover:opacity-90 peer-disabled:opacity-40 peer-disabled:cursor-not-allowed"></div>
                             </label>
 
                             {hasFeedback ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 animate-pulse">
                                 <CheckCircle2 className="w-2.5 h-2.5" />
-                                Salvo!
+                                Salvo no Supabase!
                               </span>
                             ) : active ? (
                               <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">

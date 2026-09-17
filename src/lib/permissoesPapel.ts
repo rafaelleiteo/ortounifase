@@ -1,4 +1,4 @@
-﻿import { supabase } from './supabase';
+import { supabase } from './supabase';
 
 export type Papel = 'aluno' | 'professor' | 'admin_master';
 
@@ -57,95 +57,35 @@ export const DEFAULT_PERMISSOES_PAPEL: PermissaoPapel[] = [
   { papel: 'admin_master', modulo: 'coordenador', pode_ver: true },
 ];
 
-const LOCAL_STORAGE_KEY = 'ortounifase_permissoes_papel';
-
-export function getLocalPermissoes(): PermissaoPapel[] {
-  try {
-    const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (cached) {
-      return JSON.parse(cached);
-    }
-  } catch (e) {
-    console.warn('Erro ao ler permissões locais:', e);
-  }
-  return DEFAULT_PERMISSOES_PAPEL;
-}
-
-export function saveLocalPermissoes(permissoes: PermissaoPapel[]): void {
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(permissoes));
-  } catch (e) {
-    console.warn('Erro ao salvar permissões locais:', e);
-  }
-}
-
 export async function fetchPermissoesPapel(): Promise<PermissaoPapel[]> {
-  try {
-    const { data, error } = await supabase
-      .from('permissoes_papel')
-      .select('*');
+  const { data, error } = await supabase
+    .from('permissoes_papel')
+    .select('*');
 
-    if (error || !data || data.length === 0) {
-      return getLocalPermissoes();
-    }
-
-    const mergedMap = new Map<string, PermissaoPapel>();
-    DEFAULT_PERMISSOES_PAPEL.forEach((p) => {
-      mergedMap.set(`${p.papel}:${p.modulo}`, { ...p });
-    });
-
-    data.forEach((row: any) => {
-      mergedMap.set(`${row.papel}:${row.modulo}`, {
-        id: row.id,
-        papel: row.papel as Papel,
-        modulo: row.modulo,
-        pode_ver: row.pode_ver,
-      });
-    });
-
-    const result = Array.from(mergedMap.values());
-    saveLocalPermissoes(result);
-    return result;
-  } catch (err) {
-    console.warn('Fallback para permissões locais:', err);
-    return getLocalPermissoes();
+  if (error) {
+    throw new Error(`Erro no Supabase ao buscar permissoes_papel: ${error.message} (Código: ${error.code || 'sem código'})`);
   }
+
+  return (data || []) as PermissaoPapel[];
 }
 
 export async function updatePermissaoPapel(
   papel: Papel,
   modulo: string,
   pode_ver: boolean
-): Promise<{ success: boolean; data: PermissaoPapel[] }> {
-  const current = getLocalPermissoes();
-  const updated = current.map((item) => {
-    if (item.papel === papel && item.modulo === modulo) {
-      return { ...item, pode_ver };
-    }
-    return item;
-  });
+): Promise<PermissaoPapel> {
+  const { data, error } = await supabase
+    .from('permissoes_papel')
+    .upsert(
+      { papel, modulo, pode_ver },
+      { onConflict: 'papel,modulo' }
+    )
+    .select()
+    .single();
 
-  const exists = updated.some((i) => i.papel === papel && i.modulo === modulo);
-  if (!exists) {
-    updated.push({ papel, modulo, pode_ver });
+  if (error) {
+    throw new Error(`Erro ao atualizar permissão no Supabase: ${error.message}`);
   }
 
-  saveLocalPermissoes(updated);
-
-  try {
-    const { error } = await supabase
-      .from('permissoes_papel')
-      .upsert(
-        { papel, modulo, pode_ver },
-        { onConflict: 'papel,modulo' }
-      );
-
-    if (error) {
-      console.warn('Aviso ao persistir no Supabase (usando estado local):', error.message);
-    }
-  } catch (e) {
-    console.warn('Erro ao conectar com Supabase para atualizar permissão:', e);
-  }
-
-  return { success: true, data: updated };
+  return data as PermissaoPapel;
 }
