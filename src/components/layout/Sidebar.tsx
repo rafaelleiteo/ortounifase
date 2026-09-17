@@ -8,7 +8,8 @@ import {
   Sparkles,
   Package,
   Eye,
-  Link2
+  Link2,
+  Calculator
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
@@ -19,6 +20,7 @@ export interface NavItem {
   path: string;
   icon: React.ElementType;
   moduloKey: string;
+  section?: 'main' | 'ferramentas';
   roleRequired?: Array<'coordenador' | 'admin_master' | 'professor' | 'aluno'>;
   badge?: string;
   isExtraProtected?: boolean;
@@ -30,18 +32,21 @@ const navItems: NavItem[] = [
     path: '/links-uteis',
     icon: Link2,
     moduloKey: 'aluno',
+    section: 'main',
   },
   {
     label: 'Catálogo de Materiais',
     path: '/materiais',
     icon: Package,
     moduloKey: 'materiais',
+    section: 'main',
   },
   {
     label: 'Coordenação Geral',
     path: '/coordenador',
     icon: ShieldAlert,
     moduloKey: 'coordenador',
+    section: 'main',
     roleRequired: ['coordenador', 'admin_master'],
   },
   {
@@ -49,9 +54,19 @@ const navItems: NavItem[] = [
     path: '/coordenador/financeiro',
     icon: DollarSign,
     moduloKey: 'coordenador',
+    section: 'main',
     roleRequired: ['coordenador', 'admin_master'],
     badge: 'Camada Extra',
     isExtraProtected: true,
+  },
+
+  // SEÇÃO FERRAMENTAS CLÍNICAS
+  {
+    label: 'Análise de Bolton',
+    path: '/ferramentas/bolton',
+    icon: Calculator,
+    moduloKey: 'aluno', // visível para todos os papéis que têm acesso à área de aluno/professor/coordenador
+    section: 'ferramentas',
   },
 ];
 
@@ -68,12 +83,54 @@ export const Sidebar: React.FC = () => {
       return false;
     }
 
-    if (item.path === '/links-uteis') {
+    if (item.path === '/links-uteis' || item.path === '/ferramentas/bolton') {
       return hasPermission('aluno') || hasPermission('professor');
     }
 
     return hasPermission(item.moduloKey);
   });
+
+  const mainNavItems = visibleNavItems.filter((i) => !i.section || i.section === 'main');
+  const ferramentasNavItems = visibleNavItems.filter((i) => i.section === 'ferramentas');
+
+  const renderNavGroup = (items: NavItem[]) => (
+    <nav className="space-y-1">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group',
+                isActive
+                  ? 'bg-brand-50 text-brand-600 border border-brand-200 shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+              )
+            }
+          >
+            <div className="flex items-center gap-3">
+              <Icon className={cn(
+                "w-4 h-4 transition-colors",
+                item.isExtraProtected ? "text-amber-500" : "group-hover:text-brand-500 text-slate-500"
+              )} />
+              <span>{item.label}</span>
+            </div>
+
+            {item.badge ? (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                {item.badge}
+              </span>
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400" />
+            )}
+          </NavLink>
+        );
+      })}
+    </nav>
+  );
 
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 h-screen sticky top-0 z-30">
@@ -89,6 +146,7 @@ export const Sidebar: React.FC = () => {
 
         {/* Navigation Items */}
         <div className="p-4 space-y-6">
+          {/* SEÇÃO 1: NAVEGAÇÃO INTERNA */}
           <div>
             <div className="px-3 mb-2 flex items-center justify-between">
               <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
@@ -101,44 +159,20 @@ export const Sidebar: React.FC = () => {
                 </span>
               )}
             </div>
-
-            <nav className="space-y-1">
-              {visibleNavItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    className={({ isActive }) =>
-                      cn(
-                        'flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group',
-                        isActive
-                          ? 'bg-brand-50 text-brand-600 border border-brand-200 shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-                      )
-                    }
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon className={cn(
-                        "w-4 h-4 transition-colors",
-                        item.isExtraProtected ? "text-amber-500" : "group-hover:text-brand-500 text-slate-500"
-                      )} />
-                      <span>{item.label}</span>
-                    </div>
-
-                    {item.badge ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
-                        <Sparkles className="w-2.5 h-2.5 text-amber-600" />
-                        {item.badge}
-                      </span>
-                    ) : (
-                      <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400" />
-                    )}
-                  </NavLink>
-                );
-              })}
-            </nav>
+            {renderNavGroup(mainNavItems)}
           </div>
+
+          {/* SEÇÃO 2: FERRAMENTAS CLÍNICAS */}
+          {ferramentasNavItems.length > 0 && (
+            <div>
+              <div className="px-3 mb-2">
+                <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                  Ferramentas
+                </span>
+              </div>
+              {renderNavGroup(ferramentasNavItems)}
+            </div>
+          )}
         </div>
       </div>
 

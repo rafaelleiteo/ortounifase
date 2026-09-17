@@ -12,6 +12,7 @@ import { AcessoPage } from '@/pages/AcessoPage';
 import { FinanceiroPage } from '@/pages/FinanceiroPage';
 import { MateriaisPage } from '@/pages/MateriaisPage';
 import { GestaoLinksUteisPage } from '@/pages/coordenador/GestaoLinksUteisPage';
+import { BoltonCalculatorPage } from '@/pages/ferramentas/BoltonCalculatorPage';
 
 export const App: React.FC = () => {
   return (
@@ -32,6 +33,9 @@ export const App: React.FC = () => {
           <Route path="/coordenador" element={<CoordenadorPage />} />
           <Route path="/coordenador/acesso" element={<AcessoPage />} />
           <Route path="/coordenador/links-uteis" element={<GestaoLinksUteisPage />} />
+
+          {/* Ferramentas Clínicas */}
+          <Route path="/ferramentas/bolton" element={<BoltonCalculatorPage />} />
 
           {/* Extra Protected Route */}
           <Route path="/coordenador/financeiro" element={<FinanceiroPage />} />
