@@ -1,0 +1,19 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    # Executa duas vezes por semana: Segunda e Quinta às 12:00 UTC (09:00 BRT)
+    - cron: '0 12 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    name: Ping Supabase REST API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Keepalive Request
+        run: |
+          curl -s -f -X GET "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/materiais?select=id&limit=1" \
+            -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.VITE_SUPABASE_ANON_KEY }}"
+          echo "Ping no Supabase efetuado com sucesso!"
