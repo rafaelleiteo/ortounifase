@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Sparkles,
   Package,
-  SlidersHorizontal,
   Eye,
   Link2
 } from 'lucide-react';
@@ -37,20 +36,6 @@ const navItems: NavItem[] = [
     path: '/materiais',
     icon: Package,
     moduloKey: 'materiais',
-  },
-  {
-    label: 'Gestão de Links',
-    path: '/coordenador/links-uteis',
-    icon: Link2,
-    moduloKey: 'coordenador',
-    roleRequired: ['coordenador', 'admin_master'],
-  },
-  {
-    label: 'Controle de Acessos',
-    path: '/coordenador/acesso',
-    icon: SlidersHorizontal,
-    moduloKey: 'coordenador',
-    roleRequired: ['coordenador', 'admin_master'],
   },
   {
     label: 'Coordenação Geral',
