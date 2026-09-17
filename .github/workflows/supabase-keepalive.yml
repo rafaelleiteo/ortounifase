@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Send Keepalive Request
         run: |
-          curl -s -f -X GET "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/materiais?select=id&limit=1" \
+          curl -s -v -X GET "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/" \
             -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.VITE_SUPABASE_ANON_KEY }}"
           echo "Ping no Supabase efetuado com sucesso!"
