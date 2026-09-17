@@ -39,6 +39,13 @@ const navItems: NavItem[] = [
     moduloKey: 'materiais',
   },
   {
+    label: 'Gestão de Links',
+    path: '/coordenador/links-uteis',
+    icon: Link2,
+    moduloKey: 'coordenador',
+    roleRequired: ['coordenador', 'admin_master'],
+  },
+  {
     label: 'Controle de Acessos',
     path: '/coordenador/acesso',
     icon: SlidersHorizontal,

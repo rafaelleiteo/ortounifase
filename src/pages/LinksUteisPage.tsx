@@ -9,16 +9,40 @@ import {
   AlertTriangle,
   FileText,
   Building2,
-  Sparkles
+  Sparkles,
+  ClipboardList,
+  Globe,
+  BookOpen,
+  Calendar,
+  UserCheck,
+  SlidersHorizontal,
+  ShieldCheck,
+  LucideIcon
 } from 'lucide-react';
 
 export interface LinkUtil {
   id: string;
   titulo: string;
   url: string;
+  icone?: string | null;
+  descricao?: string | null;
   papeis_visiveis: string[];
   ordem: number;
 }
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  ExternalLink,
+  FileText,
+  ClipboardList,
+  Building2,
+  Globe,
+  BookOpen,
+  Link2,
+  Calendar,
+  UserCheck,
+  SlidersHorizontal,
+  ShieldCheck
+};
 
 export const LinksUteisPage: React.FC = () => {
   const { effectiveRole } = useAuth();
@@ -57,9 +81,12 @@ export const LinksUteisPage: React.FC = () => {
     return link.papeis_visiveis && link.papeis_visiveis.includes(effectiveRole);
   });
 
-  const getLinkIcon = (titulo: string) => {
-    if (titulo.toLowerCase().includes('clinicorp')) return Building2;
-    if (titulo.toLowerCase().includes('ficha')) return FileText;
+  const getLinkIcon = (item: LinkUtil): LucideIcon => {
+    if (item.icone && ICON_MAP[item.icone]) {
+      return ICON_MAP[item.icone];
+    }
+    if (item.titulo.toLowerCase().includes('clinicorp')) return Building2;
+    if (item.titulo.toLowerCase().includes('ficha')) return FileText;
     return Link2;
   };
 
@@ -101,9 +128,6 @@ export const LinksUteisPage: React.FC = () => {
             <div>
               <h4 className="text-sm font-bold">Erro ao consultar a tabela 'links_uteis' no Supabase</h4>
               <p className="text-xs text-rose-700 mt-0.5">{error}</p>
-              <p className="text-xs text-rose-800 mt-2 font-medium">
-                Execute o script de migração <code className="bg-rose-100 px-1 py-0.5 rounded font-mono">20260917100000_create_links_uteis.sql</code> no console do Supabase para criar a tabela.
-              </p>
             </div>
           </div>
         )}
@@ -112,7 +136,7 @@ export const LinksUteisPage: React.FC = () => {
         {!loading && !error && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {visibleLinks.map((item) => {
-              const IconComponent = getLinkIcon(item.titulo);
+              const IconComponent = getLinkIcon(item);
               return (
                 <a
                   key={item.id}
@@ -133,7 +157,12 @@ export const LinksUteisPage: React.FC = () => {
                       <h4 className="text-sm font-bold text-slate-900 group-hover:text-brand-600 transition-colors">
                         {item.titulo}
                       </h4>
-                      <p className="text-xs text-slate-500 mt-1 font-mono truncate max-w-full">
+                      {item.descricao && (
+                        <p className="text-xs text-slate-600 mt-1 line-clamp-2 leading-relaxed">
+                          {item.descricao}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-slate-400 mt-2 font-mono truncate max-w-full">
                         {item.url}
                       </p>
                     </div>

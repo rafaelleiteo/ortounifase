@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS public.links_uteis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     titulo TEXT NOT NULL,
     url TEXT NOT NULL,
+    icone TEXT,
+    descricao TEXT,
     papeis_visiveis TEXT[] NOT NULL DEFAULT ARRAY['aluno', 'professor']::TEXT[],
     ordem INTEGER DEFAULT 0,
     criado_em TIMESTAMPTZ DEFAULT now()

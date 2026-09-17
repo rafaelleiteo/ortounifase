@@ -11,6 +11,7 @@ import { CoordenadorPage } from '@/pages/CoordenadorPage';
 import { AcessoPage } from '@/pages/AcessoPage';
 import { FinanceiroPage } from '@/pages/FinanceiroPage';
 import { MateriaisPage } from '@/pages/MateriaisPage';
+import { GestaoLinksUteisPage } from '@/pages/coordenador/GestaoLinksUteisPage';
 
 export const App: React.FC = () => {
   return (
@@ -30,6 +31,7 @@ export const App: React.FC = () => {
           <Route path="/secretaria" element={<SecretariaPage />} />
           <Route path="/coordenador" element={<CoordenadorPage />} />
           <Route path="/coordenador/acesso" element={<AcessoPage />} />
+          <Route path="/coordenador/links-uteis" element={<GestaoLinksUteisPage />} />
 
           {/* Extra Protected Route */}
           <Route path="/coordenador/financeiro" element={<FinanceiroPage />} />

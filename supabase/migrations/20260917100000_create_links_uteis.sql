@@ -7,16 +7,18 @@ CREATE TABLE IF NOT EXISTS public.links_uteis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     titulo TEXT NOT NULL,
     url TEXT NOT NULL,
+    icone TEXT,
+    descricao TEXT,
     papeis_visiveis TEXT[] NOT NULL DEFAULT ARRAY['aluno', 'professor']::TEXT[],
     ordem INTEGER DEFAULT 0,
     criado_em TIMESTAMPTZ DEFAULT now()
 );
 
 -- Popula com os 3 links padrão iniciais
-INSERT INTO public.links_uteis (titulo, url, papeis_visiveis, ordem) VALUES
-    ('Sistema Clinicorp', 'https://sistema.clinicorp.com/#', ARRAY['aluno', 'professor']::TEXT[], 1),
-    ('Ficha Ortodôntica UNIFASE', 'https://docs.google.com/forms/d/e/1FAIpQLSfa3dFzjMT5YoWLri_cTjnkV7RGYrDGOa6Iu0yD67ZMw-QKUw/viewform', ARRAY['aluno', 'professor']::TEXT[], 2),
-    ('Ficha UNIFASE Triagem', 'https://docs.google.com/forms/d/e/1FAIpQLSe6d2cCZHg0eaWvHbhdGH26ol0dvh6CV5e7a2RrIVcGNCsfcQ/viewform', ARRAY['aluno', 'professor']::TEXT[], 3)
+INSERT INTO public.links_uteis (titulo, url, icone, descricao, papeis_visiveis, ordem) VALUES
+    ('Sistema Clinicorp', 'https://sistema.clinicorp.com/#', 'ExternalLink', 'Prontuário eletrônico e gestão de clínica ortodôntica', ARRAY['aluno', 'professor']::TEXT[], 1),
+    ('Ficha Ortodôntica UNIFASE', 'https://docs.google.com/forms/d/e/1FAIpQLSfa3dFzjMT5YoWLri_cTjnkV7RGYrDGOa6Iu0yD67ZMw-QKUw/viewform', 'FileText', 'Formulário oficial de documentação ortodôntica', ARRAY['aluno', 'professor']::TEXT[], 2),
+    ('Ficha UNIFASE Triagem', 'https://docs.google.com/forms/d/e/1FAIpQLSe6d2cCZHg0eaWvHbhdGH26ol0dvh6CV5e7a2RrIVcGNCsfcQ/viewform', 'ClipboardList', 'Ficha inicial de triagem de pacientes', ARRAY['aluno', 'professor']::TEXT[], 3)
 ON CONFLICT DO NOTHING;
 
 -- Habilita RLS

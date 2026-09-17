@@ -1,6 +1,6 @@
-﻿import React from 'react';
+import React from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { ShieldAlert, Settings, FileSpreadsheet, Lock, SlidersHorizontal } from 'lucide-react';
+import { ShieldAlert, Settings, FileSpreadsheet, Lock, SlidersHorizontal, Link2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const CoordenadorPage: React.FC = () => {
@@ -10,7 +10,7 @@ export const CoordenadorPage: React.FC = () => {
       pageSubtitle="Controle master de disciplinas, grade curricular e parametrizações do sistema"
     >
       <div className="space-y-6">
-        <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-xs">
           <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-lg bg-amber-50 text-amber-600">
@@ -22,13 +22,21 @@ export const CoordenadorPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Link
-                to="/coordenador/acesso"
+                to="/coordenador/links-uteis"
                 className="px-3.5 py-2 bg-brand-50 hover:bg-brand-100 text-brand-900 border border-brand-200 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-brand-700" />
-                <span>Gestão de Acessos por Papel</span>
+                <Link2 className="w-3.5 h-3.5 text-brand-700" />
+                <span>Gestão de Links Úteis</span>
+              </Link>
+
+              <Link
+                to="/coordenador/acesso"
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-700" />
+                <span>Controle de Acessos</span>
               </Link>
 
               <Link
@@ -41,7 +49,18 @@ export const CoordenadorPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+            <Link
+              to="/coordenador/links-uteis"
+              className="p-4 bg-slate-50 hover:bg-brand-50/40 border border-slate-200 hover:border-brand-200 rounded-lg flex items-start gap-3 transition-all group"
+            >
+              <Link2 className="w-5 h-5 text-brand-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 group-hover:text-brand-700">Gestão de Links Úteis</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">Cadastrar, editar e excluir formulários externos e atalhos visíveis para alunos e professores.</p>
+              </div>
+            </Link>
+
             <Link
               to="/coordenador/acesso"
               className="p-4 bg-slate-50 hover:bg-brand-50/40 border border-slate-200 hover:border-brand-200 rounded-lg flex items-start gap-3 transition-all group"
@@ -64,7 +83,7 @@ export const CoordenadorPage: React.FC = () => {
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg flex items-start gap-3">
               <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
               <div>
-                <h4 className="text-xs font-bold text-slate-800">Relatórios Gerenciais Globais</h4>
+                <h4 className="text-xs font-bold text-slate-800">Relatórios Gerenciais</h4>
                 <p className="text-[11px] text-slate-500 mt-0.5">Exportação de métricas institucionais e índice de evasão/frequência.</p>
               </div>
             </div>
@@ -74,3 +93,5 @@ export const CoordenadorPage: React.FC = () => {
     </DashboardLayout>
   );
 };
+
+export default CoordenadorPage;
