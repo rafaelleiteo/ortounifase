@@ -6,14 +6,41 @@ on:
     - cron: '0 12 * * 1,4'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   keepalive:
-    name: Ping Supabase REST API
+    name: Ping Supabase REST API & Prevent Repo Inactivity
     runs-on: ubuntu-latest
     steps:
-      - name: Send Keepalive Request
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Send Keepalive Request to Supabase
         run: |
           curl -s -v --http1.1 -X GET "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/" \
             -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.VITE_SUPABASE_ANON_KEY }}"
           echo "Ping no Supabase efetuado com sucesso!"
+
+      - name: Check Last Commit Date and Keep Repo Active (45 Days Threshold)
+        run: |
+          LAST_COMMIT_EPOCH=$(git log -1 --format=%ct)
+          NOW_EPOCH=$(date +%s)
+          DIFF_DAYS=$(( (NOW_EPOCH - LAST_COMMIT_EPOCH) / 86400 ))
+          echo "Dias desde o último commit: $DIFF_DAYS"
+
+          if [ $DIFF_DAYS -ge 45 ]; then
+            echo "Mais de 45 dias sem commits detectados. Criando commit automático de atividade..."
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/keepalive-timestamp.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/keepalive-timestamp.txt
+            git commit -m "chore(ci): automated keepalive commit to prevent GitHub 60-day workflow disable"
+            git push origin main
+          else
+            echo "Repositório teve atividade recente ($DIFF_DAYS dias). Nenhum commit automático necessário."
+          fi
