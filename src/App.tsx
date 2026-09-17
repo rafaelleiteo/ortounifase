@@ -1,10 +1,11 @@
-﻿import React from 'react';
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Login } from '@/pages/Login';
 import { Dashboard } from '@/pages/Dashboard';
 import { AlunoPage } from '@/pages/AlunoPage';
 import { ProfessorPage } from '@/pages/ProfessorPage';
+import { LinksUteisPage } from '@/pages/LinksUteisPage';
 import { SecretariaPage } from '@/pages/SecretariaPage';
 import { CoordenadorPage } from '@/pages/CoordenadorPage';
 import { AcessoPage } from '@/pages/AcessoPage';
@@ -20,11 +21,12 @@ export const App: React.FC = () => {
           <Route path="/login" element={<Login />} />
 
           {/* Internal Application Routes */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/" element={<Navigate to="/links-uteis" replace />} />
+          <Route path="/links-uteis" element={<LinksUteisPage />} />
           <Route path="/aluno" element={<AlunoPage />} />
           <Route path="/professor" element={<ProfessorPage />} />
           <Route path="/materiais" element={<MateriaisPage />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/secretaria" element={<SecretariaPage />} />
           <Route path="/coordenador" element={<CoordenadorPage />} />
           <Route path="/coordenador/acesso" element={<AcessoPage />} />
@@ -33,7 +35,7 @@ export const App: React.FC = () => {
           <Route path="/coordenador/financeiro" element={<FinanceiroPage />} />
 
           {/* Fallback wildcard route */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/links-uteis" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -30,6 +30,17 @@ CREATE TABLE IF NOT EXISTS public.permissoes_papel (
     CONSTRAINT uq_papel_modulo UNIQUE (papel, modulo)
 );
 
+-- 2C. TABELA DE LINKS ÚTEIS (FORMULÁRIOS E SISTEMAS EXTERNOS)
+CREATE TABLE IF NOT EXISTS public.links_uteis (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    titulo TEXT NOT NULL,
+    url TEXT NOT NULL,
+    papeis_visiveis TEXT[] NOT NULL DEFAULT ARRAY['aluno', 'professor']::TEXT[],
+    ordem INTEGER DEFAULT 0,
+    criado_em TIMESTAMPTZ DEFAULT now()
+);
+
+
 
 -- 3. TABELA DE ALUNOS
 CREATE TABLE IF NOT EXISTS public.alunos (

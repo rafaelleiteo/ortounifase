@@ -1,18 +1,15 @@
-﻿import React from 'react';
+import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  GraduationCap,
-  UserCheck,
-  ClipboardList,
   ShieldAlert,
   DollarSign,
-  LayoutDashboard,
   LogOut,
   ChevronRight,
   Sparkles,
   Package,
   SlidersHorizontal,
-  Eye
+  Eye,
+  Link2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
@@ -30,34 +27,16 @@ export interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    label: 'Visão Geral',
-    path: '/dashboard',
-    icon: LayoutDashboard,
-    moduloKey: 'dashboard',
-  },
-  {
-    label: 'Área do Aluno',
-    path: '/aluno',
-    icon: GraduationCap,
+    label: 'Links Úteis',
+    path: '/links-uteis',
+    icon: Link2,
     moduloKey: 'aluno',
-  },
-  {
-    label: 'Área do Professor',
-    path: '/professor',
-    icon: UserCheck,
-    moduloKey: 'professor',
   },
   {
     label: 'Catálogo de Materiais',
     path: '/materiais',
     icon: Package,
     moduloKey: 'materiais',
-  },
-  {
-    label: 'Secretaria',
-    path: '/secretaria',
-    icon: ClipboardList,
-    moduloKey: 'secretaria',
   },
   {
     label: 'Controle de Acessos',
@@ -95,6 +74,10 @@ export const Sidebar: React.FC = () => {
 
     if (item.roleRequired && !item.roleRequired.includes(effectiveRole as any)) {
       return false;
+    }
+
+    if (item.path === '/links-uteis') {
+      return hasPermission('aluno') || hasPermission('professor');
     }
 
     return hasPermission(item.moduloKey);
