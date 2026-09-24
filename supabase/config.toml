@@ -1,0 +1,5 @@
+# SUPABASE CONFIGURATION FILE
+project_id = "bzlsajjakaysvyqipwqh"
+
+[functions.receber-ficha]
+verify_jwt = false

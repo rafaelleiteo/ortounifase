@@ -63,9 +63,9 @@ serve(async (req) => {
     const body = await req.json();
     const { form_response_id, nome_informado, nascimento_informado, telefone, respostas } = body;
 
-    if (!form_response_id || !nome_informado || !nascimento_informado) {
+    if (!form_response_id) {
       return new Response(
-        JSON.stringify({ error: "Campos obrigatórios ausentes: form_response_id, nome_informado, nascimento_informado." }),
+        JSON.stringify({ error: "Campo obrigatório ausente: form_response_id." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -95,9 +95,64 @@ serve(async (req) => {
       );
     }
 
+    // 5. REGRA CRÍTICA: Se nome_informado ou nascimento_informado vierem NULL/Ausentes
+    // SALVA COMO PENDENTE E CRIA CONFLITO NA FILA (NUNCA VINCULA AUTOMATICAMENTE)
+    if (!nome_informado || !nascimento_informado) {
+      console.warn(`⚠️ Identificação incompleta para ficha ${form_response_id}: nome_informado=${nome_informado}, nascimento_informado=${nascimento_informado}. Encaminhando para fila de validação.`);
+
+      const { data: fichaIncompleta, error: errIncompleta } = await supabaseAdmin
+        .from("fichas")
+        .insert({
+          paciente_id: null,
+          form_response_id,
+          respostas: respostas || {},
+          nome_informado: nome_informado || "Não Informado",
+          nascimento_informado: nascimento_informado || "2000-01-01",
+          status: "pendente"
+        })
+        .select()
+        .single();
+
+      if (errIncompleta) throw errIncompleta;
+
+      // Busca todos os pacientes ativos como potenciais candidatos para o coordenador avaliar
+      const { data: candidatosExistentes } = await supabaseAdmin
+        .from("pacientes")
+        .select("id, nome, data_nascimento")
+        .eq("status", "ativo")
+        .limit(5);
+
+      const candidatosList = (candidatosExistentes || []).map((p) => ({
+        paciente_id: p.id,
+        nome: p.nome,
+        data_nascimento: p.data_nascimento,
+        motivo: "Dados de identificação ausentes na ficha nova (Nome ou Data de nascimento não informados/inválidos)."
+      }));
+
+      const { error: errConflitoIncompleto } = await supabaseAdmin
+        .from("fila_conflitos")
+        .insert({
+          ficha_id: fichaIncompleta.id,
+          pacientes_candidatos: candidatosList,
+          status: "pendente"
+        });
+
+      if (errConflitoIncompleto) throw errConflitoIncompleto;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          status: "pendente",
+          ficha_id: fichaIncompleta.id,
+          motivo: "Dados de identificação ausentes na ficha. Encaminhado para a fila de validação."
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const nomeNorm = normalizarNome(nome_informado);
 
-    // 5. Busca Exata: Paciente com NOME_NORMALIZADO e DATA_NASCIMENTO idênticos
+    // 6. Busca Exata: Paciente com NOME_NORMALIZADO e DATA_NASCIMENTO idênticos
     const { data: exatos } = await supabaseAdmin
       .from("pacientes")
       .select("id, nome, data_nascimento")
@@ -136,7 +191,7 @@ serve(async (req) => {
       );
     }
 
-    // 6. Busca de Candidatos Potenciais (Similaridade de Nome ou Mesma Data de Nascimento)
+    // 7. Busca de Candidatos Potenciais (Similaridade de Nome ou Mesma Data de Nascimento)
     const { data: todosPacientes } = await supabaseAdmin
       .from("pacientes")
       .select("id, nome, nome_normalizado, data_nascimento, telefone")
@@ -170,10 +225,9 @@ serve(async (req) => {
       }
     }
 
-    // Ordena por maior score de similaridade
     candidatos.sort((a, b) => b.score - a.score);
 
-    // 7. Se existirem Candidatos -> Cria Ficha PENDENTE e Fila de Conflitos
+    // 8. Se existirem Candidatos -> Cria Ficha PENDENTE e Fila de Conflitos
     if (candidatos.length > 0) {
       const { data: fichaPendente, error: errPendente } = await supabaseAdmin
         .from("fichas")
@@ -213,7 +267,7 @@ serve(async (req) => {
       );
     }
 
-    // 8. Se NÃO houver candidatos -> Cria Paciente NOVO e Vincula Ficha
+    // 9. Se NÃO houver candidatos -> Cria Paciente NOVO e Vincula Ficha
     const { data: novoPaciente, error: errNovoPac } = await supabaseAdmin
       .from("pacientes")
       .insert({
