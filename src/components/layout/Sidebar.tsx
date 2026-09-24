@@ -9,7 +9,8 @@ import {
   Package,
   Eye,
   Link2,
-  Calculator
+  Calculator,
+  Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
@@ -27,6 +28,13 @@ export interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  {
+    label: 'Pacientes',
+    path: '/pacientes',
+    icon: Users,
+    moduloKey: 'aluno',
+    section: 'main',
+  },
   {
     label: 'Links Úteis',
     path: '/links-uteis',
@@ -65,7 +73,7 @@ const navItems: NavItem[] = [
     label: 'Análise de Bolton',
     path: '/ferramentas/bolton',
     icon: Calculator,
-    moduloKey: 'aluno', // visível para todos os papéis que têm acesso à área de aluno/professor/coordenador
+    moduloKey: 'aluno',
     section: 'ferramentas',
   },
 ];
@@ -83,7 +91,7 @@ export const Sidebar: React.FC = () => {
       return false;
     }
 
-    if (item.path === '/links-uteis' || item.path === '/ferramentas/bolton') {
+    if (item.path === '/pacientes' || item.path === '/links-uteis' || item.path === '/ferramentas/bolton') {
       return hasPermission('aluno') || hasPermission('professor');
     }
 

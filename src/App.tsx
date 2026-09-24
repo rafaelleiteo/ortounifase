@@ -13,6 +13,8 @@ import { FinanceiroPage } from '@/pages/FinanceiroPage';
 import { MateriaisPage } from '@/pages/MateriaisPage';
 import { GestaoLinksUteisPage } from '@/pages/coordenador/GestaoLinksUteisPage';
 import { BoltonCalculatorPage } from '@/pages/ferramentas/BoltonCalculatorPage';
+import { PacientesPage } from '@/pages/pacientes/PacientesPage';
+import { ValidacaoConflitosPage } from '@/pages/pacientes/ValidacaoConflitosPage';
 
 export const App: React.FC = () => {
   return (
@@ -24,6 +26,8 @@ export const App: React.FC = () => {
 
           {/* Internal Application Routes */}
           <Route path="/" element={<Navigate to="/links-uteis" replace />} />
+          <Route path="/pacientes" element={<PacientesPage />} />
+          <Route path="/pacientes/validacao" element={<ValidacaoConflitosPage />} />
           <Route path="/links-uteis" element={<LinksUteisPage />} />
           <Route path="/aluno" element={<AlunoPage />} />
           <Route path="/professor" element={<ProfessorPage />} />
