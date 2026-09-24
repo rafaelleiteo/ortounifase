@@ -81,7 +81,7 @@ DROP POLICY IF EXISTS "Gerenciar fichas" ON public.fichas;
 CREATE POLICY "Gerenciar fichas" ON public.fichas FOR ALL USING (public.get_user_papel(auth.uid()) IN ('coordenador', 'admin_master'));
 
 DROP POLICY IF EXISTS "Ver fila_conflitos" ON public.fila_conflitos;
-CREATE POLICY "Ver fila_conflitos" ON public.fila_conflitos FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Gerenciar fila_conflitos" ON public.fila_conflitos;
-CREATE POLICY "Gerenciar fila_conflitos" ON public.fila_conflitos FOR ALL USING (public.get_user_papel(auth.uid()) IN ('coordenador', 'admin_master'));
+
+CREATE POLICY "Gerenciar fila_conflitos" ON public.fila_conflitos
+    FOR ALL USING (public.get_user_papel(auth.uid()) IN ('coordenador', 'admin_master'));
