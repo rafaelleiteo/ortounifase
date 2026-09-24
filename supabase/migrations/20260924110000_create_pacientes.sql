@@ -69,13 +69,13 @@ ALTER TABLE public.fichas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fila_conflitos ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Ver pacientes" ON public.pacientes;
-CREATE POLICY "Ver pacientes" ON public.pacientes FOR SELECT USING (true);
+CREATE POLICY "Ver pacientes" ON public.pacientes FOR SELECT USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Gerenciar pacientes" ON public.pacientes;
 CREATE POLICY "Gerenciar pacientes" ON public.pacientes FOR ALL USING (public.get_user_papel(auth.uid()) IN ('coordenador', 'admin_master'));
 
 DROP POLICY IF EXISTS "Ver fichas" ON public.fichas;
-CREATE POLICY "Ver fichas" ON public.fichas FOR SELECT USING (true);
+CREATE POLICY "Ver fichas" ON public.fichas FOR SELECT USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Gerenciar fichas" ON public.fichas;
 CREATE POLICY "Gerenciar fichas" ON public.fichas FOR ALL USING (public.get_user_papel(auth.uid()) IN ('coordenador', 'admin_master'));
