@@ -13,6 +13,7 @@ import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
 import { AgendaMensalTab } from '@/components/agenda/AgendaMensalTab';
 import { InconsistenciasTab } from '@/components/agenda/InconsistenciasTab';
 import { ImportModal } from '@/components/agenda/ImportModal';
+import { GerenciarAlunosModal } from '@/components/agenda/GerenciarAlunosModal';
 import {
   Calendar,
   Layers,
@@ -53,8 +54,9 @@ export const AgendaPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
 
-  // Modal de Importação
+  // Modal de Importação e Gerenciar Alunos
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+  const [isGerenciarAlunosOpen, setIsGerenciarAlunosOpen] = useState<boolean>(false);
 
   // 1. Carregar Turmas
   const carregarTurmas = async () => {
@@ -296,25 +298,41 @@ export const AgendaPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Seletor de Turma Compacto */}
-            <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
-              <span className="text-[11px] font-bold text-slate-500 px-1.5 uppercase tracking-wider">
-                Turma:
-              </span>
-              {turmas.map((t) => (
+            {/* Seletor de Turma Compacto e Ação Gerenciar Alunos */}
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
+                <span className="text-[11px] font-bold text-slate-500 px-1.5 uppercase tracking-wider">
+                  Turma:
+                </span>
+                {turmas.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTurmaSelecionada(t)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                      turmaSelecionada?.id === t.id
+                        ? 'bg-white text-brand-600 shadow-2xs font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {t.nome}
+                  </button>
+                ))}
+              </div>
+
+              {/* Botão Gerenciar Alunos (Coordenador / Admin) */}
+              {isAuthorized && turmaSelecionada && (
                 <button
-                  key={t.id}
                   type="button"
-                  onClick={() => setTurmaSelecionada(t)}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                    turmaSelecionada?.id === t.id
-                      ? 'bg-white text-brand-600 shadow-2xs font-extrabold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  id="btn-gerenciar-alunos"
+                  onClick={() => setIsGerenciarAlunosOpen(true)}
+                  title="Gerenciar Alunos desta turma (editar nomes, mesclar duplicatas e desativar alunos)"
+                  className="px-2.5 py-1.5 bg-slate-100/90 hover:bg-white text-slate-700 hover:text-brand-600 border border-slate-200/70 hover:border-brand-200 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5"
                 >
-                  {t.nome}
+                  <Users className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Alunos</span>
                 </button>
-              ))}
+              )}
             </div>
           </div>
 
@@ -456,6 +474,20 @@ export const AgendaPage: React.FC = () => {
             isOpen={isImportModalOpen}
             onClose={() => setIsImportModalOpen(false)}
             onSuccess={handleImportSucesso}
+          />
+        )}
+
+        {/* Modal de Gerenciamento de Alunos */}
+        {turmaSelecionada && (
+          <GerenciarAlunosModal
+            isOpen={isGerenciarAlunosOpen}
+            onClose={() => setIsGerenciarAlunosOpen(false)}
+            turmaId={turmaSelecionada.id}
+            turmaNome={turmaSelecionada.nome}
+            alunos={alunos}
+            agendaFixa={agendaFixa}
+            agendaMensal={agendaMensal}
+            onAtualizar={carregarDadosTurma}
           />
         )}
       </div>

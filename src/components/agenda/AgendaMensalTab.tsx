@@ -43,12 +43,19 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
   const [periodo, setPeriodo] = useState<'MANHA' | 'TARDE' | 'TODOS'>('TODOS');
 
-  // Coluna "Atendimento Extra" deve sempre aparecer por último (à direita de todas as colunas de alunos reais)
+  // Coluna "Atendimento Extra" deve sempre aparecer por último (à direita de todas as colunas de alunos reais).
+  // Alunos inativos só aparecem se já possuírem atendimentos lançados na agenda mensal do mês.
   const alunosOrdenados = useMemo(() => {
-    const normais = alunos.filter((a) => !isAtendimentoExtra(a.nome));
-    const extras = alunos.filter((a) => isAtendimentoExtra(a.nome));
+    const visiveis = alunos.filter((a) => {
+      if (a.ativo === false) {
+        return agendaMensal.some((item) => item.aluno_id === a.id);
+      }
+      return true;
+    });
+    const normais = visiveis.filter((a) => !isAtendimentoExtra(a.nome));
+    const extras = visiveis.filter((a) => isAtendimentoExtra(a.nome));
     return [...normais, ...extras];
-  }, [alunos]);
+  }, [alunos, agendaMensal]);
 
   const horarios =
     periodo === 'MANHA'

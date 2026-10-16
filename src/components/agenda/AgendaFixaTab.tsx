@@ -52,11 +52,14 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [criandoAluno, setCriandoAluno] = useState<boolean>(false);
 
-  // Filtra "Atendimento Extra" da grade da Agenda Fixa para exibir somente alunos regulares,
-  // a menos que haja algum item fixo explicitamente vinculado a ele.
+  // Filtra "Atendimento Extra" e alunos inativos da grade da Agenda Fixa,
+  // exibindo somente alunos regulares e ativos (a menos que já possuam algum item fixo vinculado).
   const alunosFixa = useMemo(() => {
     return alunos.filter((a) => {
       if (isAtendimentoExtra(a.nome)) {
+        return agendaFixa.some((item) => item.aluno_id === a.id);
+      }
+      if (a.ativo === false) {
         return agendaFixa.some((item) => item.aluno_id === a.id);
       }
       return true;
