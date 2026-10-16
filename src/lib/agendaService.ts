@@ -80,7 +80,18 @@ export async function importarAgendaMensal(payload: ImportPayload) {
     };
   });
 
-  // Upsert em agenda_mensal
+  // 4.1 Limpar registros existentes desta turma e mês antes de reinserir,
+  // para que a reimportação sempre reflita exatamente o payload atual,
+  // sem deixar registros "fantasma" de importações anteriores.
+  const { error: deleteError } = await supabase
+    .from('agenda_mensal')
+    .delete()
+    .eq('turma_id', turma.id)
+    .eq('mes_referencia', payload.mes_referencia);
+
+  if (deleteError) throw deleteError;
+
+  // 4.2 Inserir / Upsert em agenda_mensal
   const { error: upsertError } = await supabase
     .from('agenda_mensal')
     .upsert(rowsToUpsert, {
