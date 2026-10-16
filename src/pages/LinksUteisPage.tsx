@@ -77,6 +77,7 @@ export const LinksUteisPage: React.FC = () => {
 
   // Filtra os links visíveis para o papel efetivo (Coordenador vê todos)
   const visibleLinks = links.filter((link) => {
+    if (!effectiveRole) return false;
     if (effectiveRole === 'coordenador' || effectiveRole === 'admin_master') return true;
     return link.papeis_visiveis && link.papeis_visiveis.includes(effectiveRole);
   });

@@ -90,10 +90,11 @@ const navItems: NavItem[] = [
 export const Sidebar: React.FC = () => {
   const { profile, logout, hasPermission, effectiveRole, previewRole } = useAuth();
 
-  const userRole = profile?.papel || 'coordenador';
-  const userName = profile?.nome || 'Usuário Autenticado';
+  const userRole = profile?.papel ?? '';
+  const userName = profile?.nome ?? '';
 
   const visibleNavItems = navItems.filter((item) => {
+    if (!effectiveRole) return false;
     if (effectiveRole === 'coordenador' || effectiveRole === 'admin_master') return true;
 
     if (item.roleRequired && !item.roleRequired.includes(effectiveRole as any)) {

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Sidebar } from './Sidebar';
 import { Bell, Search, ShieldCheck, Eye, X, AlertTriangle } from 'lucide-react';
 import { useAuth, PreviewRole } from '@/contexts/AuthContext';
@@ -14,9 +14,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   pageTitle = 'Painel de Gestão',
   pageSubtitle = 'Sistema Interno de Controle Acadêmico e Odontológico',
 }) => {
-  const { profile, previewRole, setPreviewRole } = useAuth();
+  const { user, profile, previewRole, setPreviewRole } = useAuth();
 
-  const isCoordenadorOrAdmin = !profile || profile.papel === 'coordenador' || profile.papel === 'admin_master';
+  const isCoordenadorOrAdmin = profile && (profile.papel === 'coordenador' || profile.papel === 'admin_master');
 
   const getPreviewRoleLabel = (role: PreviewRole) => {
     if (role === 'aluno') return 'Aluno';
@@ -95,10 +95,12 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
             <div className="h-4 w-px bg-slate-200 hidden md:block" />
 
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                Sessão Ativa
-              </span>
+              {user?.id && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  Sessão Ativa
+                </span>
+              )}
               <button
                 className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors relative"
                 title="Notificações"

@@ -16,6 +16,7 @@ import { BoltonCalculatorPage } from '@/pages/ferramentas/BoltonCalculatorPage';
 import { PacientesPage } from '@/pages/pacientes/PacientesPage';
 import { ValidacaoConflitosPage } from '@/pages/pacientes/ValidacaoConflitosPage';
 import { AgendaPage } from '@/pages/agenda/AgendaPage';
+import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 
 export const App: React.FC = () => {
   return (
@@ -25,29 +26,29 @@ export const App: React.FC = () => {
           {/* Public / Auth Route */}
           <Route path="/login" element={<Login />} />
 
-          {/* Internal Application Routes */}
-          <Route path="/" element={<Navigate to="/links-uteis" replace />} />
-          <Route path="/agenda" element={<AgendaPage />} />
-          <Route path="/pacientes" element={<PacientesPage />} />
-          <Route path="/pacientes/validacao" element={<ValidacaoConflitosPage />} />
-          <Route path="/links-uteis" element={<LinksUteisPage />} />
-          <Route path="/aluno" element={<AlunoPage />} />
-          <Route path="/professor" element={<ProfessorPage />} />
-          <Route path="/materiais" element={<MateriaisPage />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/secretaria" element={<SecretariaPage />} />
-          <Route path="/coordenador" element={<CoordenadorPage />} />
-          <Route path="/coordenador/acesso" element={<AcessoPage />} />
-          <Route path="/coordenador/links-uteis" element={<GestaoLinksUteisPage />} />
+          {/* Internal Application Routes (Protected) */}
+          <Route path="/" element={<ProtectedRoute><Navigate to="/links-uteis" replace /></ProtectedRoute>} />
+          <Route path="/agenda" element={<ProtectedRoute><AgendaPage /></ProtectedRoute>} />
+          <Route path="/pacientes" element={<ProtectedRoute><PacientesPage /></ProtectedRoute>} />
+          <Route path="/pacientes/validacao" element={<ProtectedRoute><ValidacaoConflitosPage /></ProtectedRoute>} />
+          <Route path="/links-uteis" element={<ProtectedRoute><LinksUteisPage /></ProtectedRoute>} />
+          <Route path="/aluno" element={<ProtectedRoute><AlunoPage /></ProtectedRoute>} />
+          <Route path="/professor" element={<ProtectedRoute><ProfessorPage /></ProtectedRoute>} />
+          <Route path="/materiais" element={<ProtectedRoute><MateriaisPage /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/secretaria" element={<ProtectedRoute><SecretariaPage /></ProtectedRoute>} />
+          <Route path="/coordenador" element={<ProtectedRoute><CoordenadorPage /></ProtectedRoute>} />
+          <Route path="/coordenador/acesso" element={<ProtectedRoute><AcessoPage /></ProtectedRoute>} />
+          <Route path="/coordenador/links-uteis" element={<ProtectedRoute><GestaoLinksUteisPage /></ProtectedRoute>} />
 
-          {/* Ferramentas Clínicas */}
-          <Route path="/ferramentas/bolton" element={<BoltonCalculatorPage />} />
+          {/* Ferramentas Clínicas (Protected) */}
+          <Route path="/ferramentas/bolton" element={<ProtectedRoute><BoltonCalculatorPage /></ProtectedRoute>} />
 
           {/* Extra Protected Route */}
-          <Route path="/coordenador/financeiro" element={<FinanceiroPage />} />
+          <Route path="/coordenador/financeiro" element={<ProtectedRoute><FinanceiroPage /></ProtectedRoute>} />
 
           {/* Fallback wildcard route */}
-          <Route path="*" element={<Navigate to="/links-uteis" replace />} />
+          <Route path="*" element={<ProtectedRoute><Navigate to="/links-uteis" replace /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

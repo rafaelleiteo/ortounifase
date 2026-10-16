@@ -33,7 +33,7 @@ interface AuthContextType {
   rolePermissions: PermissaoPapel[];
   rolePermissionsError: string | null;
   previewRole: PreviewRole;
-  effectiveRole: 'coordenador' | 'admin_master' | 'professor' | 'aluno';
+  effectiveRole: 'coordenador' | 'admin_master' | 'professor' | 'aluno' | null;
   loading: boolean;
   setPreviewRole: (role: PreviewRole) => void;
   loginWithPassword: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -152,9 +152,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPermissions([]);
     setPreviewRole(null);
     setLoading(false);
+    window.location.href = '/login';
   };
 
-  const realRole = profile?.papel || 'coordenador';
+  const realRole = profile?.papel ?? null;
   const effectiveRole = (realRole === 'coordenador' || realRole === 'admin_master') && previewRole
     ? previewRole
     : realRole;
@@ -165,6 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const hasPermission = (modulo: string, requireEdit: boolean = false): boolean => {
+    if (!effectiveRole) return false;
     if (effectiveRole === 'coordenador' || effectiveRole === 'admin_master') return true;
 
     const rolePerm = rolePermissions.find((p) => p.papel === effectiveRole && p.modulo === modulo);
