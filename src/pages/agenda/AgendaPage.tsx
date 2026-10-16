@@ -161,6 +161,7 @@ export const AgendaPage: React.FC = () => {
             aluno_id: item.aluno_id,
             horario: item.horario,
             dia_semana: item.dia_semana,
+            ...(item.tipo_registro ? { tipo_registro: item.tipo_registro } : {}),
             updated_at: new Date().toISOString()
           })
           .eq('id', item.id);
@@ -173,7 +174,8 @@ export const AgendaPage: React.FC = () => {
             aluno_id: item.aluno_id,
             paciente: item.paciente,
             horario: item.horario,
-            dia_semana: item.dia_semana
+            dia_semana: item.dia_semana,
+            tipo_registro: item.tipo_registro || 'paciente'
           });
         if (errInsert) throw errInsert;
       }

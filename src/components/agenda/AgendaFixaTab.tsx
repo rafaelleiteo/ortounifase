@@ -21,7 +21,8 @@ import {
   Check,
   ChevronDown,
   Download,
-  AlertTriangle
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
 
 interface AgendaFixaTabProps {
@@ -116,6 +117,21 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     alunoId: ''
   });
 
+  // Modal para "Fechar Horário (Bloqueio)"
+  const [modalFecharHorario, setModalFecharHorario] = useState<{
+    isOpen: boolean;
+    alunoId: string;
+    horario: string;
+    diaSemana: string;
+    descricao: string;
+  }>({
+    isOpen: false,
+    alunoId: '',
+    horario: '',
+    diaSemana: 'QUINTA',
+    descricao: ''
+  });
+
   const horarios =
     periodo === 'MANHA'
       ? HORARIOS_MANHA
@@ -192,6 +208,25 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     setModalEditarNome({ isOpen: false, pacienteNome: '' });
   };
 
+  const handleSalvarFecharHorario = async () => {
+    if (!modalFecharHorario.descricao.trim() || !modalFecharHorario.alunoId) return;
+    await onSalvarItem({
+      aluno_id: modalFecharHorario.alunoId,
+      horario: normalizarHorario(modalFecharHorario.horario),
+      dia_semana: modalFecharHorario.diaSemana,
+      turma_id: turmaId,
+      paciente: modalFecharHorario.descricao.trim(),
+      tipo_registro: 'bloqueio'
+    });
+    setModalFecharHorario({
+      isOpen: false,
+      alunoId: '',
+      horario: '',
+      diaSemana: 'QUINTA',
+      descricao: ''
+    });
+  };
+
   const handleExportarCSV = () => {
     if (agendaFixa.length === 0) {
       alert('Não há registros na Agenda Fixa para exportar.');
@@ -202,7 +237,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     alunos.forEach((a) => alunoNomeMap.set(a.id, a.nome));
 
     // Cabeçalho CSV
-    const headers = ['dia_semana', 'horario', 'paciente', 'aluno'];
+    const headers = ['dia_semana', 'horario', 'paciente', 'aluno', 'tipo_registro'];
     const rows = agendaFixa.map((item) => {
       const alunoNome =
         item.agenda_alunos?.nome ||
@@ -215,7 +250,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
         escapeCSV(item.dia_semana),
         escapeCSV(formatarHorarioExibicao(item.horario)),
         escapeCSV(item.paciente),
-        escapeCSV(alunoNome)
+        escapeCSV(alunoNome),
+        escapeCSV(item.tipo_registro || 'paciente')
       ].join(';');
     });
 
@@ -231,7 +267,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleMoverPaciente = async () => {
@@ -462,8 +498,18 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                             >
                               {item ? (
                                 <div className="p-2 rounded-xl bg-brand-50/70 border border-brand-200/90 shadow-2xs flex flex-col justify-between group-hover:border-brand-400 group-hover:bg-brand-50 transition-all">
-                                  <div className="font-semibold text-slate-800 break-words mb-1.5">
-                                    {item.paciente}
+                                  <div className="flex items-start justify-between gap-1 mb-1.5">
+                                    <div className="font-semibold text-slate-800 break-words flex-1">
+                                      {item.paciente}
+                                    </div>
+                                    {item.tipo_registro === 'bloqueio' && (
+                                      <span
+                                        title="Horário Fechado / Bloqueio"
+                                        className="shrink-0 text-amber-700 bg-amber-100/90 border border-amber-200/80 p-0.5 rounded-md"
+                                      >
+                                        <Lock className="w-3 h-3" />
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 pt-1 border-t border-brand-200/50">
                                     <button
@@ -516,13 +562,34 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                   </div>
                                 </div>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleAbrirCelular(aluno.id, h)}
-                                  className="w-full h-11 border border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50/30 transition-all group/btn"
-                                >
-                                  <Plus className="w-3.5 h-3.5 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                                </button>
+                                <div className="w-full h-11 border border-dashed border-slate-200 rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty hover:border-slate-300 transition-all">
+                                  <button
+                                    type="button"
+                                    title="Adicionar Paciente"
+                                    onClick={() => handleAbrirCelular(aluno.id, h)}
+                                    className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all"
+                                  >
+                                    <Plus className="w-3.5 h-3.5 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
+                                  </button>
+                                  {isCoordenadorOrAdmin && (
+                                    <button
+                                      type="button"
+                                      title="Fechar Horário (Bloqueio)"
+                                      onClick={() =>
+                                        setModalFecharHorario({
+                                          isOpen: true,
+                                          alunoId: aluno.id,
+                                          horario: h,
+                                          diaSemana: diaSelecionado,
+                                          descricao: ''
+                                        })
+                                      }
+                                      className="h-full px-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50/80 transition-all"
+                                    >
+                                      <Lock className="w-3 h-3 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </td>
                           );
@@ -926,6 +993,75 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                 className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs disabled:opacity-50"
               >
                 Confirmar Mudança
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Fechar Horário (Bloqueio de Slot) */}
+      {modalFecharHorario.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div id="modal-fechar-horario" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800">Fechar Horário (Bloqueio)</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalFecharHorario({ ...modalFecharHorario, isOpen: false, descricao: '' })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl space-y-1 border border-slate-100">
+              <div><strong>Dia:</strong> {modalFecharHorario.diaSemana}</div>
+              <div><strong>Horário:</strong> {formatarHorarioExibicao(modalFecharHorario.horario)}</div>
+              <div>
+                <strong>Aluno:</strong>{' '}
+                {alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome || 'Aluno'}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Descrição <span className="text-rose-500">*</span>
+              </label>
+              <input
+                id="input-fechar-horario-descricao"
+                type="text"
+                autoFocus
+                value={modalFecharHorario.descricao}
+                onChange={(e) => setModalFecharHorario({ ...modalFecharHorario, descricao: e.target.value })}
+                placeholder="Ex: Continuação do atendimento anterior"
+                className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                onKeyDown={(e) => e.key === 'Enter' && handleSalvarFecharHorario()}
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Este horário ficará marcado com cadeado e não gerará inconsistência nos relatórios.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalFecharHorario({ ...modalFecharHorario, isOpen: false, descricao: '' })}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSalvarFecharHorario}
+                disabled={!modalFecharHorario.descricao.trim()}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Bloquear Horário
               </button>
             </div>
           </div>

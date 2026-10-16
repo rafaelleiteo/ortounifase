@@ -19,6 +19,7 @@ export interface AgendaFixaItem {
   horario: string; // "HH:MM:SS" or "HH:MM"
   dia_semana: 'QUINTA' | 'SEXTA' | 'SABADO' | string;
   turma_id: string;
+  tipo_registro?: 'paciente' | 'bloqueio';
   created_at?: string;
   updated_at?: string;
   agenda_alunos?: {
