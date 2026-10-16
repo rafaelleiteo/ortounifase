@@ -1,0 +1,456 @@
+import React, { useState, useEffect } from 'react';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import {
+  Turma,
+  AgendaAluno,
+  AgendaFixaItem,
+  AgendaMensalItem,
+  InconsistenciaItem
+} from '@/lib/agendaTypes';
+import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
+import { AgendaMensalTab } from '@/components/agenda/AgendaMensalTab';
+import { InconsistenciasTab } from '@/components/agenda/InconsistenciasTab';
+import { ImportModal } from '@/components/agenda/ImportModal';
+import {
+  Calendar,
+  Layers,
+  FileSpreadsheet,
+  AlertOctagon,
+  Loader2,
+  AlertTriangle,
+  RefreshCw,
+  ShieldAlert,
+  Users
+} from 'lucide-react';
+
+export const AgendaPage: React.FC = () => {
+  const { effectiveRole } = useAuth();
+
+  // Estados principais
+  const [turmas, setTurmas] = useState<Turma[]>([]);
+  const [turmaSelecionada, setTurmaSelecionada] = useState<Turma | null>(null);
+  const [abaAtiva, setAbaAtiva] = useState<'fixa' | 'mensal' | 'inconsistencias'>('fixa');
+
+  // Mês de referência atual (default: primeiro dia do mês atual em formato YYYY-MM-01)
+  const [mesReferencia, setMesReferencia] = useState<string>(() => {
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    return `${ano}-${mes}-01`;
+  });
+
+  // Dados da turma selecionada
+  const [alunos, setAlunos] = useState<AgendaAluno[]>([]);
+  const [agendaFixa, setAgendaFixa] = useState<AgendaFixaItem[]>([]);
+  const [agendaMensal, setAgendaMensal] = useState<AgendaMensalItem[]>([]);
+  const [inconsistencias, setInconsistencias] = useState<InconsistenciaItem[]>([]);
+
+  // Estados de feedback / carregamento
+  const [loading, setLoading] = useState<boolean>(true);
+  const [carregandoDados, setCarregandoDados] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
+
+  // Modal de Importação
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+
+  // 1. Carregar Turmas
+  const carregarTurmas = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data, error: errTurmas } = await supabase
+        .from('turmas')
+        .select('*')
+        .order('nome');
+
+      if (errTurmas) throw errTurmas;
+
+      if (data && data.length > 0) {
+        setTurmas(data);
+        if (!turmaSelecionada) {
+          // Prefere 'ESP1' como padrão, se existir
+          const defaultTurma = data.find((t) => t.nome === 'ESP1') || data[0];
+          setTurmaSelecionada(defaultTurma);
+        }
+      }
+    } catch (err: any) {
+      console.error('Erro ao carregar turmas:', err);
+      setError('Falha ao consultar turmas: ' + (err.message || 'Erro inesperado'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregarTurmas();
+  }, []);
+
+  // 2. Carregar dados da turma selecionada
+  const carregarDadosTurma = async () => {
+    if (!turmaSelecionada) return;
+
+    try {
+      setCarregandoDados(true);
+      setError(null);
+
+      // 2.1 Alunos
+      const { data: alunosData, error: errAlunos } = await supabase
+        .from('agenda_alunos')
+        .select('*')
+        .eq('turma_id', turmaSelecionada.id)
+        .order('nome');
+
+      if (errAlunos) throw errAlunos;
+      setAlunos(alunosData || []);
+
+      // 2.2 Agenda Fixa
+      const { data: fixaData, error: errFixa } = await supabase
+        .from('agenda_fixa')
+        .select('*, agenda_alunos(id, nome)')
+        .eq('turma_id', turmaSelecionada.id);
+
+      if (errFixa) throw errFixa;
+      setAgendaFixa(fixaData || []);
+
+      // 2.3 Agenda Mensal
+      const { data: mensalData, error: errMensal } = await supabase
+        .from('agenda_mensal')
+        .select('*, agenda_alunos(id, nome)')
+        .eq('turma_id', turmaSelecionada.id)
+        .eq('mes_referencia', mesReferencia);
+
+      if (errMensal) throw errMensal;
+      setAgendaMensal(mensalData || []);
+
+      // 2.4 Inconsistências
+      const { data: incData, error: errInc } = await supabase
+        .from('inconsistencias')
+        .select('*')
+        .eq('turma_id', turmaSelecionada.id)
+        .eq('mes_referencia', mesReferencia)
+        .order('created_at', { ascending: false });
+
+      if (errInc) throw errInc;
+      setInconsistencias(incData || []);
+    } catch (err: any) {
+      console.error('Erro ao carregar detalhes da agenda:', err);
+      setError(err.message || 'Erro ao carregar dados da agenda');
+    } finally {
+      setCarregandoDados(false);
+    }
+  };
+
+  useEffect(() => {
+    if (turmaSelecionada) {
+      carregarDadosTurma();
+    }
+  }, [turmaSelecionada?.id, mesReferencia]);
+
+  // Ações da Agenda Fixa
+  const handleSalvarItemFixa = async (item: Partial<AgendaFixaItem>) => {
+    try {
+      if (item.id) {
+        const { error: errUpdate } = await supabase
+          .from('agenda_fixa')
+          .update({
+            paciente: item.paciente,
+            aluno_id: item.aluno_id,
+            horario: item.horario,
+            dia_semana: item.dia_semana,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', item.id);
+        if (errUpdate) throw errUpdate;
+      } else {
+        const { error: errInsert } = await supabase
+          .from('agenda_fixa')
+          .insert({
+            turma_id: item.turma_id,
+            aluno_id: item.aluno_id,
+            paciente: item.paciente,
+            horario: item.horario,
+            dia_semana: item.dia_semana
+          });
+        if (errInsert) throw errInsert;
+      }
+      await carregarDadosTurma();
+    } catch (err: any) {
+      alert('Erro ao salvar item na agenda fixa: ' + err.message);
+    }
+  };
+
+  const handleRemoverItemFixa = async (id: string) => {
+    if (!confirm('Deseja realmente remover este paciente da agenda fixa?')) return;
+    try {
+      const { error: errDel } = await supabase
+        .from('agenda_fixa')
+        .delete()
+        .eq('id', id);
+      if (errDel) throw errDel;
+      await carregarDadosTurma();
+    } catch (err: any) {
+      alert('Erro ao remover: ' + err.message);
+    }
+  };
+
+  const handleCriarAluno = async (nome: string) => {
+    if (!turmaSelecionada) return;
+    try {
+      const { error: errAdd } = await supabase
+        .from('agenda_alunos')
+        .insert({
+          nome,
+          turma_id: turmaSelecionada.id,
+          ativo: true
+        });
+      if (errAdd) throw errAdd;
+      await carregarDadosTurma();
+    } catch (err: any) {
+      alert('Erro ao cadastrar aluno: ' + err.message);
+    }
+  };
+
+  // Ações de Inconsistência
+  const handleAtualizarStatusInconsistencia = async (
+    id: string,
+    novoStatus: InconsistenciaItem['status'],
+    observacao?: string
+  ) => {
+    try {
+      const { error: errUpdate } = await supabase
+        .from('inconsistencias')
+        .update({
+          status: novoStatus,
+          observacao: observacao,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (errUpdate) throw errUpdate;
+
+      // Atualiza localmente sem recarregar tudo
+      setInconsistencias((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, status: novoStatus, observacao } : i))
+      );
+    } catch (err: any) {
+      alert('Erro ao atualizar status da inconsistência: ' + err.message);
+    }
+  };
+
+  const handleImportSucesso = (result: any) => {
+    setMensagemSucesso(
+      `Importação concluída com sucesso! ${result.totalImportados} registros processados e comparação gerada (${result.compareResult?.total || 0} inconsistências identificadas).`
+    );
+    carregarDadosTurma();
+    setTimeout(() => setMensagemSucesso(null), 8000);
+  };
+
+  // Verificação de Acesso: Apenas Coordenador e Admin Master
+  const isAuthorized = effectiveRole === 'coordenador' || effectiveRole === 'admin_master';
+
+  if (!isAuthorized) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-4xl mx-auto p-8">
+          <div className="bg-white rounded-2xl border border-rose-200 p-8 text-center space-y-4 shadow-xs">
+            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <h2 className="text-lg font-bold text-slate-800">Acesso Restrito</h2>
+            <p className="text-sm text-slate-600 max-w-md mx-auto">
+              O módulo de Agenda da Especialização é restrito exclusivamente aos papéis de Coordenação e Administração Geral.
+            </p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-6">
+        {/* Header da Página */}
+        <div className="bg-white border-b border-slate-200/80 -mx-6 -mt-6 p-6 sm:px-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center shadow-xs">
+                <Calendar className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                  Agenda da Especialização
+                </h1>
+                <p className="text-xs text-slate-500">
+                  Gestão clínica por turma, controle fixo vs. mensal e conciliação de inconsistências
+                </p>
+              </div>
+            </div>
+
+            {/* Seletor de Turma */}
+            <div className="flex items-center gap-2 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/60 self-start sm:self-auto">
+              <span className="text-xs font-bold text-slate-500 px-2 uppercase tracking-wider">
+                Turma:
+              </span>
+              {turmas.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTurmaSelecionada(t)}
+                  className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                    turmaSelecionada?.id === t.id
+                      ? 'bg-white text-brand-600 shadow-sm font-extrabold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {t.nome}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Abas de Navegação */}
+          <div className="flex items-center gap-2 mt-6 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              onClick={() => setAbaAtiva('fixa')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                abaAtiva === 'fixa'
+                  ? 'bg-brand-50 text-brand-600 border border-brand-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              Agenda Fixa
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAbaAtiva('mensal')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                abaAtiva === 'mensal'
+                  ? 'bg-brand-50 text-brand-600 border border-brand-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Agenda Mensal
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAbaAtiva('inconsistencias')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                abaAtiva === 'inconsistencias'
+                  ? 'bg-brand-50 text-brand-600 border border-brand-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <AlertOctagon className="w-4 h-4" />
+              Relatório de Inconsistências
+              {inconsistencias.length > 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                  {inconsistencias.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={carregarDadosTurma}
+              title="Recarregar dados"
+              className="ml-auto p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${carregandoDados ? 'animate-spin text-brand-600' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Mensagens de Feedback */}
+        {mensagemSucesso && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-800 flex items-center justify-between shadow-xs">
+            <span>{mensagemSucesso}</span>
+            <button
+              onClick={() => setMensagemSucesso(null)}
+              className="text-emerald-600 hover:text-emerald-800 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-800 flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button onClick={() => setError(null)} className="text-rose-600 hover:text-rose-800 font-bold">
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Conteúdo Dinâmico das Abas */}
+        {loading ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center">
+            <Loader2 className="w-8 h-8 text-brand-600 animate-spin mx-auto mb-3" />
+            <span className="text-xs font-semibold text-slate-500">Carregando dados da Agenda...</span>
+          </div>
+        ) : !turmaSelecionada ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-xs text-slate-500">
+            Nenhuma turma disponível.
+          </div>
+        ) : (
+          <div>
+            {abaAtiva === 'fixa' && (
+              <AgendaFixaTab
+                turmaId={turmaSelecionada.id}
+                alunos={alunos}
+                agendaFixa={agendaFixa}
+                onSalvarItem={handleSalvarItemFixa}
+                onRemoverItem={handleRemoverItemFixa}
+                onCriarAluno={handleCriarAluno}
+              />
+            )}
+
+            {abaAtiva === 'mensal' && (
+              <AgendaMensalTab
+                turmaNome={turmaSelecionada.nome}
+                alunos={alunos}
+                agendaMensal={agendaMensal}
+                inconsistencias={inconsistencias}
+                mesReferencia={mesReferencia}
+                onMesReferenciaChange={setMesReferencia}
+                onAbrirImportModal={() => setIsImportModalOpen(true)}
+              />
+            )}
+
+            {abaAtiva === 'inconsistencias' && (
+              <InconsistenciasTab
+                inconsistencias={inconsistencias}
+                alunos={alunos}
+                mesReferencia={mesReferencia}
+                onAtualizarStatus={handleAtualizarStatusInconsistencia}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Modal de Importação de JSON */}
+        {turmaSelecionada && (
+          <ImportModal
+            turmaNome={turmaSelecionada.nome}
+            defaultMesReferencia={mesReferencia}
+            isOpen={isImportModalOpen}
+            onClose={() => setIsImportModalOpen(false)}
+            onSuccess={handleImportSucesso}
+          />
+        )}
+      </div>
+    </DashboardLayout>
+  );
+};

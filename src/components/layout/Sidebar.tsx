@@ -10,7 +10,8 @@ import {
   Eye,
   Link2,
   Calculator,
-  Users
+  Users,
+  Calendar
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
@@ -48,6 +49,14 @@ const navItems: NavItem[] = [
     icon: Package,
     moduloKey: 'materiais',
     section: 'main',
+  },
+  {
+    label: 'Agenda',
+    path: '/agenda',
+    icon: Calendar,
+    moduloKey: 'coordenador',
+    section: 'main',
+    roleRequired: ['coordenador', 'admin_master'],
   },
   {
     label: 'Coordenação Geral',

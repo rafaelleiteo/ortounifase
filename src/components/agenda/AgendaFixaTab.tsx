@@ -1,0 +1,437 @@
+import React, { useState } from 'react';
+import {
+  AgendaAluno,
+  AgendaFixaItem,
+  HORARIOS_MANHA,
+  HORARIOS_TARDE,
+  DIAS_SEMANA,
+  normalizarHorario,
+  formatarHorarioExibicao
+} from '@/lib/agendaTypes';
+import {
+  Calendar,
+  User,
+  Plus,
+  Trash2,
+  Edit2,
+  Clock,
+  ArrowRightLeft,
+  X,
+  Check,
+  ChevronDown
+} from 'lucide-react';
+
+interface AgendaFixaTabProps {
+  turmaId: string;
+  alunos: AgendaAluno[];
+  agendaFixa: AgendaFixaItem[];
+  onSalvarItem: (item: Partial<AgendaFixaItem>) => Promise<void>;
+  onRemoverItem: (id: string) => Promise<void>;
+  onCriarAluno: (nome: string) => Promise<void>;
+}
+
+export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
+  turmaId,
+  alunos,
+  agendaFixa,
+  onSalvarItem,
+  onRemoverItem,
+  onCriarAluno
+}) => {
+  const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
+  const [periodo, setPeriodo] = useState<'MANHA' | 'TARDE' | 'TODOS'>('TODOS');
+  const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
+  const [criandoAluno, setCriandoAluno] = useState<boolean>(false);
+
+  // Modal para adicionar / editar paciente em célula
+  const [modalCell, setModalCell] = useState<{
+    isOpen: boolean;
+    itemExistente?: AgendaFixaItem;
+    alunoId: string;
+    horario: string;
+    diaSemana: string;
+    pacienteNome: string;
+  }>({
+    isOpen: false,
+    alunoId: '',
+    horario: '',
+    diaSemana: 'QUINTA',
+    pacienteNome: ''
+  });
+
+  // Modal para mover paciente de aluno
+  const [moverModal, setMoverModal] = useState<{
+    isOpen: boolean;
+    item?: AgendaFixaItem;
+    novoAlunoId: string;
+  }>({
+    isOpen: false,
+    novoAlunoId: ''
+  });
+
+  const horarios =
+    periodo === 'MANHA'
+      ? HORARIOS_MANHA
+      : periodo === 'TARDE'
+      ? HORARIOS_TARDE
+      : [...HORARIOS_MANHA, ...HORARIOS_TARDE];
+
+  // Indexa itens por chave: alunoId_horarioNormalizado
+  const itemMap = new Map<string, AgendaFixaItem>();
+  agendaFixa
+    .filter((item) => (item.dia_semana || '').toUpperCase() === diaSelecionado.toUpperCase())
+    .forEach((item) => {
+      const hNorm = normalizarHorario(item.horario);
+      const key = `${item.aluno_id}_${hNorm}`;
+      itemMap.set(key, item);
+    });
+
+  const handleAbrirCelular = (alunoId: string, horario: string) => {
+    const hNorm = normalizarHorario(horario);
+    const key = `${alunoId}_${hNorm}`;
+    const existente = itemMap.get(key);
+
+    setModalCell({
+      isOpen: true,
+      itemExistente: existente,
+      alunoId,
+      horario,
+      diaSemana: diaSelecionado,
+      pacienteNome: existente ? existente.paciente : ''
+    });
+  };
+
+  const handleSalvarCelula = async () => {
+    if (!modalCell.pacienteNome.trim()) return;
+    await onSalvarItem({
+      id: modalCell.itemExistente?.id,
+      aluno_id: modalCell.alunoId,
+      horario: normalizarHorario(modalCell.horario),
+      dia_semana: modalCell.diaSemana,
+      turma_id: turmaId,
+      paciente: modalCell.pacienteNome.trim()
+    });
+    setModalCell({ ...modalCell, isOpen: false, pacienteNome: '' });
+  };
+
+  const handleMoverPaciente = async () => {
+    if (!moverModal.item || !moverModal.novoAlunoId) return;
+    await onSalvarItem({
+      id: moverModal.item.id,
+      aluno_id: moverModal.novoAlunoId,
+      horario: moverModal.item.horario,
+      dia_semana: moverModal.item.dia_semana,
+      turma_id: turmaId,
+      paciente: moverModal.item.paciente
+    });
+    setMoverModal({ isOpen: false, novoAlunoId: '' });
+  };
+
+  const handleAdicionarAluno = async () => {
+    if (!novoAlunoNome.trim()) return;
+    setCriandoAluno(true);
+    try {
+      await onCriarAluno(novoAlunoNome.trim());
+      setNovoAlunoNome('');
+    } finally {
+      setCriandoAluno(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Barra Superior de Controles: Dias e Períodos */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        {/* Seletor de Dia da Semana */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Dia da Semana:</span>
+          <div className="flex bg-slate-100 p-1 rounded-xl">
+            {DIAS_SEMANA.map((dia) => (
+              <button
+                key={dia}
+                type="button"
+                onClick={() => setDiaSelecionado(dia)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  diaSelecionado === dia
+                    ? 'bg-white text-brand-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {dia}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Filtro de Período */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Turno:</span>
+          <div className="flex bg-slate-100 p-1 rounded-xl">
+            {(['TODOS', 'MANHA', 'TARDE'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPeriodo(p)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  periodo === p
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {p === 'TODOS' ? 'Todos os Horários' : p === 'MANHA' ? 'Manhã (08h - 11h30)' : 'Tarde (13h30 - 15h45)'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Adicionar Aluno Rápido */}
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={novoAlunoNome}
+            onChange={(e) => setNovoAlunoNome(e.target.value)}
+            placeholder="Nome do novo aluno..."
+            className="text-xs px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 w-44"
+            onKeyDown={(e) => e.key === 'Enter' && handleAdicionarAluno()}
+          />
+          <button
+            type="button"
+            onClick={handleAdicionarAluno}
+            disabled={criandoAluno || !novoAlunoNome.trim()}
+            className="px-3 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Adicionar Aluno
+          </button>
+        </div>
+      </div>
+
+      {/* Grid / Tabela Kanban da Agenda Fixa */}
+      {alunos.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+          <User className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <h4 className="text-sm font-bold text-slate-700">Nenhum aluno cadastrado nesta turma</h4>
+          <p className="text-xs text-slate-500 mt-1">Adicione alunos acima ou importe um JSON para criá-los automaticamente.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto max-h-[750px] relative">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
+                <tr>
+                  <th className="p-3 text-xs font-bold text-slate-600 uppercase tracking-wider w-24 bg-slate-50 border-r border-slate-200 sticky left-0 z-20">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      Horário
+                    </div>
+                  </th>
+                  {alunos.map((aluno) => (
+                    <th
+                      key={aluno.id}
+                      className="p-3 text-xs font-bold text-slate-800 border-r border-slate-200 min-w-[200px]"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <User className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                          <span className="truncate" title={aluno.nome}>{aluno.nome}</span>
+                        </div>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                {horarios.map((h) => {
+                  const isTurnoDivisor = h === '13:30' && periodo === 'TODOS';
+                  return (
+                    <React.Fragment key={h}>
+                      {isTurnoDivisor && (
+                        <tr className="bg-slate-100/80 font-bold text-slate-500 text-[11px]">
+                          <td colSpan={alunos.length + 1} className="py-1 px-3 border-y border-slate-200">
+                            --- Turno da Tarde (Intervalos de 15 min) ---
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-2.5 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono">
+                          {h}
+                        </td>
+                        {alunos.map((aluno) => {
+                          const hNorm = normalizarHorario(h);
+                          const item = itemMap.get(`${aluno.id}_${hNorm}`);
+
+                          return (
+                            <td
+                              key={aluno.id}
+                              className="p-2 border-r border-slate-100 align-top relative group"
+                            >
+                              {item ? (
+                                <div className="p-2 rounded-xl bg-brand-50/70 border border-brand-200/90 shadow-2xs flex flex-col justify-between group-hover:border-brand-400 group-hover:bg-brand-50 transition-all">
+                                  <div className="font-semibold text-slate-800 break-words mb-1.5">
+                                    {item.paciente}
+                                  </div>
+                                  <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 pt-1 border-t border-brand-200/50">
+                                    <button
+                                      type="button"
+                                      title="Editar Paciente"
+                                      onClick={() => handleAbrirCelular(aluno.id, h)}
+                                      className="p-1 text-slate-500 hover:text-brand-600 rounded-md hover:bg-white"
+                                    >
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Mover para outro Aluno"
+                                      onClick={() => setMoverModal({ isOpen: true, item, novoAlunoId: '' })}
+                                      className="p-1 text-slate-500 hover:text-amber-600 rounded-md hover:bg-white"
+                                    >
+                                      <ArrowRightLeft className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Remover"
+                                      onClick={() => onRemoverItem(item.id)}
+                                      className="p-1 text-slate-500 hover:text-rose-600 rounded-md hover:bg-white"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirCelular(aluno.id, h)}
+                                  className="w-full h-11 border border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50/30 transition-all group/btn"
+                                >
+                                  <Plus className="w-3.5 h-3.5 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                                </button>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar / Inserir Célula */}
+      {modalCell.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h4 className="text-sm font-bold text-slate-800">
+                {modalCell.itemExistente ? 'Editar Paciente da Agenda Fixa' : 'Novo Paciente na Agenda Fixa'}
+              </h4>
+              <button
+                onClick={() => setModalCell({ ...modalCell, isOpen: false })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-500 space-y-1">
+              <div><strong>Dia:</strong> {modalCell.diaSemana}</div>
+              <div><strong>Horário:</strong> {modalCell.horario}</div>
+              <div><strong>Aluno:</strong> {alunos.find((a) => a.id === modalCell.alunoId)?.nome}</div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Nome do Paciente</label>
+              <input
+                type="text"
+                autoFocus
+                value={modalCell.pacienteNome}
+                onChange={(e) => setModalCell({ ...modalCell, pacienteNome: e.target.value })}
+                placeholder="Digite o nome completo do paciente..."
+                className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                onKeyDown={(e) => e.key === 'Enter' && handleSalvarCelula()}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalCell({ ...modalCell, isOpen: false })}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSalvarCelula}
+                disabled={!modalCell.pacienteNome.trim()}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Mover Paciente para outro Aluno */}
+      {moverModal.isOpen && moverModal.item && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h4 className="text-sm font-bold text-slate-800">Mover Paciente para outro Aluno</h4>
+              <button
+                onClick={() => setMoverModal({ isOpen: false, novoAlunoId: '' })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl space-y-1">
+              <div><strong>Paciente:</strong> {moverModal.item.paciente}</div>
+              <div><strong>Horário / Dia:</strong> {moverModal.item.horario} ({moverModal.item.dia_semana})</div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Selecione o Novo Aluno</label>
+              <select
+                value={moverModal.novoAlunoId}
+                onChange={(e) => setMoverModal({ ...moverModal, novoAlunoId: e.target.value })}
+                className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">Selecione um aluno...</option>
+                {alunos
+                  .filter((a) => a.id !== moverModal.item?.aluno_id)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nome}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setMoverModal({ isOpen: false, novoAlunoId: '' })}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleMoverPaciente}
+                disabled={!moverModal.novoAlunoId}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Confirmar Mudança
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
