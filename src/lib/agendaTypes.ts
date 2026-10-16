@@ -31,7 +31,8 @@ export interface AgendaFixaItem {
 export interface AgendaMensalItem {
   id: string;
   paciente: string;
-  aluno_id: string;
+  aluno_id?: string | null;
+  aluno?: string | null;
   horario: string;
   dia_semana: 'QUINTA' | 'SEXTA' | 'SABADO' | string;
   turma_id: string;
@@ -40,7 +41,7 @@ export interface AgendaMensalItem {
   agenda_alunos?: {
     id: string;
     nome: string;
-  };
+  } | null;
 }
 
 export interface InconsistenciaItem {

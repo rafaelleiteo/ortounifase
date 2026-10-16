@@ -7,7 +7,8 @@ import {
   HORARIOS_TARDE,
   DIAS_SEMANA,
   normalizarHorario,
-  isAtendimentoExtra
+  isAtendimentoExtra,
+  NOME_ATENDIMENTO_EXTRA
 } from '@/lib/agendaTypes';
 import {
   Calendar,
@@ -45,6 +46,16 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
   // Coluna "Atendimento Extra" deve sempre aparecer por último (à direita de todas as colunas de alunos reais).
   // Alunos inativos só aparecem se já possuírem atendimentos lançados na agenda mensal do mês.
+  const temAtendimentoExtra = useMemo(() => {
+    return agendaMensal.some((item) => !item.aluno_id || isAtendimentoExtra(item.aluno));
+  }, [agendaMensal]);
+
+  const extraAlunoCadastrado = useMemo(() => {
+    return alunos.find((a) => isAtendimentoExtra(a.nome));
+  }, [alunos]);
+
+  const extraColumnId = extraAlunoCadastrado ? extraAlunoCadastrado.id : 'EXTRA_VIRTUAL';
+
   const alunosOrdenados = useMemo(() => {
     const visiveis = alunos.filter((a) => {
       if (a.ativo === false) {
@@ -54,8 +65,20 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     });
     const normais = visiveis.filter((a) => !isAtendimentoExtra(a.nome));
     const extras = visiveis.filter((a) => isAtendimentoExtra(a.nome));
-    return [...normais, ...extras];
-  }, [alunos, agendaMensal]);
+
+    const colunas = [...normais, ...extras];
+    // Se houver atendimentos sem aluno_id (Atendimento Extra) e nenhum aluno "Atendimento Extra" na tabela de alunos,
+    // adicionamos uma coluna virtual "Atendimento Extra" com id 'EXTRA_VIRTUAL'
+    if (temAtendimentoExtra && extras.length === 0) {
+      colunas.push({
+        id: 'EXTRA_VIRTUAL',
+        nome: NOME_ATENDIMENTO_EXTRA,
+        turma_id: turmaNome,
+        ativo: true
+      });
+    }
+    return colunas;
+  }, [alunos, agendaMensal, temAtendimentoExtra, turmaNome]);
 
   const horarios =
     periodo === 'MANHA'
@@ -64,13 +87,18 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       ? HORARIOS_TARDE
       : [...HORARIOS_MANHA, ...HORARIOS_TARDE];
 
-  // Mapas por chave: `${alunoId}_${horario}`
-  const mensalMap = new Map<string, AgendaMensalItem>();
+  // Mapas por chave: `${alunoId}_${horario}` => lista de itens (suporta múltiplos extras no mesmo horário)
+  const mensalMap = new Map<string, AgendaMensalItem[]>();
   agendaMensal
     .filter((item) => (item.dia_semana || '').toUpperCase() === diaSelecionado.toUpperCase())
     .forEach((item) => {
       const hNorm = normalizarHorario(item.horario);
-      mensalMap.set(`${item.aluno_id}_${hNorm}`, item);
+      const isItemExtra = !item.aluno_id || isAtendimentoExtra(item.aluno);
+      const chaveAluno = isItemExtra ? extraColumnId : (item.aluno_id || extraColumnId);
+      const key = `${chaveAluno}_${hNorm}`;
+      const existing = mensalMap.get(key) || [];
+      existing.push(item);
+      mensalMap.set(key, existing);
     });
 
   // Mapeia inconsistências do dia selecionado
@@ -246,7 +274,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                     </div>
                   </th>
                   {alunosOrdenados.map((aluno) => {
-                    const isExtra = isAtendimentoExtra(aluno.nome);
+                    const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
                     return (
                       <th
                         key={aluno.id}
@@ -301,10 +329,9 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                           {h}
                         </td>
                         {alunosOrdenados.map((aluno) => {
-                          const isExtra = isAtendimentoExtra(aluno.nome);
+                          const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
                           const hNorm = normalizarHorario(h);
-                          const item = mensalMap.get(`${aluno.id}_${hNorm}`);
-                          const incInfo = item ? getInconsistenciaInfo(item.paciente, h, aluno.nome) : null;
+                          const items = mensalMap.get(`${aluno.id}_${hNorm}`) || [];
 
                           return (
                             <td
@@ -315,48 +342,56 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                   : 'border-slate-100'
                               }`}
                             >
-                              {item ? (
-                                <div
-                                  className={`p-2 rounded-xl border shadow-2xs transition-all ${
-                                    incInfo
-                                      ? incInfo.corBorder
-                                      : isExtra
-                                      ? 'bg-amber-50/80 border-amber-300 text-slate-900'
-                                      : 'bg-white border-slate-200 text-slate-800'
-                                  }`}
-                                >
-                                  <div className="font-semibold break-words mb-1 flex items-start justify-between gap-1">
-                                    <span>{item.paciente}</span>
-                                    {isExtra && !incInfo && (
-                                      <span
-                                        title="Atendimento Extra"
-                                        className="shrink-0 text-[10px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
+                              {items.length > 0 ? (
+                                <div className="space-y-1.5">
+                                  {items.map((item) => {
+                                    const incInfo = getInconsistenciaInfo(item.paciente, h, aluno.nome);
+                                    return (
+                                      <div
+                                        key={item.id}
+                                        className={`p-2 rounded-xl border shadow-2xs transition-all ${
+                                          incInfo
+                                            ? incInfo.corBorder
+                                            : isExtra
+                                            ? 'bg-amber-50/80 border-amber-300 text-slate-900'
+                                            : 'bg-white border-slate-200 text-slate-800'
+                                        }`}
                                       >
-                                        Extra
-                                      </span>
-                                    )}
-                                  </div>
+                                        <div className="font-semibold break-words mb-1 flex items-start justify-between gap-1">
+                                          <span>{item.paciente}</span>
+                                          {isExtra && !incInfo && (
+                                            <span
+                                              title="Atendimento Extra"
+                                              className="shrink-0 text-[10px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
+                                            >
+                                              Extra
+                                            </span>
+                                          )}
+                                        </div>
 
-                                  {incInfo ? (
-                                    <div className="space-y-1">
-                                      <span
-                                        className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${incInfo.badge}`}
-                                      >
-                                        {incInfo.label}
-                                      </span>
-                                      <div className="text-[10px] opacity-85 leading-tight">
-                                        {incInfo.detalhe}
+                                        {incInfo ? (
+                                          <div className="space-y-1">
+                                            <span
+                                              className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${incInfo.badge}`}
+                                            >
+                                              {incInfo.label}
+                                            </span>
+                                            <div className="text-[10px] opacity-85 leading-tight">
+                                              {incInfo.detalhe}
+                                            </div>
+                                          </div>
+                                        ) : isExtra ? (
+                                          <span className="text-[10px] font-medium text-amber-700/80">
+                                            Revisar alocação
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] font-medium text-slate-400">
+                                            Conforme agenda fixa
+                                          </span>
+                                        )}
                                       </div>
-                                    </div>
-                                  ) : isExtra ? (
-                                    <span className="text-[10px] font-medium text-amber-700/80">
-                                      Revisar alocação
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-medium text-slate-400">
-                                      Conforme agenda fixa
-                                    </span>
-                                  )}
+                                    );
+                                  })}
                                 </div>
                               ) : (
                                 <div

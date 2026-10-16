@@ -109,7 +109,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 text-xs text-blue-800 flex items-start gap-2.5">
             <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold">Reimportação Segura:</span> O sistema realiza upsert nos registros e regera automaticamente todas as inconsistências do mês via tolerância fonética/similaridade (<code>pg_trgm</code> &gt; 0.4). Alunos não cadastrados são criados automaticamente na turma.
+              <span className="font-semibold">Reimportação Segura:</span> O sistema realiza upsert nos registros e regera automaticamente todas as inconsistências do mês via tolerância fonética/similaridade (<code>pg_trgm</code> &gt; 0.4). Alunos não cadastrados na turma são classificados automaticamente como "ATENDIMENTO EXTRA".
             </div>
           </div>
 
@@ -129,6 +129,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           </div>
 
           <textarea
+            id="import-json-textarea"
             value={jsonText}
             onChange={(e) => setJsonText(e.target.value)}
             placeholder={`{\n  "turma": "${turmaNome}",\n  "mes_referencia": "${defaultMesReferencia}",\n  "registros": [\n    { "paciente": "NOME PACIENTE", "aluno": "NOME ALUNO", "horario": "08:00", "dia_semana": "QUINTA" }\n  ]\n}`}
@@ -156,6 +157,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           </button>
           <button
             type="button"
+            id="btn-confirmar-importacao"
             onClick={handleImportar}
             disabled={loading}
             className="px-5 py-2 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-2 disabled:opacity-50"

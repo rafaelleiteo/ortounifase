@@ -77,7 +77,9 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
   const mensalCountMap = useMemo(() => {
     const map = new Map<string, number>();
     agendaMensal.forEach((item) => {
-      map.set(item.aluno_id, (map.get(item.aluno_id) || 0) + 1);
+      if (item.aluno_id) {
+        map.set(item.aluno_id, (map.get(item.aluno_id) || 0) + 1);
+      }
     });
     return map;
   }, [agendaMensal]);
