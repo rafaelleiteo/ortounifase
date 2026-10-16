@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   AgendaAluno,
   AgendaFixaItem,
@@ -6,7 +6,8 @@ import {
   HORARIOS_TARDE,
   DIAS_SEMANA,
   normalizarHorario,
-  formatarHorarioExibicao
+  formatarHorarioExibicao,
+  isAtendimentoExtra
 } from '@/lib/agendaTypes';
 import {
   Calendar,
@@ -50,6 +51,17 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   const [periodo, setPeriodo] = useState<'MANHA' | 'TARDE' | 'TODOS'>('TODOS');
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [criandoAluno, setCriandoAluno] = useState<boolean>(false);
+
+  // Filtra "Atendimento Extra" da grade da Agenda Fixa para exibir somente alunos regulares,
+  // a menos que haja algum item fixo explicitamente vinculado a ele.
+  const alunosFixa = useMemo(() => {
+    return alunos.filter((a) => {
+      if (isAtendimentoExtra(a.nome)) {
+        return agendaFixa.some((item) => item.aluno_id === a.id);
+      }
+      return true;
+    });
+  }, [alunos, agendaFixa]);
 
   // Modal para adicionar / editar paciente em célula
   const [modalCell, setModalCell] = useState<{
@@ -191,7 +203,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       pacienteNome: '',
       diaSemana: diaSelecionado,
       horario: '08:00',
-      alunoId: alunos[0]?.id || ''
+      alunoId: alunosFixa[0]?.id || ''
     });
   };
 
@@ -393,7 +405,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                   pacienteNome: '',
                   diaSemana: diaSelecionado,
                   horario: '08:00',
-                  alunoId: alunos[0]?.id || ''
+                  alunoId: alunosFixa[0]?.id || ''
                 })
               }
               className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
@@ -438,7 +450,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       </div>
 
       {/* Grid / Tabela Kanban da Agenda Fixa */}
-      {alunos.length === 0 ? (
+      {alunosFixa.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
           <User className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h4 className="text-sm font-bold text-slate-700">Nenhum aluno cadastrado nesta turma</h4>
@@ -456,7 +468,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                       Horário
                     </div>
                   </th>
-                  {alunos.map((aluno) => (
+                  {alunosFixa.map((aluno) => (
                     <th
                       key={aluno.id}
                       className="p-3 text-xs font-bold text-slate-800 border-r border-slate-200 min-w-[200px]"
@@ -478,7 +490,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (
                         <tr className="bg-slate-100/80 font-bold text-slate-500 text-[11px]">
-                          <td colSpan={alunos.length + 1} className="py-1 px-3 border-y border-slate-200">
+                          <td colSpan={alunosFixa.length + 1} className="py-1 px-3 border-y border-slate-200">
                             --- Turno da Tarde (Intervalos de 15 min) ---
                           </td>
                         </tr>
@@ -487,7 +499,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                         <td className="p-2.5 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono">
                           {h}
                         </td>
-                        {alunos.map((aluno) => {
+                        {alunosFixa.map((aluno) => {
                           const hNorm = normalizarHorario(h);
                           const item = itemMap.get(`${aluno.id}_${hNorm}`);
 
@@ -687,7 +699,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                 className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Selecione um aluno...</option>
-                {alunos
+                {alunosFixa
                   .filter((a) => a.id !== moverModal.item?.aluno_id)
                   .map((a) => (
                     <option key={a.id} value={a.id}>
@@ -787,7 +799,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                   className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
                 >
                   <option value="">Selecione o aluno...</option>
-                  {alunos.map((a) => (
+                  {alunosFixa.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.nome}
                     </option>
@@ -969,7 +981,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                   }
                   className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
                 >
-                  {alunos.map((a) => (
+                  {alunosFixa.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.nome}
                     </option>

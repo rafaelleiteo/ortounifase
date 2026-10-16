@@ -247,7 +247,11 @@ export const AgendaPage: React.FC = () => {
     setMensagemSucesso(
       `Importação concluída com sucesso! ${result.totalImportados} registros processados e comparação gerada (${result.compareResult?.total || 0} inconsistências identificadas).`
     );
-    carregarDadosTurma();
+    if (result?.mesReferencia && result.mesReferencia !== mesReferencia) {
+      setMesReferencia(result.mesReferencia);
+    } else {
+      carregarDadosTurma();
+    }
     setTimeout(() => setMensagemSucesso(null), 8000);
   };
 

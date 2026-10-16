@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   AgendaAluno,
   AgendaMensalItem,
@@ -6,7 +6,8 @@ import {
   HORARIOS_MANHA,
   HORARIOS_TARDE,
   DIAS_SEMANA,
-  normalizarHorario
+  normalizarHorario,
+  isAtendimentoExtra
 } from '@/lib/agendaTypes';
 import {
   Calendar,
@@ -14,6 +15,7 @@ import {
   Clock,
   UploadCloud,
   AlertTriangle,
+  AlertCircle,
   UserCheck,
   UserPlus,
   HelpCircle
@@ -40,6 +42,13 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 }) => {
   const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
   const [periodo, setPeriodo] = useState<'MANHA' | 'TARDE' | 'TODOS'>('TODOS');
+
+  // Coluna "Atendimento Extra" deve sempre aparecer por último (à direita de todas as colunas de alunos reais)
+  const alunosOrdenados = useMemo(() => {
+    const normais = alunos.filter((a) => !isAtendimentoExtra(a.nome));
+    const extras = alunos.filter((a) => isAtendimentoExtra(a.nome));
+    return [...normais, ...extras];
+  }, [alunos]);
 
   const horarios =
     periodo === 'MANHA'
@@ -211,7 +220,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       )}
 
       {/* Grid / Tabela Kanban da Agenda Mensal */}
-      {alunos.length === 0 ? (
+      {alunosOrdenados.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
           <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h4 className="text-sm font-bold text-slate-700">Nenhum dado importado para {turmaNome}</h4>
@@ -229,19 +238,43 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                       Horário
                     </div>
                   </th>
-                  {alunos.map((aluno) => (
-                    <th
-                      key={aluno.id}
-                      className="p-3 text-xs font-bold text-slate-800 border-r border-slate-200 min-w-[200px]"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <User className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                          <span className="truncate" title={aluno.nome}>{aluno.nome}</span>
+                  {alunosOrdenados.map((aluno) => {
+                    const isExtra = isAtendimentoExtra(aluno.nome);
+                    return (
+                      <th
+                        key={aluno.id}
+                        className={`p-3 text-xs font-bold border-r min-w-[210px] transition-colors ${
+                          isExtra
+                            ? 'bg-amber-50/80 border-amber-300 border-dashed border-r-2 text-amber-950'
+                            : 'bg-slate-50 border-slate-200 text-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1.5 truncate">
+                            {isExtra ? (
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            ) : (
+                              <User className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                            )}
+                            <span
+                              className={`truncate ${isExtra ? 'font-extrabold text-amber-900' : ''}`}
+                              title={aluno.nome}
+                            >
+                              {aluno.nome}
+                            </span>
+                          </div>
+                          {isExtra && (
+                            <span
+                              title="Coluna de atendimento extra / aguardando revisão de aluno"
+                              className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0"
+                            >
+                              Revisão
+                            </span>
+                          )}
                         </div>
-                      </div>
-                    </th>
-                  ))}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
@@ -251,7 +284,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (
                         <tr className="bg-slate-100/80 font-bold text-slate-500 text-[11px]">
-                          <td colSpan={alunos.length + 1} className="py-1 px-3 border-y border-slate-200">
+                          <td colSpan={alunosOrdenados.length + 1} className="py-1 px-3 border-y border-slate-200">
                             --- Turno da Tarde (Intervalos de 15 min) ---
                           </td>
                         </tr>
@@ -260,7 +293,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                         <td className="p-2.5 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono">
                           {h}
                         </td>
-                        {alunos.map((aluno) => {
+                        {alunosOrdenados.map((aluno) => {
+                          const isExtra = isAtendimentoExtra(aluno.nome);
                           const hNorm = normalizarHorario(h);
                           const item = mensalMap.get(`${aluno.id}_${hNorm}`);
                           const incInfo = item ? getInconsistenciaInfo(item.paciente, h, aluno.nome) : null;
@@ -268,18 +302,32 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                           return (
                             <td
                               key={aluno.id}
-                              className="p-2 border-r border-slate-100 align-top relative"
+                              className={`p-2 border-r align-top relative transition-colors ${
+                                isExtra
+                                  ? 'bg-amber-50/15 border-dashed border-amber-200/80 border-r-2'
+                                  : 'border-slate-100'
+                              }`}
                             >
                               {item ? (
                                 <div
                                   className={`p-2 rounded-xl border shadow-2xs transition-all ${
                                     incInfo
                                       ? incInfo.corBorder
+                                      : isExtra
+                                      ? 'bg-amber-50/80 border-amber-300 text-slate-900'
                                       : 'bg-white border-slate-200 text-slate-800'
                                   }`}
                                 >
-                                  <div className="font-semibold break-words mb-1">
-                                    {item.paciente}
+                                  <div className="font-semibold break-words mb-1 flex items-start justify-between gap-1">
+                                    <span>{item.paciente}</span>
+                                    {isExtra && !incInfo && (
+                                      <span
+                                        title="Atendimento Extra"
+                                        className="shrink-0 text-[10px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
+                                      >
+                                        Extra
+                                      </span>
+                                    )}
                                   </div>
 
                                   {incInfo ? (
@@ -293,6 +341,10 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                         {incInfo.detalhe}
                                       </div>
                                     </div>
+                                  ) : isExtra ? (
+                                    <span className="text-[10px] font-medium text-amber-700/80">
+                                      Revisar alocação
+                                    </span>
                                   ) : (
                                     <span className="text-[10px] font-medium text-slate-400">
                                       Conforme agenda fixa
@@ -300,7 +352,13 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                   )}
                                 </div>
                               ) : (
-                                <div className="h-11 rounded-xl bg-slate-50/40 border border-slate-100 flex items-center justify-center text-[10px] text-slate-300">
+                                <div
+                                  className={`h-11 rounded-xl flex items-center justify-center text-[10px] ${
+                                    isExtra
+                                      ? 'bg-amber-50/30 border border-dashed border-amber-200/60 text-amber-300'
+                                      : 'bg-slate-50/40 border border-slate-100 text-slate-300'
+                                  }`}
+                                >
                                   -
                                 </div>
                               )}

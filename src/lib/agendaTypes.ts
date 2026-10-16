@@ -101,3 +101,11 @@ export function formatarHorarioExibicao(h: string): string {
   }
   return h;
 }
+
+export const NOME_ATENDIMENTO_EXTRA = 'Atendimento Extra';
+
+export function isAtendimentoExtra(nome?: string | null): boolean {
+  if (!nome) return false;
+  return nome.trim().toLowerCase().replace(/\s+/g, ' ') === 'atendimento extra';
+}
+

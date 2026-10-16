@@ -1,5 +1,10 @@
 import { supabase } from './supabase';
-import { ImportPayload, normalizarHorario } from './agendaTypes';
+import {
+  ImportPayload,
+  normalizarHorario,
+  isAtendimentoExtra,
+  NOME_ATENDIMENTO_EXTRA
+} from './agendaTypes';
 
 export async function importarAgendaMensal(payload: ImportPayload) {
   if (!payload.turma || !payload.mes_referencia || !Array.isArray(payload.registros)) {
@@ -27,15 +32,26 @@ export async function importarAgendaMensal(payload: ImportPayload) {
 
   const alunoMap = new Map<string, string>();
   (alunosExistentes || []).forEach((a) => {
-    alunoMap.set(a.nome.trim().toLowerCase(), a.id);
+    const key = (a.nome || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    alunoMap.set(key, a.id);
   });
 
   // 3. Garantir que todos os alunos citados nos registros existam na turma
+  // Quando o aluno for "ATENDIMENTO EXTRA", reutiliza ou cria uma única vez o registro fixo "Atendimento Extra"
   const novosAlunosNomes = new Set<string>();
   for (const reg of payload.registros) {
-    const nomeLimpo = (reg.aluno || '').trim();
-    if (nomeLimpo && !alunoMap.has(nomeLimpo.toLowerCase())) {
-      novosAlunosNomes.add(nomeLimpo);
+    const raw = (reg.aluno || '').trim();
+    if (!raw) continue;
+
+    if (isAtendimentoExtra(raw)) {
+      if (!alunoMap.has('atendimento extra')) {
+        novosAlunosNomes.add(NOME_ATENDIMENTO_EXTRA);
+      }
+    } else {
+      const searchKey = raw.toLowerCase().replace(/\s+/g, ' ');
+      if (!alunoMap.has(searchKey)) {
+        novosAlunosNomes.add(raw);
+      }
     }
   }
 
@@ -54,15 +70,20 @@ export async function importarAgendaMensal(payload: ImportPayload) {
     if (errCriarAlunos) throw errCriarAlunos;
 
     (criados || []).forEach((a) => {
-      alunoMap.set(a.nome.trim().toLowerCase(), a.id);
+      const key = (a.nome || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      alunoMap.set(key, a.id);
     });
   }
 
   // 4. Montar os registros para upsert em agenda_mensal
   // UNIQUE (turma_id, mes_referencia, paciente, horario, dia_semana)
   const rowsToUpsert = payload.registros.map((reg) => {
-    const nomeAlunoLimpo = (reg.aluno || '').trim().toLowerCase();
-    const alunoId = alunoMap.get(nomeAlunoLimpo);
+    const raw = (reg.aluno || '').trim();
+    const searchKey = isAtendimentoExtra(raw)
+      ? 'atendimento extra'
+      : raw.toLowerCase().replace(/\s+/g, ' ');
+
+    const alunoId = alunoMap.get(searchKey);
 
     if (!alunoId) {
       throw new Error(`Não foi possível vincular o aluno "${reg.aluno}".`);
@@ -111,6 +132,7 @@ export async function importarAgendaMensal(payload: ImportPayload) {
   return {
     success: true,
     turmaId: turma.id,
+    mesReferencia: payload.mes_referencia,
     totalImportados: rowsToUpsert.length,
     compareResult,
   };
