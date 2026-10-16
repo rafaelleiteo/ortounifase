@@ -409,11 +409,13 @@ export const AgendaPage: React.FC = () => {
             {abaAtiva === 'fixa' && (
               <AgendaFixaTab
                 turmaId={turmaSelecionada.id}
+                turmaNome={turmaSelecionada.nome}
                 alunos={alunos}
                 agendaFixa={agendaFixa}
                 onSalvarItem={handleSalvarItemFixa}
                 onRemoverItem={handleRemoverItemFixa}
                 onCriarAluno={handleCriarAluno}
+                isCoordenadorOrAdmin={isAuthorized}
               />
             )}
 

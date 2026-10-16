@@ -18,25 +18,30 @@ import {
   ArrowRightLeft,
   X,
   Check,
-  ChevronDown
+  ChevronDown,
+  Download
 } from 'lucide-react';
 
 interface AgendaFixaTabProps {
   turmaId: string;
+  turmaNome: string;
   alunos: AgendaAluno[];
   agendaFixa: AgendaFixaItem[];
   onSalvarItem: (item: Partial<AgendaFixaItem>) => Promise<void>;
   onRemoverItem: (id: string) => Promise<void>;
   onCriarAluno: (nome: string) => Promise<void>;
+  isCoordenadorOrAdmin?: boolean;
 }
 
 export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   turmaId,
+  turmaNome,
   alunos,
   agendaFixa,
   onSalvarItem,
   onRemoverItem,
-  onCriarAluno
+  onCriarAluno,
+  isCoordenadorOrAdmin = true
 }) => {
   const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
   const [periodo, setPeriodo] = useState<'MANHA' | 'TARDE' | 'TODOS'>('TODOS');
@@ -67,6 +72,31 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   }>({
     isOpen: false,
     novoAlunoId: ''
+  });
+
+  // Modal para "+ Adicionar Paciente"
+  const [modalNovoPaciente, setModalNovoPaciente] = useState<{
+    isOpen: boolean;
+    pacienteNome: string;
+    diaSemana: string;
+    horario: string;
+    alunoId: string;
+  }>({
+    isOpen: false,
+    pacienteNome: '',
+    diaSemana: 'QUINTA',
+    horario: '08:00',
+    alunoId: ''
+  });
+
+  // Modal para "Editar Nome do Paciente"
+  const [modalEditarNome, setModalEditarNome] = useState<{
+    isOpen: boolean;
+    item?: AgendaFixaItem;
+    pacienteNome: string;
+  }>({
+    isOpen: false,
+    pacienteNome: ''
   });
 
   const horarios =
@@ -112,6 +142,79 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       paciente: modalCell.pacienteNome.trim()
     });
     setModalCell({ ...modalCell, isOpen: false, pacienteNome: '' });
+  };
+
+  const handleSalvarNovoPaciente = async () => {
+    if (!modalNovoPaciente.pacienteNome.trim() || !modalNovoPaciente.alunoId) return;
+    await onSalvarItem({
+      aluno_id: modalNovoPaciente.alunoId,
+      horario: normalizarHorario(modalNovoPaciente.horario),
+      dia_semana: modalNovoPaciente.diaSemana,
+      turma_id: turmaId,
+      paciente: modalNovoPaciente.pacienteNome.trim()
+    });
+    setModalNovoPaciente({
+      isOpen: false,
+      pacienteNome: '',
+      diaSemana: diaSelecionado,
+      horario: '08:00',
+      alunoId: alunos[0]?.id || ''
+    });
+  };
+
+  const handleSalvarEdicaoNome = async () => {
+    if (!modalEditarNome.item || !modalEditarNome.pacienteNome.trim()) return;
+    await onSalvarItem({
+      id: modalEditarNome.item.id,
+      aluno_id: modalEditarNome.item.aluno_id,
+      horario: modalEditarNome.item.horario,
+      dia_semana: modalEditarNome.item.dia_semana,
+      turma_id: turmaId,
+      paciente: modalEditarNome.pacienteNome.trim()
+    });
+    setModalEditarNome({ isOpen: false, pacienteNome: '' });
+  };
+
+  const handleExportarCSV = () => {
+    if (agendaFixa.length === 0) {
+      alert('Não há registros na Agenda Fixa para exportar.');
+      return;
+    }
+
+    const alunoNomeMap = new Map<string, string>();
+    alunos.forEach((a) => alunoNomeMap.set(a.id, a.nome));
+
+    // Cabeçalho CSV
+    const headers = ['dia_semana', 'horario', 'paciente', 'aluno'];
+    const rows = agendaFixa.map((item) => {
+      const alunoNome =
+        item.agenda_alunos?.nome ||
+        alunoNomeMap.get(item.aluno_id) ||
+        'Não Informado';
+
+      const escapeCSV = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
+
+      return [
+        escapeCSV(item.dia_semana),
+        escapeCSV(formatarHorarioExibicao(item.horario)),
+        escapeCSV(item.paciente),
+        escapeCSV(alunoNome)
+      ].join(';');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    const dataHoje = new Date().toISOString().split('T')[0];
+    const nomeLimpoTurma = turmaNome.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `agenda_fixa_${nomeLimpoTurma}_${dataHoje}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleMoverPaciente = async () => {
@@ -184,25 +287,58 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
           </div>
         </div>
 
-        {/* Adicionar Aluno Rápido */}
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={novoAlunoNome}
-            onChange={(e) => setNovoAlunoNome(e.target.value)}
-            placeholder="Nome do novo aluno..."
-            className="text-xs px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 w-44"
-            onKeyDown={(e) => e.key === 'Enter' && handleAdicionarAluno()}
-          />
+        {/* Ações da Turma: Adicionar Aluno, Adicionar Paciente e Exportar */}
+        <div className="flex flex-wrap items-center gap-2">
+          {isCoordenadorOrAdmin && (
+            <button
+              type="button"
+              onClick={() =>
+                setModalNovoPaciente({
+                  isOpen: true,
+                  pacienteNome: '',
+                  diaSemana: diaSelecionado,
+                  horario: '08:00',
+                  alunoId: alunos[0]?.id || ''
+                })
+              }
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Adicionar Paciente
+            </button>
+          )}
+
           <button
             type="button"
-            onClick={handleAdicionarAluno}
-            disabled={criandoAluno || !novoAlunoNome.trim()}
-            className="px-3 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50"
+            onClick={handleExportarCSV}
+            title="Exportar agenda fixa desta turma em formato CSV"
+            className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
           >
-            <Plus className="w-3.5 h-3.5" />
-            Adicionar Aluno
+            <Download className="w-3.5 h-3.5 text-slate-600" />
+            Exportar
           </button>
+
+          {/* Adicionar Aluno Rápido */}
+          <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
+            <input
+              type="text"
+              value={novoAlunoNome}
+              onChange={(e) => setNovoAlunoNome(e.target.value)}
+              placeholder="Novo aluno..."
+              className="text-xs px-2.5 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 w-32"
+              onKeyDown={(e) => e.key === 'Enter' && handleAdicionarAluno()}
+            />
+            <button
+              type="button"
+              onClick={handleAdicionarAluno}
+              disabled={criandoAluno || !novoAlunoNome.trim()}
+              className="px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-all flex items-center gap-1 disabled:opacity-50"
+              title="Cadastrar Aluno na Turma"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Aluno
+            </button>
+          </div>
         </div>
       </div>
 
@@ -273,8 +409,14 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                   <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 pt-1 border-t border-brand-200/50">
                                     <button
                                       type="button"
-                                      title="Editar Paciente"
-                                      onClick={() => handleAbrirCelular(aluno.id, h)}
+                                      title="Editar Nome do Paciente"
+                                      onClick={() =>
+                                        setModalEditarNome({
+                                          isOpen: true,
+                                          item,
+                                          pacienteNome: item.paciente
+                                        })
+                                      }
                                       className="p-1 text-slate-500 hover:text-brand-600 rounded-md hover:bg-white"
                                     >
                                       <Edit2 className="w-3 h-3" />
@@ -427,6 +569,165 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                 className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"
               >
                 Confirmar Mudança
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Adicionar Novo Paciente */}
+      {modalNovoPaciente.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div id="modal-adicionar-paciente" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h4 className="text-sm font-bold text-slate-800">Adicionar Paciente na Agenda Fixa</h4>
+              <button
+                type="button"
+                onClick={() => setModalNovoPaciente({ ...modalNovoPaciente, isOpen: false })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Nome do Paciente</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={modalNovoPaciente.pacienteNome}
+                  onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, pacienteNome: e.target.value })}
+                  placeholder="Nome completo do paciente..."
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSalvarNovoPaciente()}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Dia da Semana</label>
+                  <select
+                    value={modalNovoPaciente.diaSemana}
+                    onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, diaSemana: e.target.value })}
+                    className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
+                  >
+                    {DIAS_SEMANA.map((dia) => (
+                      <option key={dia} value={dia}>
+                        {dia}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Horário</label>
+                  <select
+                    value={modalNovoPaciente.horario}
+                    onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, horario: e.target.value })}
+                    className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
+                  >
+                    {[...HORARIOS_MANHA, ...HORARIOS_TARDE].map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Aluno Responsável</label>
+                <select
+                  value={modalNovoPaciente.alunoId}
+                  onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, alunoId: e.target.value })}
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
+                >
+                  <option value="">Selecione o aluno...</option>
+                  {alunos.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalNovoPaciente({ ...modalNovoPaciente, isOpen: false })}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSalvarNovoPaciente}
+                disabled={!modalNovoPaciente.pacienteNome.trim() || !modalNovoPaciente.alunoId}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Nome do Paciente */}
+      {modalEditarNome.isOpen && modalEditarNome.item && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div id="modal-editar-nome" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h4 className="text-sm font-bold text-slate-800">Editar Nome do Paciente</h4>
+              <button
+                type="button"
+                onClick={() => setModalEditarNome({ isOpen: false, pacienteNome: '' })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl space-y-1">
+              <div><strong>Dia:</strong> {modalEditarNome.item.dia_semana}</div>
+              <div><strong>Horário:</strong> {formatarHorarioExibicao(modalEditarNome.item.horario)}</div>
+              <div>
+                <strong>Aluno:</strong>{' '}
+                {modalEditarNome.item.agenda_alunos?.nome ||
+                  alunos.find((a) => a.id === modalEditarNome.item?.aluno_id)?.nome ||
+                  'Aluno da Turma'}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Nome do Paciente</label>
+              <input
+                type="text"
+                autoFocus
+                value={modalEditarNome.pacienteNome}
+                onChange={(e) => setModalEditarNome({ ...modalEditarNome, pacienteNome: e.target.value })}
+                placeholder="Nome do paciente..."
+                className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                onKeyDown={(e) => e.key === 'Enter' && handleSalvarEdicaoNome()}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalEditarNome({ isOpen: false, pacienteNome: '' })}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSalvarEdicaoNome}
+                disabled={!modalEditarNome.pacienteNome.trim()}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Salvar
               </button>
             </div>
           </div>
