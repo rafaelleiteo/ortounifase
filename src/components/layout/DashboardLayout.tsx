@@ -16,6 +16,26 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 }) => {
   const { user, profile, previewRole, setPreviewRole } = useAuth();
 
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ortounifase_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('ortounifase_sidebar_collapsed', String(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
+
   const isCoordenadorOrAdmin = profile && (profile.papel === 'coordenador' || profile.papel === 'admin_master');
 
   const getPreviewRoleLabel = (role: PreviewRole) => {
@@ -27,7 +47,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   return (
     <div className="min-h-screen bg-slate-50 flex">
       {/* Lateral Sidebar Navigation */}
-      <Sidebar />
+      <Sidebar isCollapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50">

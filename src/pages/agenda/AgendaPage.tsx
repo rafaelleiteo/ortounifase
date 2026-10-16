@@ -272,27 +272,27 @@ export const AgendaPage: React.FC = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header da Página */}
-        <div className="bg-white border-b border-slate-200/80 -mx-6 -mt-6 p-6 sm:px-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center shadow-xs">
-                <Calendar className="w-6 h-6" />
+      <div className="space-y-4">
+        {/* Header Compacto da Página */}
+        <div className="bg-white border-b border-slate-200/80 -mx-6 -mt-6 px-6 py-3 sm:px-8 sm:py-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shadow-2xs shrink-0">
+                <Calendar className="w-4.5 h-4.5" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-snug">
                   Agenda da Especialização
                 </h1>
-                <p className="text-xs text-slate-500">
+                <p className="text-[11px] text-slate-500 leading-tight">
                   Gestão clínica por turma, controle fixo vs. mensal e conciliação de inconsistências
                 </p>
               </div>
             </div>
 
-            {/* Seletor de Turma */}
-            <div className="flex items-center gap-2 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/60 self-start sm:self-auto">
-              <span className="text-xs font-bold text-slate-500 px-2 uppercase tracking-wider">
+            {/* Seletor de Turma Compacto */}
+            <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
+              <span className="text-[11px] font-bold text-slate-500 px-1.5 uppercase tracking-wider">
                 Turma:
               </span>
               {turmas.map((t) => (
@@ -300,9 +300,9 @@ export const AgendaPage: React.FC = () => {
                   key={t.id}
                   type="button"
                   onClick={() => setTurmaSelecionada(t)}
-                  className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
                     turmaSelecionada?.id === t.id
-                      ? 'bg-white text-brand-600 shadow-sm font-extrabold'
+                      ? 'bg-white text-brand-600 shadow-2xs font-extrabold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -312,47 +312,47 @@ export const AgendaPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Abas de Navegação */}
-          <div className="flex items-center gap-2 mt-6 border-t border-slate-100 pt-4">
+          {/* Abas de Navegação Compactas */}
+          <div className="flex items-center gap-1.5 mt-2.5 border-t border-slate-100 pt-2">
             <button
               type="button"
               onClick={() => setAbaAtiva('fixa')}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                 abaAtiva === 'fixa'
                   ? 'bg-brand-50 text-brand-600 border border-brand-200'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Layers className="w-4 h-4" />
+              <Layers className="w-3.5 h-3.5" />
               Agenda Fixa
             </button>
 
             <button
               type="button"
               onClick={() => setAbaAtiva('mensal')}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                 abaAtiva === 'mensal'
                   ? 'bg-brand-50 text-brand-600 border border-brand-200'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <FileSpreadsheet className="w-4 h-4" />
+              <FileSpreadsheet className="w-3.5 h-3.5" />
               Agenda Mensal
             </button>
 
             <button
               type="button"
               onClick={() => setAbaAtiva('inconsistencias')}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                 abaAtiva === 'inconsistencias'
                   ? 'bg-brand-50 text-brand-600 border border-brand-200'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <AlertOctagon className="w-4 h-4" />
+              <AlertOctagon className="w-3.5 h-3.5" />
               Relatório de Inconsistências
               {inconsistencias.length > 0 && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
                   {inconsistencias.length}
                 </span>
               )}
@@ -362,9 +362,9 @@ export const AgendaPage: React.FC = () => {
               type="button"
               onClick={carregarDadosTurma}
               title="Recarregar dados"
-              className="ml-auto p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+              className="ml-auto p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
             >
-              <RefreshCw className={`w-4 h-4 ${carregandoDados ? 'animate-spin text-brand-600' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${carregandoDados ? 'animate-spin text-brand-600' : ''}`} />
             </button>
           </div>
         </div>

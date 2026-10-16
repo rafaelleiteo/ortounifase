@@ -15,11 +15,13 @@ import {
   Trash2,
   Edit2,
   Clock,
+  CalendarClock,
   ArrowRightLeft,
   X,
   Check,
   ChevronDown,
-  Download
+  Download,
+  AlertTriangle
 } from 'lucide-react';
 
 interface AgendaFixaTabProps {
@@ -97,6 +99,21 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   }>({
     isOpen: false,
     pacienteNome: ''
+  });
+
+  // Modal para "Mover Paciente de Horário / Dia / Aluno"
+  const [modalMoverHorario, setModalMoverHorario] = useState<{
+    isOpen: boolean;
+    item?: AgendaFixaItem;
+    diaSemana: string;
+    horario: string;
+    alunoId: string;
+    erro?: string;
+  }>({
+    isOpen: false,
+    diaSemana: 'QUINTA',
+    horario: '08:00',
+    alunoId: ''
   });
 
   const horarios =
@@ -228,6 +245,48 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       paciente: moverModal.item.paciente
     });
     setMoverModal({ isOpen: false, novoAlunoId: '' });
+  };
+
+  const handleConfirmarMoverHorario = async () => {
+    if (!modalMoverHorario.item || !modalMoverHorario.alunoId) return;
+
+    const { item, diaSemana, horario, alunoId } = modalMoverHorario;
+    const hNormDestino = normalizarHorario(horario);
+
+    // Validação: verificar se já existe outro paciente no slot de destino
+    const conflito = agendaFixa.find(
+      (outro) =>
+        outro.id !== item.id &&
+        (outro.dia_semana || '').toUpperCase() === diaSemana.toUpperCase() &&
+        normalizarHorario(outro.horario) === hNormDestino &&
+        outro.aluno_id === alunoId
+    );
+
+    if (conflito) {
+      const alunoNome = alunos.find((a) => a.id === alunoId)?.nome || 'o aluno selecionado';
+      setModalMoverHorario((prev) => ({
+        ...prev,
+        erro: `Horário ocupado! Já existe o paciente "${conflito.paciente}" agendado para ${alunoNome} na ${diaSemana} às ${formatarHorarioExibicao(horario)}. Escolha outro slot ou aluno.`
+      }));
+      return;
+    }
+
+    await onSalvarItem({
+      id: item.id,
+      paciente: item.paciente,
+      dia_semana: diaSemana,
+      horario: hNormDestino,
+      aluno_id: alunoId,
+      turma_id: turmaId
+    });
+
+    setModalMoverHorario({
+      isOpen: false,
+      diaSemana: 'QUINTA',
+      horario: '08:00',
+      alunoId: '',
+      erro: undefined
+    });
   };
 
   const handleAdicionarAluno = async () => {
@@ -420,6 +479,23 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                       className="p-1 text-slate-500 hover:text-brand-600 rounded-md hover:bg-white"
                                     >
                                       <Edit2 className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Mover Paciente (Horário/Dia)"
+                                      onClick={() =>
+                                        setModalMoverHorario({
+                                          isOpen: true,
+                                          item,
+                                          diaSemana: item.dia_semana || diaSelecionado,
+                                          horario: formatarHorarioExibicao(item.horario),
+                                          alunoId: item.aluno_id,
+                                          erro: undefined
+                                        })
+                                      }
+                                      className="p-1 text-slate-500 hover:text-blue-600 rounded-md hover:bg-white"
+                                    >
+                                      <CalendarClock className="w-3 h-3" />
                                     </button>
                                     <button
                                       type="button"
@@ -728,6 +804,128 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                 className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"
               >
                 Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Mover Paciente (Dia / Horário / Aluno) */}
+      {modalMoverHorario.isOpen && modalMoverHorario.item && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div id="modal-mover-horario" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600">
+                  <CalendarClock className="w-4 h-4" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800">Mover Paciente</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalMoverHorario({ ...modalMoverHorario, isOpen: false, erro: undefined })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl space-y-1 border border-slate-100">
+              <div><strong>Paciente:</strong> {modalMoverHorario.item.paciente}</div>
+              <div className="text-slate-500 text-[11px]">
+                <strong>Posição Atual:</strong> {modalMoverHorario.item.dia_semana} às {formatarHorarioExibicao(modalMoverHorario.item.horario)} — Aluno: {modalMoverHorario.item.agenda_alunos?.nome || alunos.find((a) => a.id === modalMoverHorario.item?.aluno_id)?.nome || 'Atual'}
+              </div>
+            </div>
+
+            {modalMoverHorario.erro && (
+              <div id="mover-horario-erro" className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-xs flex items-start gap-2 shadow-2xs">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="leading-snug">{modalMoverHorario.erro}</div>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Novo Dia da Semana</label>
+                  <select
+                    value={modalMoverHorario.diaSemana}
+                    onChange={(e) =>
+                      setModalMoverHorario({
+                        ...modalMoverHorario,
+                        diaSemana: e.target.value,
+                        erro: undefined
+                      })
+                    }
+                    className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
+                  >
+                    {DIAS_SEMANA.map((dia) => (
+                      <option key={dia} value={dia}>
+                        {dia}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Novo Horário</label>
+                  <select
+                    value={modalMoverHorario.horario}
+                    onChange={(e) =>
+                      setModalMoverHorario({
+                        ...modalMoverHorario,
+                        horario: e.target.value,
+                        erro: undefined
+                      })
+                    }
+                    className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
+                  >
+                    {[...HORARIOS_MANHA, ...HORARIOS_TARDE].map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Aluno Responsável</label>
+                <select
+                  value={modalMoverHorario.alunoId}
+                  onChange={(e) =>
+                    setModalMoverHorario({
+                      ...modalMoverHorario,
+                      alunoId: e.target.value,
+                      erro: undefined
+                    })
+                  }
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
+                >
+                  {alunos.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalMoverHorario({ ...modalMoverHorario, isOpen: false, erro: undefined })}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarMoverHorario}
+                disabled={!modalMoverHorario.alunoId}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Confirmar Mudança
               </button>
             </div>
           </div>
