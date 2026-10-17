@@ -223,7 +223,7 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
       {/* 2. Modal Reagendar / Alterar Horário */}
       {modalReagendar.isOpen && modalReagendar.item && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div id="modal-reagendar-atendimento" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600">
@@ -320,7 +320,7 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
       {/* 3. Modal Trocar Aluno Responsável */}
       {modalTrocarAluno.isOpen && modalTrocarAluno.item && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div id="modal-trocar-aluno" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600">

@@ -14,7 +14,8 @@ import {
   formatarHorarioExibicao,
   isAtendimentoExtra,
   NOME_ATENDIMENTO_EXTRA,
-  DiaSemana
+  DiaSemana,
+  formatarAlteracaoParaRecepcao
 } from '@/lib/agendaTypes';
 import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
@@ -27,7 +28,11 @@ import {
   AlertCircle,
   UserCheck,
   UserPlus,
-  HelpCircle
+  HelpCircle,
+  Plus,
+  FileText,
+  Copy,
+  Check
 } from 'lucide-react';
 import { AgendaCardAtendimento } from './AgendaCardAtendimento';
 import { AgendaModaisAtendimento } from './AgendaModaisAtendimento';
@@ -46,7 +51,7 @@ interface AgendaMensalTabProps {
   onPeriodoChange?: (periodo: TurnoAgenda) => void;
   onAbrirImportModal: () => void;
   onSalvarItem?: (dados: {
-    id: string;
+    id?: string;
     paciente?: string;
     aluno_id?: string | null;
     horario?: string;
@@ -239,6 +244,69 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     diaDefault: diaSelecionado
   });
 
+  // Modal para "+ Adicionar Paciente" na Agenda Mensal
+  const [modalNovoPaciente, setModalNovoPaciente] = useState<{
+    isOpen: boolean;
+    pacienteNome: string;
+    diaSemana: string;
+    horario: string;
+    alunoId: string;
+  }>({
+    isOpen: false,
+    pacienteNome: '',
+    diaSemana: 'QUINTA',
+    horario: '08:00',
+    alunoId: ''
+  });
+
+  // Modal para visualização e cópia do Resumo de Alterações para a Recepção
+  const [modalResumoRecepcao, setModalResumoRecepcao] = useState<{
+    isOpen: boolean;
+    copiado: boolean;
+  }>({
+    isOpen: false,
+    copiado: false
+  });
+
+  const handleSalvarNovoPaciente = async () => {
+    if (!modalNovoPaciente.pacienteNome.trim() || !onSalvarItem) return;
+    const isExtra = modalNovoPaciente.alunoId === 'EXTRA_VIRTUAL' || !modalNovoPaciente.alunoId;
+    await onSalvarItem({
+      paciente: modalNovoPaciente.pacienteNome.trim(),
+      dia_semana: modalNovoPaciente.diaSemana,
+      horario: normalizarHorario(modalNovoPaciente.horario),
+      aluno_id: isExtra ? null : modalNovoPaciente.alunoId
+    });
+    setModalNovoPaciente({
+      isOpen: false,
+      pacienteNome: '',
+      diaSemana: diaSelecionado,
+      horario: '08:00',
+      alunoId: alunosOrdenados[0]?.id || ''
+    });
+  };
+
+  // Mapeamento e estruturação de alterações para a recepção a partir da tabela inconsistencias
+  const listaAlteracoesRecepcao = useMemo(() => {
+    return inconsistencias.map((inc) => {
+      const alunoResp = inc.tipo === 'AUSENTE'
+        ? (inc.aluno_fixa || 'Não informado')
+        : (inc.aluno_mensal || inc.aluno_fixa || 'Não informado');
+
+      return {
+        id: inc.id,
+        paciente: inc.paciente,
+        alunoResp,
+        diaSemana: inc.dia_semana,
+        horario: formatarHorarioExibicao(inc.horario),
+        tipo: inc.tipo,
+        descricao: formatarAlteracaoParaRecepcao(inc),
+        observacao: inc.observacao
+      };
+    });
+  }, [inconsistencias]);
+
+  // Exportação CSV Completa com Coluna e Seção de Resumo para Recepção
   const handleExportarCSV = () => {
     if (agendaMensal.length === 0) {
       alert('Não há registros na Agenda Mensal para exportar.');
@@ -248,11 +316,10 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     const alunoNomeMap = new Map<string, string>();
     alunos.forEach((a) => alunoNomeMap.set(a.id, a.nome));
 
-    const headers = ['dia_semana', 'horario', 'paciente', 'aluno', 'status_inconsistencia'];
+    const headers = ['dia_semana', 'horario', 'paciente', 'aluno', 'status_inconsistencia', 'alteracao_recepcao'];
     const escapeCSV = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
 
     const rows = agendaMensal.map((item) => {
-      // 1. Aluno: nome do aluno oficial, ou valor do campo aluno ou "ATENDIMENTO EXTRA"
       let nomeAluno = 'ATENDIMENTO EXTRA';
       if (item.aluno_id && alunoNomeMap.has(item.aluno_id)) {
         nomeAluno = alunoNomeMap.get(item.aluno_id)!;
@@ -262,7 +329,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         nomeAluno = item.aluno.trim();
       }
 
-      // 2. Status inconsistência no mês
+      // Procura inconsistência correspondente para determinar texto de alteração
       const matchInc = inconsistencias.find((inc) => {
         const mesmoDia = (inc.dia_semana || '').toUpperCase().trim() === (item.dia_semana || '').toUpperCase().trim();
         if (!mesmoDia) return false;
@@ -278,6 +345,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       });
 
       let statusInconsistencia = 'OK';
+      let alteracaoRecepcao = 'Conforme agenda fixa';
+
       if (matchInc) {
         const tNorm = (matchInc.tipo || '').toUpperCase().trim();
         if (tNorm === 'HORARIO_ALTERADO') statusInconsistencia = 'Horário Alterado';
@@ -285,6 +354,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         else if (tNorm === 'PACIENTE_NOVO') statusInconsistencia = 'Paciente Novo';
         else if (tNorm === 'AUSENTE') statusInconsistencia = 'Ausente';
         else statusInconsistencia = matchInc.tipo;
+
+        alteracaoRecepcao = formatarAlteracaoParaRecepcao(matchInc);
       }
 
       return [
@@ -292,11 +363,33 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         escapeCSV(formatarHorarioExibicao(item.horario)),
         escapeCSV(item.paciente),
         escapeCSV(nomeAluno),
-        escapeCSV(statusInconsistencia)
+        escapeCSV(statusInconsistencia),
+        escapeCSV(alteracaoRecepcao)
       ].join(';');
     });
 
-    const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+    // Seção adicional: Resumo de Alterações para a Recepção
+    const headersRecepcao = ['paciente', 'aluno_responsavel', 'dia_semana', 'horario', 'alteracao_realizada'];
+    const rowsRecepcao = listaAlteracoesRecepcao.map((alt) =>
+      [
+        escapeCSV(alt.paciente),
+        escapeCSV(alt.alunoResp),
+        escapeCSV(alt.diaSemana),
+        escapeCSV(alt.horario),
+        escapeCSV(alt.descricao)
+      ].join(';')
+    );
+
+    const secaoRecepcao = [
+      '',
+      escapeCSV('--- RESUMO DE ALTERAÇÕES DO MÊS PARA A RECEPÇÃO ---'),
+      headersRecepcao.join(';'),
+      ...(rowsRecepcao.length > 0
+        ? rowsRecepcao
+        : [escapeCSV('Nenhuma alteração registrada neste mês - todos os atendimentos conformes com a Agenda Fixa.')])
+    ];
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows, ...secaoRecepcao].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -311,6 +404,62 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  // Exportação de CSV exclusivo para a Recepção
+  const handleBaixarCSVResumoRecepcao = () => {
+    const headersRecepcao = ['paciente', 'aluno_responsavel', 'dia_semana', 'horario', 'alteracao_realizada'];
+    const escapeCSV = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
+    const anoMes = mesReferencia.substring(0, 7);
+    const nomeLimpoTurma = turmaNome.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    const rowsRecepcao = listaAlteracoesRecepcao.map((alt) =>
+      [
+        escapeCSV(alt.paciente),
+        escapeCSV(alt.alunoResp),
+        escapeCSV(alt.diaSemana),
+        escapeCSV(alt.horario),
+        escapeCSV(alt.descricao)
+      ].join(';')
+    );
+
+    const csvContent = '\uFEFF' + [
+      escapeCSV(`RESUMO DE ALTERAÇÕES PARA RECEPÇÃO - TURMA ${turmaNome.toUpperCase()} (${anoMes})`),
+      headersRecepcao.join(';'),
+      ...(rowsRecepcao.length > 0 ? rowsRecepcao : [escapeCSV('Nenhuma alteração registrada neste mês.')])
+    ].join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `agenda_mensal_alteracoes_${nomeLimpoTurma}_${anoMes}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // Copiar resumo formatado para envio direto no WhatsApp
+  const handleCopiarWhatsApp = () => {
+    const anoMes = mesReferencia.substring(0, 7);
+    const textoWhatsApp = [
+      `📋 *RESUMO DE ALTERAÇÕES DA AGENDA - ${turmaNome.toUpperCase()} (${anoMes})*`,
+      `Total de alterações: ${listaAlteracoesRecepcao.length}`,
+      '',
+      ...(listaAlteracoesRecepcao.length > 0
+        ? listaAlteracoesRecepcao.map((alt) => {
+            return `• *${alt.paciente}*\n  Aluno: ${alt.alunoResp} | ${alt.diaSemana} às ${alt.horario}\n  ↳ ${alt.descricao}\n`;
+          })
+        : ['Nenhuma alteração registrada neste mês. Todos os atendimentos conformes com a Agenda Fixa.']),
+      '_Gerado pelo Painel de Gestão OrtoUnifase_'
+    ].join('\n');
+
+    navigator.clipboard.writeText(textoWhatsApp);
+    setModalResumoRecepcao((prev) => ({ ...prev, copiado: true }));
+    setTimeout(() => {
+      setModalResumoRecepcao((prev) => ({ ...prev, copiado: false }));
+    }, 2500);
+  };
+
   return (
     <div className="space-y-5">
       {/* Barra Superior de Controles: Dias e Períodos */}
@@ -321,8 +470,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         onPeriodoChange={handlePeriodoChange}
       >
         <div className="flex flex-wrap items-center justify-between gap-4 w-full">
-          {/* Seletor de Mês e Botão Importar */}
-          <div className="flex items-center gap-3">
+          {/* Seletor de Mês e Botões de Ação */}
+          <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mês Ref:</span>
               <input
@@ -333,10 +482,29 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
               />
             </div>
 
+            {isCoordenadorOrAdmin && (
+              <button
+                type="button"
+                onClick={() =>
+                  setModalNovoPaciente({
+                    isOpen: true,
+                    pacienteNome: '',
+                    diaSemana: diaSelecionado,
+                    horario: '08:00',
+                    alunoId: alunosOrdenados[0]?.id || ''
+                  })
+                }
+                className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Adicionar Paciente
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onAbrirImportModal}
-              className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-2 hover:shadow-md"
+              className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5 hover:shadow-md"
             >
               <UploadCloud className="w-3.5 h-3.5" />
               Importar e Comparar
@@ -345,11 +513,26 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
             <button
               type="button"
               onClick={handleExportarCSV}
-              title="Exportar agenda mensal deste mês em formato CSV"
+              title="Exportar agenda mensal deste mês em formato CSV (com coluna e resumo de alterações)"
               className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
             >
               <Download className="w-3.5 h-3.5 text-slate-600" />
               Exportar
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setModalResumoRecepcao({ isOpen: true, copiado: false })}
+              title="Visualizar e exportar resumo de alterações formatado para a recepção (CSV e WhatsApp)"
+              className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
+            >
+              <FileText className="w-3.5 h-3.5 text-emerald-600" />
+              Resumo Recepção
+              {inconsistencias.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200 text-emerald-900 font-bold">
+                  {inconsistencias.length}
+                </span>
+              )}
             </button>
           </div>
 
@@ -545,13 +728,32 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                 </div>
                               ) : (
                                 <div
-                                  className={`h-11 rounded-xl flex items-center justify-center text-[10px] ${
+                                  className={`w-full h-11 border border-dashed rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty transition-all ${
                                     isExtra
-                                      ? 'bg-amber-50/30 border border-dashed border-amber-200/60 text-amber-300'
-                                      : 'bg-slate-50/40 border border-slate-100 text-slate-300'
+                                      ? 'border-amber-200/60 hover:border-amber-300'
+                                      : 'border-slate-200 hover:border-slate-300'
                                   }`}
                                 >
-                                  -
+                                  {isCoordenadorOrAdmin ? (
+                                    <button
+                                      type="button"
+                                      title="Adicionar Paciente neste horário"
+                                      onClick={() =>
+                                        setModalNovoPaciente({
+                                          isOpen: true,
+                                          pacienteNome: '',
+                                          diaSemana: diaSelecionado,
+                                          horario: h,
+                                          alunoId: isExtra ? (extraAlunoCadastrado?.id || 'EXTRA_VIRTUAL') : aluno.id
+                                        })
+                                      }
+                                      className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-300">-</span>
+                                  )}
                                 </div>
                               )}
                             </td>
@@ -584,6 +786,209 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         onSalvarTrocarAluno={handleSalvarTrocaAluno}
         onUpdateModalTrocarAluno={(p) => setModalTrocarAluno((prev) => ({ ...prev, ...p }))}
       />
+
+      {/* Modal Adicionar Novo Paciente na Agenda Mensal */}
+      {modalNovoPaciente.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div id="modal-adicionar-paciente-mensal" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">Adicionar Paciente na Agenda Mensal</h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Mês de Referência: <strong>{mesReferencia.substring(0, 7)}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalNovoPaciente({ ...modalNovoPaciente, isOpen: false })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Nome do Paciente <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="input-novo-paciente-mensal-nome"
+                  type="text"
+                  autoFocus
+                  value={modalNovoPaciente.pacienteNome}
+                  onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, pacienteNome: e.target.value })}
+                  placeholder="Nome completo do paciente..."
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSalvarNovoPaciente()}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Dia da Semana</label>
+                  <select
+                    value={modalNovoPaciente.diaSemana}
+                    onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, diaSemana: e.target.value })}
+                    className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
+                  >
+                    {DIAS_SEMANA.map((dia) => (
+                      <option key={dia} value={dia}>
+                        {dia}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Horário</label>
+                  <select
+                    value={modalNovoPaciente.horario}
+                    onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, horario: e.target.value })}
+                    className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
+                  >
+                    {[...HORARIOS_MANHA, ...HORARIOS_TARDE].map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Aluno Responsável</label>
+                <select
+                  value={modalNovoPaciente.alunoId}
+                  onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, alunoId: e.target.value })}
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
+                >
+                  <option value="">Selecione o aluno...</option>
+                  {alunosOrdenados.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalNovoPaciente({ ...modalNovoPaciente, isOpen: false })}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSalvarNovoPaciente}
+                disabled={!modalNovoPaciente.pacienteNome.trim()}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Adicionar Paciente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Resumo de Alterações para Recepção */}
+      {modalResumoRecepcao.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div id="modal-resumo-recepcao" className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 p-6 space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">
+                    Resumo de Alterações para a Recepção
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Turma {turmaNome} — Mês de Referência: {mesReferencia.substring(0, 7)} ({listaAlteracoesRecepcao.length} {listaAlteracoesRecepcao.length === 1 ? 'alteração' : 'alterações'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalResumoRecepcao({ ...modalResumoRecepcao, isOpen: false })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Lista com scroll */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {listaAlteracoesRecepcao.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-500 bg-slate-50 rounded-xl border border-slate-100 p-6">
+                  Nenhuma alteração registrada neste mês. Todos os atendimentos estão conformes com a Agenda Fixa.
+                </div>
+              ) : (
+                listaAlteracoesRecepcao.map((alt) => (
+                  <div
+                    key={alt.id}
+                    className="p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 transition-colors flex items-start justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-900 mb-0.5 flex items-center gap-2">
+                        <span>{alt.paciente}</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200/80 text-slate-700">
+                          {alt.diaSemana} às {alt.horario}
+                        </span>
+                      </div>
+                      <div className="text-slate-500 text-[11px] mb-1">
+                        Aluno Responsável: <strong className="text-slate-700">{alt.alunoResp}</strong>
+                      </div>
+                      <div className="text-emerald-800 font-semibold bg-emerald-50/80 border border-emerald-200/80 px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5 text-[11px]">
+                        <span>↳</span>
+                        <span>{alt.descricao}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Ações inferiores: Copiar para WhatsApp e Baixar CSV */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              <div className="text-[11px] text-slate-400">
+                Copie o texto para repassar por WhatsApp ou baixe o arquivo CSV exclusivo.
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopiarWhatsApp}
+                  className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {modalResumoRecepcao.copiado ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      Copiado para WhatsApp!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      Copiar p/ WhatsApp
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBaixarCSVResumoRecepcao}
+                  className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-600" />
+                  Baixar CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

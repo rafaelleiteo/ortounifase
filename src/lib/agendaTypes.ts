@@ -209,3 +209,36 @@ export function getDescricaoBloqueio(paciente: string): string {
   return limpo || paciente;
 }
 
+/**
+ * Traduz o tipo de inconsistência técnica em uma frase de negócio clara para a recepção.
+ * Ex: "Reagendado de 14:00 para 13:30", "Aluno trocado: Marcus → Livia", "Paciente novo incluído", "Atendimento removido / Não agendado no mês"
+ */
+export function formatarAlteracaoParaRecepcao(inc: {
+  tipo: string;
+  observacao?: string | null;
+  aluno_fixa?: string | null;
+  aluno_mensal?: string | null;
+  horario?: string;
+}): string {
+  const tNorm = (inc.tipo || '').toUpperCase().trim();
+  if (tNorm === 'HORARIO_ALTERADO') {
+    if (inc.observacao && (inc.observacao.includes('➔') || inc.observacao.includes('->') || inc.observacao.includes('→'))) {
+      const limpo = inc.observacao.replace(/\s*(➔|->|→)\s*/g, ' para ');
+      return `Reagendado de ${limpo}`;
+    }
+    return `Reagendado para ${formatarHorarioExibicao(inc.horario || '')}`;
+  }
+  if (tNorm === 'ALUNO_TROCADO') {
+    const f = inc.aluno_fixa || 'Anterior';
+    const m = inc.aluno_mensal || 'Novo';
+    return `Aluno trocado: ${f} → ${m}`;
+  }
+  if (tNorm === 'PACIENTE_NOVO') {
+    return 'Paciente novo incluído';
+  }
+  if (tNorm === 'AUSENTE') {
+    return 'Atendimento removido / Não agendado no mês';
+  }
+  return inc.observacao || inc.tipo || 'Alteração realizada';
+}
+

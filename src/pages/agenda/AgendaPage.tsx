@@ -228,7 +228,7 @@ export const AgendaPage: React.FC = () => {
 
   // Ações da Agenda Mensal
   const handleSalvarItemMensal = async (dados: {
-    id: string;
+    id?: string;
     paciente?: string;
     aluno_id?: string | null;
     horario?: string;
@@ -238,21 +238,43 @@ export const AgendaPage: React.FC = () => {
     try {
       setCarregandoDados(true);
 
-      const updatePayload: any = {};
-      if (dados.paciente !== undefined) updatePayload.paciente = dados.paciente.trim();
-      if (dados.horario !== undefined) updatePayload.horario = normalizarHorario(dados.horario);
-      if (dados.dia_semana !== undefined) updatePayload.dia_semana = dados.dia_semana;
+      const alunoObj = dados.aluno_id ? alunos.find((a) => a.id === dados.aluno_id) : null;
+      const nomeAluno = alunoObj ? alunoObj.nome : 'ATENDIMENTO EXTRA';
 
-      if (dados.aluno_id !== undefined) {
-        updatePayload.aluno_id = dados.aluno_id;
-        const alunoObj = alunos.find((a) => a.id === dados.aluno_id);
-        updatePayload.aluno = alunoObj ? alunoObj.nome : 'ATENDIMENTO EXTRA';
+      if (dados.id) {
+        const updatePayload: any = {};
+        if (dados.paciente !== undefined) updatePayload.paciente = dados.paciente.trim();
+        if (dados.horario !== undefined) updatePayload.horario = normalizarHorario(dados.horario);
+        if (dados.dia_semana !== undefined) updatePayload.dia_semana = dados.dia_semana;
+
+        if (dados.aluno_id !== undefined) {
+          updatePayload.aluno_id = dados.aluno_id;
+          updatePayload.aluno = nomeAluno;
+        }
+
+        const { error: errUpdate } = await supabase
+          .from('agenda_mensal')
+          .update(updatePayload)
+          .eq('id', dados.id);
+        if (errUpdate) throw errUpdate;
+      } else {
+        if (!dados.paciente || !dados.horario || !dados.dia_semana) {
+          throw new Error('Paciente, horário e dia da semana são obrigatórios');
+        }
+        const insertPayload: any = {
+          turma_id: turmaSelecionada.id,
+          mes_referencia: mesReferencia,
+          paciente: dados.paciente.trim(),
+          horario: normalizarHorario(dados.horario),
+          dia_semana: dados.dia_semana,
+          aluno_id: dados.aluno_id || null,
+          aluno: nomeAluno
+        };
+        const { error: errInsert } = await supabase
+          .from('agenda_mensal')
+          .insert(insertPayload);
+        if (errInsert) throw errInsert;
       }
-
-      const { error: errUpdate } = await supabase
-        .from('agenda_mensal')
-        .update(updatePayload)
-        .eq('id', dados.id);
 
       // Recalcula inconsistências preservando status revisados
       try {
