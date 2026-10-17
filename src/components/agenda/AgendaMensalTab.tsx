@@ -123,7 +123,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
     if (!match) return null;
 
-    if (match.tipo === 'AUSENTE') {
+    const tNorm = (match.tipo || '').toUpperCase().trim();
+    if (tNorm === 'AUSENTE') {
       return {
         tipo: 'AUSENTE',
         corBorder: 'border-rose-400 bg-rose-50/70 text-rose-900',
@@ -132,7 +133,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         detalhe: match.observacao || 'Paciente não compareceu no horário habitual da agenda fixa'
       };
     }
-    if (match.tipo === 'ALUNO_TROCADO') {
+    if (tNorm === 'ALUNO_TROCADO') {
       return {
         tipo: 'ALUNO_TROCADO',
         corBorder: 'border-amber-400 bg-amber-50/70 text-amber-900',
@@ -141,7 +142,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         detalhe: `Fixa: ${match.aluno_fixa || 'Outro'} ➔ Mensal: ${match.aluno_mensal || 'Outro'}`
       };
     }
-    if (match.tipo === 'PACIENTE_NOVO') {
+    if (tNorm === 'PACIENTE_NOVO') {
       return {
         tipo: 'PACIENTE_NOVO',
         corBorder: 'border-emerald-400 bg-emerald-50/70 text-emerald-900',
@@ -150,7 +151,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         detalhe: 'Não cadastrado neste dia na agenda fixa'
       };
     }
-    if (match.tipo === 'HORARIO_ALTERADO') {
+    if (tNorm === 'HORARIO_ALTERADO') {
       return {
         tipo: 'HORARIO_ALTERADO',
         corBorder: 'border-blue-400 bg-blue-50/70 text-blue-900',
@@ -159,7 +160,13 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         detalhe: match.observacao ? `Horário alterado: ${match.observacao}` : 'Horário alterado em relação à agenda fixa'
       };
     }
-    return null;
+    return {
+      tipo: match.tipo,
+      corBorder: 'border-slate-300 bg-slate-50 text-slate-800',
+      badge: 'bg-slate-100 text-slate-800 border-slate-300',
+      label: match.tipo || 'Inconsistência',
+      detalhe: match.observacao || 'Inconsistência identificada'
+    };
   };
 
   // Também verificar se há pacientes AUSENTES na fixa para esse dia/horário que não estão em nenhuma célula do mensal

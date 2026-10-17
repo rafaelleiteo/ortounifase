@@ -59,8 +59,9 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
     return true;
   });
 
-  const getTipoBadge = (tipo: InconsistenciaItem['tipo']) => {
-    switch (tipo) {
+  const getTipoBadge = (tipo?: string | null) => {
+    const tNorm = (tipo || '').toUpperCase().trim();
+    switch (tNorm) {
       case 'AUSENTE':
         return {
           label: 'Ausente',
@@ -84,6 +85,12 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
           label: 'Horário Alterado',
           classes: 'bg-blue-100 text-blue-800 border-blue-300',
           dot: 'bg-blue-500'
+        };
+      default:
+        return {
+          label: tipo || 'Inconsistência',
+          classes: 'bg-slate-100 text-slate-800 border-slate-300',
+          dot: 'bg-slate-500'
         };
     }
   };
@@ -196,10 +203,10 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
                         {/* Tipo Badge & Horário */}
                         <div className="flex items-center justify-between gap-2">
                           <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1.5 ${badge.classes}`}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1.5 ${badge?.classes || 'bg-slate-100 text-slate-800 border-slate-300'}`}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`}></span>
-                            {badge.label}
+                            <span className={`w-1.5 h-1.5 rounded-full ${badge?.dot || 'bg-slate-500'}`}></span>
+                            {badge?.label || item.tipo}
                           </span>
                           <span className="text-[11px] font-mono text-slate-500 font-semibold flex items-center gap-1">
                             <Clock className="w-3 h-3 text-slate-400" />
