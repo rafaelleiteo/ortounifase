@@ -12,8 +12,10 @@ import {
   getHorariosPorTurno,
   normalizarHorario,
   isAtendimentoExtra,
-  NOME_ATENDIMENTO_EXTRA
+  NOME_ATENDIMENTO_EXTRA,
+  DiaSemana
 } from '@/lib/agendaTypes';
+import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
   Calendar,
   User,
@@ -187,94 +189,58 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Barra de Controles: Seletor de Mês, Importar JSON, Dias e Turnos */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        {/* Seletor de Mês e Botão Importar */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mês Ref:</span>
-            <input
-              type="month"
-              value={mesReferencia.substring(0, 7)}
-              onChange={(e) => onMesReferenciaChange(`${e.target.value}-01`)}
-              className="text-xs font-bold text-slate-800 px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-slate-50"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={onAbrirImportModal}
-            className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-2 hover:shadow-md"
-          >
-            <UploadCloud className="w-3.5 h-3.5" />
-            Importar e Comparar
-          </button>
-        </div>
-
-        {/* Legenda de Cores de Inconsistência */}
-        <div className="flex items-center gap-3 text-[11px] font-semibold bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
-          <span className="text-slate-500 font-bold">Legenda:</span>
-          <div className="flex items-center gap-1.5 text-rose-700">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-            Ausente
-          </div>
-          <div className="flex items-center gap-1.5 text-amber-700">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            Aluno Trocado
-          </div>
-          <div className="flex items-center gap-1.5 text-blue-700">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-            Horário Alterado
-          </div>
-          <div className="flex items-center gap-1.5 text-emerald-700">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            Paciente Novo
-          </div>
-        </div>
-
-        {/* Seletor de Dia e Turno */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Dia da Semana:</span>
-            <div className="flex bg-slate-100 p-1 rounded-xl">
-              {DIAS_SEMANA.map((dia) => (
-                <button
-                  key={dia}
-                  type="button"
-                  onClick={() => handleDiaChange(dia)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                    diaSelecionado === dia
-                      ? 'bg-white text-brand-600 shadow-xs font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {dia}
-                </button>
-              ))}
+      {/* Barra Superior de Controles: Dias e Períodos */}
+      <AgendaFiltrosHeader
+        diaSelecionado={diaSelecionado as DiaSemana}
+        onDiaChange={handleDiaChange}
+        periodo={periodo}
+        onPeriodoChange={handlePeriodoChange}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-4 w-full">
+          {/* Seletor de Mês e Botão Importar */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mês Ref:</span>
+              <input
+                type="month"
+                value={mesReferencia.substring(0, 7)}
+                onChange={(e) => onMesReferenciaChange(`${e.target.value}-01`)}
+                className="text-xs font-bold text-slate-800 px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-slate-50"
+              />
             </div>
+
+            <button
+              type="button"
+              onClick={onAbrirImportModal}
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-2 hover:shadow-md"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              Importar e Comparar
+            </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Turno:</span>
-            <div className="flex bg-slate-100 p-1 rounded-xl">
-              {OPCOES_TURNO.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => handlePeriodoChange(opt.id)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                    periodo === opt.id
-                      ? 'bg-white text-slate-900 shadow-xs font-bold'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {opt.id === 'TODOS' ? opt.label : `${opt.label} (${opt.descricao})`}
-                </button>
-              ))}
+          {/* Legenda de Cores de Inconsistência */}
+          <div className="flex items-center gap-3 text-[11px] font-semibold bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+            <span className="text-slate-500 font-bold">Legenda:</span>
+            <div className="flex items-center gap-1.5 text-rose-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              Ausente
+            </div>
+            <div className="flex items-center gap-1.5 text-amber-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+              Aluno Trocado
+            </div>
+            <div className="flex items-center gap-1.5 text-blue-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+              Horário Alterado
+            </div>
+            <div className="flex items-center gap-1.5 text-emerald-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+              Paciente Novo
             </div>
           </div>
         </div>
-      </div>
+      </AgendaFiltrosHeader>
 
       {/* Painel de Ausentes identificados para o Dia Selecionado */}
       {ausentesDoDia.length > 0 && (

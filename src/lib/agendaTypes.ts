@@ -141,6 +141,7 @@ export function getTurnoDeHorario(horario?: string | null): 'MANHA' | 'TARDE' {
 }
 
 export const DIAS_SEMANA = ['QUINTA', 'SEXTA', 'SABADO'] as const;
+export type DiaSemana = typeof DIAS_SEMANA[number];
 
 export function normalizarHorario(h: string): string {
   if (!h) return '';
