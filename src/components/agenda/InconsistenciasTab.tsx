@@ -3,6 +3,9 @@ import {
   InconsistenciaItem,
   AgendaAluno,
   DIAS_SEMANA,
+  TurnoAgenda,
+  OPCOES_TURNO,
+  getTurnoDeHorario,
   formatarHorarioExibicao
 } from '@/lib/agendaTypes';
 import {
@@ -22,6 +25,10 @@ interface InconsistenciasTabProps {
   alunos: AgendaAluno[];
   mesReferencia: string;
   onAtualizarStatus: (id: string, novoStatus: InconsistenciaItem['status'], obs?: string) => Promise<void>;
+  diaSelecionado?: string;
+  onDiaSelecionadoChange?: (dia: string) => void;
+  periodo?: TurnoAgenda;
+  onPeriodoChange?: (periodo: TurnoAgenda) => void;
 }
 
 const STATUS_COLUMNS: Array<{
@@ -40,16 +47,40 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
   inconsistencias,
   alunos,
   mesReferencia,
-  onAtualizarStatus
+  onAtualizarStatus,
+  diaSelecionado,
+  onDiaSelecionadoChange,
+  periodo = 'TODOS',
+  onPeriodoChange
 }) => {
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS');
-  const [filtroDia, setFiltroDia] = useState<string>('TODOS');
+
+  // Estado local para dia se não fornecido
+  const [filtroDiaLocal, setFiltroDiaLocal] = useState<string>('TODOS');
+  const filtroDia = diaSelecionado !== undefined ? diaSelecionado : filtroDiaLocal;
+  const handleDiaChange = (val: string) => {
+    if (onDiaSelecionadoChange) onDiaSelecionadoChange(val);
+    else setFiltroDiaLocal(val);
+  };
+
+  // Estado local para turno se não fornecido
+  const [filtroTurnoLocal, setFiltroTurnoLocal] = useState<TurnoAgenda>('TODOS');
+  const filtroTurno = periodo !== undefined ? periodo : filtroTurnoLocal;
+  const handleTurnoChange = (val: TurnoAgenda) => {
+    if (onPeriodoChange) onPeriodoChange(val);
+    else setFiltroTurnoLocal(val);
+  };
+
   const [filtroAluno, setFiltroAluno] = useState<string>('TODOS');
   const [observacoesLocais, setObservacoesLocais] = useState<Record<string, string>>({});
 
   const itensFiltrados = inconsistencias.filter((item) => {
     if (filtroTipo !== 'TODOS' && item.tipo !== filtroTipo) return false;
     if (filtroDia !== 'TODOS' && (item.dia_semana || '').toUpperCase() !== filtroDia.toUpperCase()) return false;
+    if (filtroTurno !== 'TODOS') {
+      const turnoItem = getTurnoDeHorario(item.horario);
+      if (turnoItem !== filtroTurno) return false;
+    }
     if (filtroAluno !== 'TODOS') {
       const nomeAlunoFiltro = filtroAluno.toLowerCase();
       const matchFixa = item.aluno_fixa?.toLowerCase().includes(nomeAlunoFiltro);
@@ -126,13 +157,26 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
           {/* Filtro por Dia */}
           <select
             value={filtroDia}
-            onChange={(e) => setFiltroDia(e.target.value)}
+            onChange={(e) => handleDiaChange(e.target.value)}
             className="text-xs px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-slate-50 font-medium"
           >
             <option value="TODOS">Todos os Dias</option>
             {DIAS_SEMANA.map((d) => (
               <option key={d} value={d}>
                 {d}
+              </option>
+            ))}
+          </select>
+
+          {/* Filtro por Turno */}
+          <select
+            value={filtroTurno}
+            onChange={(e) => handleTurnoChange(e.target.value as TurnoAgenda)}
+            className="text-xs px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-slate-50 font-medium"
+          >
+            {OPCOES_TURNO.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.id === 'TODOS' ? 'Todos os Turnos' : `${opt.label} (${opt.descricao})`}
               </option>
             ))}
           </select>

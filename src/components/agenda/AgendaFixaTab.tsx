@@ -5,6 +5,10 @@ import {
   HORARIOS_MANHA,
   HORARIOS_TARDE,
   DIAS_SEMANA,
+  TurnoAgenda,
+  OPCOES_TURNO,
+  HORARIO_DIVISOR_TURNO,
+  getHorariosPorTurno,
   normalizarHorario,
   formatarHorarioExibicao,
   isAtendimentoExtra
@@ -31,6 +35,10 @@ interface AgendaFixaTabProps {
   turmaNome: string;
   alunos: AgendaAluno[];
   agendaFixa: AgendaFixaItem[];
+  diaSelecionado?: string;
+  onDiaSelecionadoChange?: (dia: string) => void;
+  periodo?: TurnoAgenda;
+  onPeriodoChange?: (periodo: TurnoAgenda) => void;
   onSalvarItem: (item: Partial<AgendaFixaItem>) => Promise<void>;
   onRemoverItem: (id: string) => Promise<void>;
   onCriarAluno: (nome: string) => Promise<void>;
@@ -42,13 +50,24 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   turmaNome,
   alunos,
   agendaFixa,
+  diaSelecionado: diaProp,
+  onDiaSelecionadoChange,
+  periodo: periodoProp,
+  onPeriodoChange,
   onSalvarItem,
   onRemoverItem,
   onCriarAluno,
   isCoordenadorOrAdmin = true
 }) => {
-  const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
-  const [periodo, setPeriodo] = useState<'MANHA' | 'TARDE' | 'TODOS'>('TODOS');
+  const [diaLocal, setDiaLocal] = useState<string>('QUINTA');
+  const diaSelecionadoRaw = diaProp !== undefined ? diaProp : diaLocal;
+  const diaSelecionado = (diaSelecionadoRaw && diaSelecionadoRaw !== 'TODOS') ? diaSelecionadoRaw : 'QUINTA';
+  const handleDiaChange = onDiaSelecionadoChange || setDiaLocal;
+
+  const [periodoLocal, setPeriodoLocal] = useState<TurnoAgenda>('TODOS');
+  const periodo = periodoProp !== undefined ? periodoProp : periodoLocal;
+  const handlePeriodoChange = onPeriodoChange || setPeriodoLocal;
+
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [criandoAluno, setCriandoAluno] = useState<boolean>(false);
 
@@ -147,12 +166,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     descricao: ''
   });
 
-  const horarios =
-    periodo === 'MANHA'
-      ? HORARIOS_MANHA
-      : periodo === 'TARDE'
-      ? HORARIOS_TARDE
-      : [...HORARIOS_MANHA, ...HORARIOS_TARDE];
+  const horarios = getHorariosPorTurno(periodo);
 
   // Indexa itens por chave: alunoId_horarioNormalizado
   const itemMap = new Map<string, AgendaFixaItem>();
@@ -363,7 +377,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               <button
                 key={dia}
                 type="button"
-                onClick={() => setDiaSelecionado(dia)}
+                onClick={() => handleDiaChange(dia)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                   diaSelecionado === dia
                     ? 'bg-white text-brand-600 shadow-xs font-bold'
@@ -376,22 +390,22 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
           </div>
         </div>
 
-        {/* Filtro de Período */}
+        {/* Filtro de Período / Turno */}
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Turno:</span>
           <div className="flex bg-slate-100 p-1 rounded-xl">
-            {(['TODOS', 'MANHA', 'TARDE'] as const).map((p) => (
+            {OPCOES_TURNO.map((opt) => (
               <button
-                key={p}
+                key={opt.id}
                 type="button"
-                onClick={() => setPeriodo(p)}
+                onClick={() => handlePeriodoChange(opt.id)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  periodo === p
+                  periodo === opt.id
                     ? 'bg-white text-slate-900 shadow-xs font-bold'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                {p === 'TODOS' ? 'Todos os Horários' : p === 'MANHA' ? 'Manhã (08h - 11h30)' : 'Tarde (13h30 - 15h45)'}
+                {opt.id === 'TODOS' ? opt.label : `${opt.label} (${opt.descricao})`}
               </button>
             ))}
           </div>
@@ -488,7 +502,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {horarios.map((h) => {
-                  const isTurnoDivisor = h === '13:30' && periodo === 'TODOS';
+                  const isTurnoDivisor = h === HORARIO_DIVISOR_TURNO && periodo === 'TODOS';
                   return (
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (

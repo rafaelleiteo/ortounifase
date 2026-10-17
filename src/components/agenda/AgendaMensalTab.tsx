@@ -6,6 +6,10 @@ import {
   HORARIOS_MANHA,
   HORARIOS_TARDE,
   DIAS_SEMANA,
+  TurnoAgenda,
+  OPCOES_TURNO,
+  HORARIO_DIVISOR_TURNO,
+  getHorariosPorTurno,
   normalizarHorario,
   isAtendimentoExtra,
   NOME_ATENDIMENTO_EXTRA
@@ -29,6 +33,10 @@ interface AgendaMensalTabProps {
   inconsistencias: InconsistenciaItem[];
   mesReferencia: string;
   onMesReferenciaChange: (mes: string) => void;
+  diaSelecionado?: string;
+  onDiaSelecionadoChange?: (dia: string) => void;
+  periodo?: TurnoAgenda;
+  onPeriodoChange?: (periodo: TurnoAgenda) => void;
   onAbrirImportModal: () => void;
 }
 
@@ -39,10 +47,20 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   inconsistencias,
   mesReferencia,
   onMesReferenciaChange,
+  diaSelecionado: diaProp,
+  onDiaSelecionadoChange,
+  periodo: periodoProp,
+  onPeriodoChange,
   onAbrirImportModal
 }) => {
-  const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
-  const [periodo, setPeriodo] = useState<'MANHA' | 'TARDE' | 'TODOS'>('TODOS');
+  const [diaLocal, setDiaLocal] = useState<string>('QUINTA');
+  const diaSelecionadoRaw = diaProp !== undefined ? diaProp : diaLocal;
+  const diaSelecionado = (diaSelecionadoRaw && diaSelecionadoRaw !== 'TODOS') ? diaSelecionadoRaw : 'QUINTA';
+  const handleDiaChange = onDiaSelecionadoChange || setDiaLocal;
+
+  const [periodoLocal, setPeriodoLocal] = useState<TurnoAgenda>('TODOS');
+  const periodo = periodoProp !== undefined ? periodoProp : periodoLocal;
+  const handlePeriodoChange = onPeriodoChange || setPeriodoLocal;
 
   // Coluna "Atendimento Extra" deve sempre aparecer por último (à direita de todas as colunas de alunos reais).
   // Alunos inativos só aparecem se já possuírem atendimentos lançados na agenda mensal do mês.
@@ -80,12 +98,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     return colunas;
   }, [alunos, agendaMensal, temAtendimentoExtra, turmaNome]);
 
-  const horarios =
-    periodo === 'MANHA'
-      ? HORARIOS_MANHA
-      : periodo === 'TARDE'
-      ? HORARIOS_TARDE
-      : [...HORARIOS_MANHA, ...HORARIOS_TARDE];
+  const horarios = getHorariosPorTurno(periodo);
 
   // Mapas por chave: `${alunoId}_${horario}` => lista de itens (suporta múltiplos extras no mesmo horário)
   const mensalMap = new Map<string, AgendaMensalItem[]>();
@@ -220,39 +233,45 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         </div>
 
         {/* Seletor de Dia e Turno */}
-        <div className="flex items-center gap-3">
-          <div className="flex bg-slate-100 p-1 rounded-xl">
-            {DIAS_SEMANA.map((dia) => (
-              <button
-                key={dia}
-                type="button"
-                onClick={() => setDiaSelecionado(dia)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  diaSelecionado === dia
-                    ? 'bg-white text-brand-600 shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {dia}
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Dia da Semana:</span>
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              {DIAS_SEMANA.map((dia) => (
+                <button
+                  key={dia}
+                  type="button"
+                  onClick={() => handleDiaChange(dia)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                    diaSelecionado === dia
+                      ? 'bg-white text-brand-600 shadow-xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {dia}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex bg-slate-100 p-1 rounded-xl">
-            {(['TODOS', 'MANHA', 'TARDE'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPeriodo(p)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  periodo === p
-                    ? 'bg-white text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                {p === 'TODOS' ? 'Todos' : p === 'MANHA' ? 'Manhã' : 'Tarde'}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Turno:</span>
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              {OPCOES_TURNO.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handlePeriodoChange(opt.id)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                    periodo === opt.id
+                      ? 'bg-white text-slate-900 shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {opt.id === 'TODOS' ? opt.label : `${opt.label} (${opt.descricao})`}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -338,7 +357,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {horarios.map((h) => {
-                  const isTurnoDivisor = h === '13:30' && periodo === 'TODOS';
+                  const isTurnoDivisor = h === HORARIO_DIVISOR_TURNO && periodo === 'TODOS';
                   return (
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (

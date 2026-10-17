@@ -7,7 +7,8 @@ import {
   AgendaAluno,
   AgendaFixaItem,
   AgendaMensalItem,
-  InconsistenciaItem
+  InconsistenciaItem,
+  TurnoAgenda
 } from '@/lib/agendaTypes';
 import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
 import { AgendaMensalTab } from '@/components/agenda/AgendaMensalTab';
@@ -33,6 +34,10 @@ export const AgendaPage: React.FC = () => {
   const [turmas, setTurmas] = useState<Turma[]>([]);
   const [turmaSelecionada, setTurmaSelecionada] = useState<Turma | null>(null);
   const [abaAtiva, setAbaAtiva] = useState<'fixa' | 'mensal' | 'inconsistencias'>('fixa');
+
+  // Navegação compartilhada entre abas (dia da semana e turno persistidos dentro da mesma turma)
+  const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
+  const [periodo, setPeriodo] = useState<TurnoAgenda>('TODOS');
 
   // Mês de referência atual (default: primeiro dia do mês atual em formato YYYY-MM-01)
   const [mesReferencia, setMesReferencia] = useState<string>(() => {
@@ -308,7 +313,13 @@ export const AgendaPage: React.FC = () => {
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setTurmaSelecionada(t)}
+                    onClick={() => {
+                      if (turmaSelecionada?.id !== t.id) {
+                        setTurmaSelecionada(t);
+                        setDiaSelecionado('QUINTA');
+                        setPeriodo('TODOS');
+                      }
+                    }}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
                       turmaSelecionada?.id === t.id
                         ? 'bg-white text-brand-600 shadow-2xs font-extrabold'
@@ -436,6 +447,10 @@ export const AgendaPage: React.FC = () => {
                 turmaNome={turmaSelecionada.nome}
                 alunos={alunos}
                 agendaFixa={agendaFixa}
+                diaSelecionado={diaSelecionado}
+                onDiaSelecionadoChange={setDiaSelecionado}
+                periodo={periodo}
+                onPeriodoChange={setPeriodo}
                 onSalvarItem={handleSalvarItemFixa}
                 onRemoverItem={handleRemoverItemFixa}
                 onCriarAluno={handleCriarAluno}
@@ -451,6 +466,10 @@ export const AgendaPage: React.FC = () => {
                 inconsistencias={inconsistencias}
                 mesReferencia={mesReferencia}
                 onMesReferenciaChange={setMesReferencia}
+                diaSelecionado={diaSelecionado}
+                onDiaSelecionadoChange={setDiaSelecionado}
+                periodo={periodo}
+                onPeriodoChange={setPeriodo}
                 onAbrirImportModal={() => setIsImportModalOpen(true)}
               />
             )}
@@ -460,6 +479,10 @@ export const AgendaPage: React.FC = () => {
                 inconsistencias={inconsistencias}
                 alunos={alunos}
                 mesReferencia={mesReferencia}
+                diaSelecionado={diaSelecionado}
+                onDiaSelecionadoChange={setDiaSelecionado}
+                periodo={periodo}
+                onPeriodoChange={setPeriodo}
                 onAtualizarStatus={handleAtualizarStatusInconsistencia}
               />
             )}

@@ -73,6 +73,40 @@ export interface ImportPayload {
   registros: ImportPayloadRegistro[];
 }
 
+export type TurnoAgenda = 'TODOS' | 'MANHA' | 'TARDE';
+
+export interface OpcaoTurno {
+  id: TurnoAgenda;
+  label: string;
+  descricao: string;
+  horarioInicio: string;
+  horarioFim: string;
+}
+
+export const OPCOES_TURNO: OpcaoTurno[] = [
+  {
+    id: 'TODOS',
+    label: 'Todos os Horários',
+    descricao: '08h - 15h45',
+    horarioInicio: '08:00',
+    horarioFim: '15:45'
+  },
+  {
+    id: 'MANHA',
+    label: 'Manhã',
+    descricao: '08h - 11h30',
+    horarioInicio: '08:00',
+    horarioFim: '11:30'
+  },
+  {
+    id: 'TARDE',
+    label: 'Tarde',
+    descricao: '13h30 - 15h45',
+    horarioInicio: '13:30',
+    horarioFim: '15:45'
+  }
+];
+
 export const HORARIOS_MANHA = [
   '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30'
 ];
@@ -80,6 +114,31 @@ export const HORARIOS_MANHA = [
 export const HORARIOS_TARDE = [
   '13:30', '13:45', '14:00', '14:15', '14:30', '14:45', '15:00', '15:15', '15:30', '15:45'
 ];
+
+export const HORARIO_DIVISOR_TURNO = '13:30';
+
+export const HORARIOS_TODOS = [...HORARIOS_MANHA, ...HORARIOS_TARDE];
+
+export function getHorariosPorTurno(turno: TurnoAgenda): string[] {
+  switch (turno) {
+    case 'MANHA':
+      return [...HORARIOS_MANHA];
+    case 'TARDE':
+      return [...HORARIOS_TARDE];
+    case 'TODOS':
+    default:
+      return [...HORARIOS_TODOS];
+  }
+}
+
+export function getTurnoDeHorario(horario?: string | null): 'MANHA' | 'TARDE' {
+  if (!horario) return 'MANHA';
+  const hNorm = normalizarHorario(horario);
+  if (hNorm < '12:00:00') {
+    return 'MANHA';
+  }
+  return 'TARDE';
+}
 
 export const DIAS_SEMANA = ['QUINTA', 'SEXTA', 'SABADO'] as const;
 
