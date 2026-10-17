@@ -38,6 +38,8 @@ export interface AgendaMensalItem {
   dia_semana: 'QUINTA' | 'SEXTA' | 'SABADO' | string;
   turma_id: string;
   mes_referencia: string; // "YYYY-MM-01"
+  tipo_registro?: 'paciente' | 'bloqueio';
+  tipo_bloqueio?: TipoBloqueio;
   created_at?: string;
   agenda_alunos?: {
     id: string;
@@ -240,5 +242,82 @@ export function formatarAlteracaoParaRecepcao(inc: {
     return 'Atendimento removido / Não agendado no mês';
   }
   return inc.observacao || inc.tipo || 'Alteração realizada';
+}
+
+/**
+ * Verifica se um registro da agenda (fixa ou mensal) ou inconsistência é um bloqueio de horário.
+ */
+export function isItemBloqueio(item?: { paciente?: string; tipo_registro?: string; tipo_bloqueio?: TipoBloqueio | null } | null): boolean {
+  if (!item) return false;
+  if (item.tipo_registro === 'bloqueio') return true;
+  if (item.tipo_bloqueio) return true;
+  const p = (item.paciente || '').trim();
+  if (p.startsWith('[SEQUENCIA]') || p.startsWith('[LIVRE]') || p.startsWith('[OUTRO]')) return true;
+  const pLower = p.toLowerCase();
+  if (pLower === 'horário livre' || pLower === 'livre' || pLower.startsWith('bloqueio')) return true;
+  return false;
+}
+
+/**
+ * Sugere automaticamente a próxima sequência lógica de atendimento ao fechar/bloquear um horário.
+ * Baseia-se nos atendimentos já cadastrados para aquele aluno naquele dia (tanto na Fixa quanto na Mensal).
+ */
+export function sugerirSequenciaFecharHorario(
+  agenda: Array<{ horario: string; paciente: string; aluno_id?: string | null; dia_semana: string }>,
+  alunoId: string,
+  diaSemana: string,
+  horario: string
+): string {
+  const hNorm = normalizarHorario(horario);
+
+  const atendimentosDoAluno = agenda
+    .filter(
+      (item) =>
+        item.aluno_id === alunoId &&
+        (item.dia_semana || '').toUpperCase().trim() === diaSemana.toUpperCase().trim() &&
+        item.paciente &&
+        item.paciente.trim().length > 0
+    )
+    .sort((a, b) => normalizarHorario(a.horario).localeCompare(normalizarHorario(b.horario)));
+
+  // 1. Procura o atendimento imediatamente anterior
+  const anteriores = atendimentosDoAluno.filter(
+    (item) => normalizarHorario(item.horario) < hNorm
+  );
+
+  if (anteriores.length > 0) {
+    const ultimo = anteriores[anteriores.length - 1];
+    const pacienteNome = getDescricaoBloqueio(ultimo.paciente.trim());
+
+    // Se o anterior for continuação numerada: "Continuação 2 - Nome" -> "Continuação 3 - Nome"
+    const matchNum = pacienteNome.match(/^continuação\s+(\d+)\s*[-:]?\s*(.*)$/i);
+    if (matchNum) {
+      const proximoNum = parseInt(matchNum[1], 10) + 1;
+      const nomeBase = matchNum[2].trim() || 'Atendimento';
+      return `Continuação ${proximoNum} - ${nomeBase}`;
+    }
+
+    // Se o anterior for continuação simples: "Continuação - Nome" -> "Continuação 2 - Nome"
+    const matchSimples = pacienteNome.match(/^continuação\s*[-:]?\s*(.*)$/i);
+    if (matchSimples) {
+      const nomeBase = matchSimples[1].trim() || 'Atendimento';
+      return `Continuação 2 - ${nomeBase}`;
+    }
+
+    // Atendimento inicial do paciente -> primeira continuação
+    return `Continuação - ${pacienteNome}`;
+  }
+
+  // 2. Se não houver atendimento anterior, mas houver atendimento posterior naquele dia
+  const posteriores = atendimentosDoAluno.filter(
+    (item) => normalizarHorario(item.horario) > hNorm
+  );
+  if (posteriores.length > 0) {
+    const proximo = posteriores[0];
+    const pacienteNome = getDescricaoBloqueio(proximo.paciente.trim()).replace(/^continuação(\s+\d+)?\s*[-:]?\s*/i, '').trim();
+    return `Continuação - ${pacienteNome}`;
+  }
+
+  return 'Bloqueio de Horário';
 }
 

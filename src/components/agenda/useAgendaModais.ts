@@ -5,7 +5,14 @@ import {
   ModalReagendarState,
   ModalTrocarAlunoState
 } from './AgendaModaisAtendimento';
-import { normalizarHorario, formatarHorarioExibicao } from '@/lib/agendaTypes';
+import {
+  normalizarHorario,
+  formatarHorarioExibicao,
+  isItemBloqueio,
+  getTipoBloqueio,
+  getDescricaoBloqueio,
+  TipoBloqueio
+} from '@/lib/agendaTypes';
 
 interface UseAgendaModaisOptions {
   onSalvarItem: (dados: {
@@ -14,6 +21,8 @@ interface UseAgendaModaisOptions {
     aluno_id?: string | null;
     horario?: string;
     dia_semana?: string;
+    tipo_registro?: 'paciente' | 'bloqueio';
+    tipo_bloqueio?: TipoBloqueio;
   }) => Promise<void> | void;
   itensExistentes?: AgendaCardItem[];
   alunos?: Array<{ id: string; nome: string }>;
@@ -49,10 +58,11 @@ export function useAgendaModais({
 
   // 1. Abrir Modal Editar
   const abrirEditar = (item: AgendaCardItem) => {
+    const isBloqueio = item.tipo_registro === 'bloqueio' || isItemBloqueio(item);
     setModalEditar({
       isOpen: true,
       item,
-      paciente: item.paciente,
+      paciente: isBloqueio ? getDescricaoBloqueio(item.paciente) : item.paciente,
       alunoId: item.aluno_id || '',
       horario: formatarHorarioExibicao(item.horario),
       diaSemana: item.dia_semana || diaDefault
@@ -70,12 +80,22 @@ export function useAgendaModais({
     horario: string;
     dia_semana: string;
   }) => {
+    const itemOriginal = modalEditar.item;
+    const isBloqueio = itemOriginal?.tipo_registro === 'bloqueio' || isItemBloqueio(itemOriginal);
+    const tipo = itemOriginal?.tipo_bloqueio || (itemOriginal ? getTipoBloqueio(itemOriginal) : undefined);
+
+    const pacienteSalvar = isBloqueio && tipo
+      ? `[${tipo}] ${dados.paciente.trim().replace(/^\[(SEQUENCIA|LIVRE|OUTRO)\]\s*/i, '')}`
+      : dados.paciente.trim();
+
     await onSalvarItem({
       id: dados.id,
-      paciente: dados.paciente.trim(),
+      paciente: pacienteSalvar,
       aluno_id: dados.aluno_id,
       horario: normalizarHorario(dados.horario),
-      dia_semana: dados.dia_semana
+      dia_semana: dados.dia_semana,
+      tipo_registro: isBloqueio ? 'bloqueio' : 'paciente',
+      tipo_bloqueio: isBloqueio ? tipo : undefined
     });
     fecharEditar();
   };
@@ -127,10 +147,15 @@ export function useAgendaModais({
       }
     }
 
+    const isBloqueio = item.tipo_registro === 'bloqueio' || isItemBloqueio(item);
+    const tipo = item.tipo_bloqueio || (isBloqueio ? getTipoBloqueio(item) : undefined);
+
     await onSalvarItem({
       id: dados.id,
       horario: hNormDestino,
-      dia_semana: dados.dia_semana
+      dia_semana: dados.dia_semana,
+      tipo_registro: isBloqueio ? 'bloqueio' : undefined,
+      tipo_bloqueio: isBloqueio ? tipo : undefined
     });
     fecharReagendar();
   };
@@ -152,9 +177,15 @@ export function useAgendaModais({
     id: string;
     novoAlunoId: string | null;
   }) => {
+    const item = modalTrocarAluno.item;
+    const isBloqueio = item?.tipo_registro === 'bloqueio' || isItemBloqueio(item);
+    const tipo = item?.tipo_bloqueio || (isBloqueio ? getTipoBloqueio(item!) : undefined);
+
     await onSalvarItem({
       id: dados.id,
-      aluno_id: dados.novoAlunoId
+      aluno_id: dados.novoAlunoId,
+      tipo_registro: isBloqueio ? 'bloqueio' : undefined,
+      tipo_bloqueio: isBloqueio ? tipo : undefined
     });
     fecharTrocarAluno();
   };

@@ -3,7 +3,8 @@ import {
   ImportPayload,
   normalizarHorario,
   isAtendimentoExtra,
-  NOME_ATENDIMENTO_EXTRA
+  NOME_ATENDIMENTO_EXTRA,
+  isItemBloqueio
 } from './agendaTypes';
 
 export async function importarAgendaMensal(payload: ImportPayload) {
@@ -173,6 +174,28 @@ export async function recalcularInconsistenciasComPreservacao(
         }
       }
     }
+  }
+
+  // 4. Remove qualquer falso-positivo decorrente de bloqueios na agenda (ex: [SEQUENCIA], [LIVRE], [OUTRO], Horário Livre)
+  try {
+    const { data: incsParaLimpar } = await supabase
+      .from('inconsistencias')
+      .select('id, paciente')
+      .eq('turma_id', turmaId)
+      .eq('mes_referencia', mesReferencia);
+
+    const idsBloqueios = (incsParaLimpar || [])
+      .filter((i) => isItemBloqueio(i))
+      .map((i) => i.id);
+
+    if (idsBloqueios.length > 0) {
+      await supabase
+        .from('inconsistencias')
+        .delete()
+        .in('id', idsBloqueios);
+    }
+  } catch (errClean) {
+    console.warn('Aviso ao limpar bloqueios de inconsistencias:', errClean);
   }
 
   return compareResult;

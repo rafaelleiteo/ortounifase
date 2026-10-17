@@ -6,7 +6,8 @@ import {
   TurnoAgenda,
   OPCOES_TURNO,
   getTurnoDeHorario,
-  formatarHorarioExibicao
+  formatarHorarioExibicao,
+  isItemBloqueio
 } from '@/lib/agendaTypes';
 import {
   AlertTriangle,
@@ -75,6 +76,7 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
   const [observacoesLocais, setObservacoesLocais] = useState<Record<string, string>>({});
 
   const itensFiltrados = inconsistencias.filter((item) => {
+    if (isItemBloqueio(item)) return false;
     if (filtroTipo !== 'TODOS' && item.tipo !== filtroTipo) return false;
     if (filtroDia !== 'TODOS' && (item.dia_semana || '').toUpperCase() !== filtroDia.toUpperCase()) return false;
     if (filtroTurno !== 'TODOS') {

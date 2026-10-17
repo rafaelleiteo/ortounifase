@@ -9,7 +9,9 @@ import {
   AgendaMensalItem,
   InconsistenciaItem,
   TurnoAgenda,
-  normalizarHorario
+  normalizarHorario,
+  TipoBloqueio,
+  isItemBloqueio
 } from '@/lib/agendaTypes';
 import { recalcularInconsistenciasComPreservacao } from '@/lib/agendaService';
 import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
@@ -144,7 +146,7 @@ export const AgendaPage: React.FC = () => {
         .order('created_at', { ascending: false });
 
       if (errInc) throw errInc;
-      setInconsistencias(incData || []);
+      setInconsistencias((incData || []).filter((i) => !isItemBloqueio(i)));
     } catch (err: any) {
       console.error('Erro ao carregar detalhes da agenda:', err);
       setError(err.message || 'Erro ao carregar dados da agenda');
@@ -233,6 +235,8 @@ export const AgendaPage: React.FC = () => {
     aluno_id?: string | null;
     horario?: string;
     dia_semana?: string;
+    tipo_registro?: 'paciente' | 'bloqueio';
+    tipo_bloqueio?: TipoBloqueio;
   }) => {
     if (!turmaSelecionada) return;
     try {
@@ -246,16 +250,26 @@ export const AgendaPage: React.FC = () => {
         if (dados.paciente !== undefined) updatePayload.paciente = dados.paciente.trim();
         if (dados.horario !== undefined) updatePayload.horario = normalizarHorario(dados.horario);
         if (dados.dia_semana !== undefined) updatePayload.dia_semana = dados.dia_semana;
+        if (dados.tipo_registro !== undefined) updatePayload.tipo_registro = dados.tipo_registro;
+        if (dados.tipo_bloqueio !== undefined) updatePayload.tipo_bloqueio = dados.tipo_bloqueio;
 
         if (dados.aluno_id !== undefined) {
           updatePayload.aluno_id = dados.aluno_id;
           updatePayload.aluno = nomeAluno;
         }
 
-        const { error: errUpdate } = await supabase
+        let { error: errUpdate } = await supabase
           .from('agenda_mensal')
           .update(updatePayload)
           .eq('id', dados.id);
+
+        if (errUpdate && (errUpdate.message?.includes('tipo_bloqueio') || errUpdate.message?.includes('tipo_registro'))) {
+          delete updatePayload.tipo_bloqueio;
+          delete updatePayload.tipo_registro;
+          const retry = await supabase.from('agenda_mensal').update(updatePayload).eq('id', dados.id);
+          errUpdate = retry.error;
+        }
+
         if (errUpdate) throw errUpdate;
       } else {
         if (!dados.paciente || !dados.horario || !dados.dia_semana) {
@@ -268,11 +282,21 @@ export const AgendaPage: React.FC = () => {
           horario: normalizarHorario(dados.horario),
           dia_semana: dados.dia_semana,
           aluno_id: dados.aluno_id || null,
-          aluno: nomeAluno
+          aluno: nomeAluno,
+          tipo_registro: dados.tipo_registro || (isItemBloqueio(dados) ? 'bloqueio' : 'paciente'),
+          ...(dados.tipo_bloqueio ? { tipo_bloqueio: dados.tipo_bloqueio } : {})
         };
-        const { error: errInsert } = await supabase
+        let { error: errInsert } = await supabase
           .from('agenda_mensal')
           .insert(insertPayload);
+
+        if (errInsert && (errInsert.message?.includes('tipo_bloqueio') || errInsert.message?.includes('tipo_registro'))) {
+          delete insertPayload.tipo_bloqueio;
+          delete insertPayload.tipo_registro;
+          const retry = await supabase.from('agenda_mensal').insert(insertPayload);
+          errInsert = retry.error;
+        }
+
         if (errInsert) throw errInsert;
       }
 
