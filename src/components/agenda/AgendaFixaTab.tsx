@@ -12,7 +12,10 @@ import {
   normalizarHorario,
   formatarHorarioExibicao,
   isAtendimentoExtra,
-  DiaSemana
+  DiaSemana,
+  TipoBloqueio,
+  getTipoBloqueio,
+  getDescricaoBloqueio
 } from '@/lib/agendaTypes';
 import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
@@ -29,7 +32,9 @@ import {
   ChevronDown,
   Download,
   AlertTriangle,
-  Lock
+  Lock,
+  Link2,
+  FileText
 } from 'lucide-react';
 import { AgendaCardAtendimento } from './AgendaCardAtendimento';
 
@@ -223,13 +228,17 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     alunoId: string;
     horario: string;
     diaSemana: string;
+    tipoBloqueio: TipoBloqueio;
     descricao: string;
+    sugestaoSequencia: string;
   }>({
     isOpen: false,
     alunoId: '',
     horario: '',
     diaSemana: 'QUINTA',
-    descricao: ''
+    tipoBloqueio: 'SEQUENCIA',
+    descricao: '',
+    sugestaoSequencia: ''
   });
 
   const horarios = getHorariosPorTurno(periodo);
@@ -292,33 +301,57 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   const handleSalvarEdicaoNome = async () => {
     if (!modalEditarNome.item || !modalEditarNome.pacienteNome.trim()) return;
+    const isBloqueio = modalEditarNome.item.tipo_registro === 'bloqueio';
+    const tipo = modalEditarNome.item.tipo_bloqueio || getTipoBloqueio(modalEditarNome.item);
+    const pacienteSalvar = isBloqueio
+      ? `[${tipo}] ${modalEditarNome.pacienteNome.trim().replace(/^\[(SEQUENCIA|LIVRE|OUTRO)\]\s*/i, '')}`
+      : modalEditarNome.pacienteNome.trim();
+
     await onSalvarItem({
       id: modalEditarNome.item.id,
       aluno_id: modalEditarNome.item.aluno_id,
       horario: modalEditarNome.item.horario,
       dia_semana: modalEditarNome.item.dia_semana,
       turma_id: turmaId,
-      paciente: modalEditarNome.pacienteNome.trim()
+      paciente: pacienteSalvar,
+      tipo_registro: modalEditarNome.item.tipo_registro,
+      tipo_bloqueio: isBloqueio ? tipo : undefined
     });
     setModalEditarNome({ isOpen: false, pacienteNome: '' });
   };
 
   const handleSalvarFecharHorario = async () => {
-    if (!modalFecharHorario.descricao.trim() || !modalFecharHorario.alunoId) return;
+    if (!modalFecharHorario.alunoId) return;
+    const tipo = modalFecharHorario.tipoBloqueio;
+    let descFinal = '';
+
+    if (tipo === 'SEQUENCIA') {
+      descFinal = modalFecharHorario.descricao.trim() || modalFecharHorario.sugestaoSequencia || 'Continuação';
+    } else if (tipo === 'LIVRE') {
+      descFinal = 'Horário Livre';
+    } else {
+      descFinal = modalFecharHorario.descricao.trim() || 'Bloqueio de Horário';
+    }
+
+    const pacientePayload = `[${tipo}] ${descFinal.replace(/^\[(SEQUENCIA|LIVRE|OUTRO)\]\s*/i, '')}`;
+
     await onSalvarItem({
       aluno_id: modalFecharHorario.alunoId,
       horario: normalizarHorario(modalFecharHorario.horario),
       dia_semana: modalFecharHorario.diaSemana,
       turma_id: turmaId,
-      paciente: modalFecharHorario.descricao.trim(),
-      tipo_registro: 'bloqueio'
+      paciente: pacientePayload,
+      tipo_registro: 'bloqueio',
+      tipo_bloqueio: tipo
     });
     setModalFecharHorario({
       isOpen: false,
       alunoId: '',
       horario: '',
       diaSemana: 'QUINTA',
-      descricao: ''
+      tipoBloqueio: 'SEQUENCIA',
+      descricao: '',
+      sugestaoSequencia: ''
     });
   };
 
@@ -563,14 +596,15 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                     aluno: item.agenda_alunos?.nome || alunos.find((a) => a.id === item.aluno_id)?.nome,
                                     horario: item.horario,
                                     dia_semana: item.dia_semana,
-                                    tipo_registro: item.tipo_registro
+                                    tipo_registro: item.tipo_registro,
+                                    tipo_bloqueio: item.tipo_bloqueio
                                   }}
                                   podeEditar={isCoordenadorOrAdmin}
                                   onEditar={() =>
                                     setModalEditarNome({
                                       isOpen: true,
                                       item,
-                                      pacienteNome: item.paciente
+                                      pacienteNome: item.tipo_registro === 'bloqueio' ? getDescricaoBloqueio(item.paciente) : item.paciente
                                     })
                                   }
                                   onReagendar={() =>
@@ -607,12 +641,17 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                           diaSelecionado,
                                           h
                                         );
+                                        const hasSequencia = sugestao.toLowerCase().startsWith('continuação');
+                                        const tipoInicial: TipoBloqueio = hasSequencia ? 'SEQUENCIA' : 'LIVRE';
+
                                         setModalFecharHorario({
                                           isOpen: true,
                                           alunoId: aluno.id,
                                           horario: h,
                                           diaSemana: diaSelecionado,
-                                          descricao: sugestao
+                                          tipoBloqueio: tipoInicial,
+                                          descricao: tipoInicial === 'SEQUENCIA' ? sugestao : (tipoInicial === 'LIVRE' ? 'Horário Livre' : ''),
+                                          sugestaoSequencia: sugestao
                                         });
                                       }}
                                       className="h-full px-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50/80 transition-all"
@@ -1033,7 +1072,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       {/* Modal Fechar Horário (Bloqueio de Slot) */}
       {modalFecharHorario.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div id="modal-fechar-horario" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+          <div id="modal-fechar-horario" className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600">
@@ -1043,45 +1082,229 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setModalFecharHorario({ ...modalFecharHorario, isOpen: false, descricao: '' })}
+                onClick={() =>
+                  setModalFecharHorario({
+                    ...modalFecharHorario,
+                    isOpen: false,
+                    descricao: '',
+                    sugestaoSequencia: ''
+                  })
+                }
                 className="text-slate-400 hover:text-slate-600"
               >
                 ✕
               </button>
             </div>
 
-            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl space-y-1 border border-slate-100">
-              <div><strong>Dia:</strong> {modalFecharHorario.diaSemana}</div>
-              <div><strong>Horário:</strong> {formatarHorarioExibicao(modalFecharHorario.horario)}</div>
-              <div>
-                <strong>Aluno:</strong>{' '}
-                {alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome || 'Aluno'}
+            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Dia</span>
+                  <strong>{modalFecharHorario.diaSemana}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Horário</span>
+                  <strong>{formatarHorarioExibicao(modalFecharHorario.horario)}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Aluno</span>
+                  <strong className="truncate block" title={alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome}>
+                    {alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome || 'Aluno'}
+                  </strong>
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">
-                Sequência / Descrição do Bloqueio <span className="text-rose-500">*</span>
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-700 block">
+                Selecione o Tipo de Bloqueio <span className="text-rose-500">*</span>
               </label>
-              <input
-                id="input-fechar-horario-descricao"
-                type="text"
-                autoFocus
-                value={modalFecharHorario.descricao}
-                onChange={(e) => setModalFecharHorario({ ...modalFecharHorario, descricao: e.target.value })}
-                placeholder="Ex: Continuação - Nome do Paciente"
-                className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                onKeyDown={(e) => e.key === 'Enter' && handleSalvarFecharHorario()}
-              />
-              <p className="text-[11px] text-slate-400 mt-1">
-                Este horário ficará marcado com cadeado e não gerará inconsistência nos relatórios.
+
+              {/* 3 Opções de Tipo de Bloqueio */}
+              <div className="grid grid-cols-1 gap-2.5">
+                {/* 1. SEQUÊNCIA DE ATENDIMENTO */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModalFecharHorario((prev) => ({
+                      ...prev,
+                      tipoBloqueio: 'SEQUENCIA',
+                      descricao: prev.sugestaoSequencia || 'Continuação'
+                    }))
+                  }
+                  className={`text-left p-3 rounded-xl border transition-all flex items-start gap-3 cursor-pointer ${
+                    modalFecharHorario.tipoBloqueio === 'SEQUENCIA'
+                      ? 'border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/20'
+                      : 'border-slate-200 hover:border-brand-200 hover:bg-slate-50/60'
+                  }`}
+                >
+                  <div
+                    className={`mt-0.5 p-1.5 rounded-lg shrink-0 ${
+                      modalFecharHorario.tipoBloqueio === 'SEQUENCIA'
+                        ? 'bg-brand-600 text-white'
+                        : 'bg-brand-100 text-brand-700'
+                    }`}
+                  >
+                    <Link2 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-xs font-bold text-slate-900">
+                        1. Sequência de Atendimento
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-brand-100 text-brand-800 border border-brand-200">
+                        Azul (Padrão Paciente)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      Continuação do atendimento do horário anterior deste aluno.
+                    </p>
+                    <div className="text-xs font-medium px-2.5 py-1.5 rounded-lg border bg-brand-50/50 border-brand-200 text-brand-900 flex items-center gap-1.5">
+                      <Lock className="w-3 h-3 text-brand-600 shrink-0" />
+                      <span className="truncate">
+                        {(modalFecharHorario.tipoBloqueio === 'SEQUENCIA' && modalFecharHorario.descricao) || modalFecharHorario.sugestaoSequencia || 'Continuação do Atendimento'}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+
+                {/* 2. HORÁRIO LIVRE */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModalFecharHorario((prev) => ({
+                      ...prev,
+                      tipoBloqueio: 'LIVRE',
+                      descricao: 'Horário Livre'
+                    }))
+                  }
+                  className={`text-left p-3 rounded-xl border transition-all flex items-start gap-3 cursor-pointer ${
+                    modalFecharHorario.tipoBloqueio === 'LIVRE'
+                      ? 'border-amber-500 bg-amber-50/70 ring-2 ring-amber-500/20'
+                      : 'border-slate-200 hover:border-amber-200 hover:bg-slate-50/60'
+                  }`}
+                >
+                  <div
+                    className={`mt-0.5 p-1.5 rounded-lg shrink-0 ${
+                      modalFecharHorario.tipoBloqueio === 'LIVRE'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}
+                  >
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-xs font-bold text-slate-900">
+                        2. Horário Livre
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                        Amarelo (Slot Vago)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      Marca que o slot está deliberadamente livre / sem atendimento confirmado.
+                    </p>
+                    <div className="text-xs font-medium px-2.5 py-1.5 rounded-lg border bg-amber-50/70 border-amber-300 text-amber-900 flex items-center gap-1.5">
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <span>Horário Livre</span>
+                    </div>
+                  </div>
+                </button>
+
+                {/* 3. OUTRO (OBSERVAÇÃO PERSONALIZADA) */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModalFecharHorario((prev) => ({
+                      ...prev,
+                      tipoBloqueio: 'OUTRO',
+                      descricao: prev.tipoBloqueio === 'OUTRO' ? prev.descricao : ''
+                    }))
+                  }
+                  className={`text-left p-3 rounded-xl border transition-all flex items-start gap-3 cursor-pointer ${
+                    modalFecharHorario.tipoBloqueio === 'OUTRO'
+                      ? 'border-slate-500 bg-slate-100 ring-2 ring-slate-400/20'
+                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/60'
+                  }`}
+                >
+                  <div
+                    className={`mt-0.5 p-1.5 rounded-lg shrink-0 ${
+                      modalFecharHorario.tipoBloqueio === 'OUTRO'
+                        ? 'bg-slate-700 text-white'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-xs font-bold text-slate-900">
+                        3. Outro (Observação Livre)
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300">
+                        Cinza (Personalizado)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Observação personalizada (ex: feriado, manutenção, reunião clínica, etc.).
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              {/* Se o tipo for OUTRO, exibe campo de texto livre */}
+              {modalFecharHorario.tipoBloqueio === 'OUTRO' && (
+                <div className="pt-2">
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Descrição da Observação <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="input-fechar-horario-descricao"
+                    type="text"
+                    autoFocus
+                    value={modalFecharHorario.descricao}
+                    onChange={(e) => setModalFecharHorario({ ...modalFecharHorario, descricao: e.target.value })}
+                    placeholder="Ex: Feriado municipal, Manutenção de cadeira, Reunião clínica..."
+                    className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-slate-400 bg-white"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSalvarFecharHorario()}
+                  />
+                </div>
+              )}
+
+              {/* Se o tipo for SEQUENCIA, permite personalizar o texto da sequência se desejar */}
+              {modalFecharHorario.tipoBloqueio === 'SEQUENCIA' && (
+                <div className="pt-1">
+                  <label className="text-[11px] font-medium text-slate-500 block mb-1">
+                    Texto da Sequência (editável se necessário):
+                  </label>
+                  <input
+                    type="text"
+                    value={modalFecharHorario.descricao}
+                    onChange={(e) => setModalFecharHorario({ ...modalFecharHorario, descricao: e.target.value })}
+                    placeholder="Ex: Continuação - Nome do Paciente"
+                    className="w-full text-xs px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-400 bg-white"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSalvarFecharHorario()}
+                  />
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-400">
+                Horários fechados/bloqueados são identificados visualmente com cadeado e não geram inconsistências nos relatórios mensais.
               </p>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setModalFecharHorario({ ...modalFecharHorario, isOpen: false, descricao: '' })}
+                onClick={() =>
+                  setModalFecharHorario({
+                    ...modalFecharHorario,
+                    isOpen: false,
+                    descricao: '',
+                    sugestaoSequencia: ''
+                  })
+                }
                 className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
               >
                 Cancelar
@@ -1089,8 +1312,16 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               <button
                 type="button"
                 onClick={handleSalvarFecharHorario}
-                disabled={!modalFecharHorario.descricao.trim()}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs disabled:opacity-50"
+                disabled={
+                  modalFecharHorario.tipoBloqueio === 'OUTRO' && !modalFecharHorario.descricao.trim()
+                }
+                className={`px-4 py-1.5 text-xs font-bold text-white rounded-xl shadow-xs disabled:opacity-50 transition-colors ${
+                  modalFecharHorario.tipoBloqueio === 'SEQUENCIA'
+                    ? 'bg-brand-600 hover:bg-brand-700'
+                    : modalFecharHorario.tipoBloqueio === 'LIVRE'
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-slate-700 hover:bg-slate-800'
+                }`}
               >
                 Bloquear Horário
               </button>

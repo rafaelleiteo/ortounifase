@@ -1,5 +1,13 @@
 import React from 'react';
-import { Edit2, Clock, ArrowRightLeft, Trash2, Lock } from 'lucide-react';
+import { Edit2, Clock, ArrowRightLeft, Trash2, Lock, Link2, Sparkles } from 'lucide-react';
+import {
+  TipoBloqueio,
+  COR_BLOQUEIO_SEQUENCIA,
+  COR_BLOQUEIO_LIVRE,
+  COR_BLOQUEIO_OUTRO,
+  getTipoBloqueio,
+  getDescricaoBloqueio
+} from '@/lib/agendaTypes';
 
 export interface AgendaCardItem {
   id: string;
@@ -11,6 +19,7 @@ export interface AgendaCardItem {
   turma_id?: string;
   mes_referencia?: string;
   tipo_registro?: 'paciente' | 'bloqueio';
+  tipo_bloqueio?: TipoBloqueio;
   is_extra?: boolean;
 }
 
@@ -38,11 +47,50 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
   onExcluir
 }) => {
   const isBloqueio = item.tipo_registro === 'bloqueio';
-  const defaultBg = isBloqueio
-    ? 'bg-amber-50/70 border-amber-300 text-amber-900'
-    : 'bg-brand-50/50 border-brand-200 text-brand-900';
+  const tipoBloqueio = isBloqueio ? (item.tipo_bloqueio || getTipoBloqueio(item)) : null;
+
+  let defaultBg = 'bg-brand-50/50 border-brand-200 text-brand-900';
+  let badgeBloqueio = null;
+
+  if (isBloqueio) {
+    if (tipoBloqueio === 'SEQUENCIA') {
+      // 1. TIPO SEQUÊNCIA DE ATENDIMENTO: AZUL (mesmo token de paciente agendado normalmente)
+      defaultBg = COR_BLOQUEIO_SEQUENCIA;
+      badgeBloqueio = (
+        <span
+          title="Sequência de Atendimento (Continuação)"
+          className="shrink-0 text-brand-700 bg-brand-100/90 border border-brand-200/80 p-0.5 rounded-md flex items-center gap-0.5"
+        >
+          <Lock className="w-3 h-3" />
+        </span>
+      );
+    } else if (tipoBloqueio === 'LIVRE') {
+      // 2. TIPO LIVRE: AMARELO (horário intencionalmente vago/disponível)
+      defaultBg = COR_BLOQUEIO_LIVRE;
+      badgeBloqueio = (
+        <span
+          title="Horário Livre (Vago)"
+          className="shrink-0 text-amber-700 bg-amber-100/90 border border-amber-200/80 p-0.5 rounded-md flex items-center gap-0.5"
+        >
+          <Lock className="w-3 h-3" />
+        </span>
+      );
+    } else {
+      // 3. TIPO OUTRO: CINZA (observação livre ou legado sem tipo definido)
+      defaultBg = COR_BLOQUEIO_OUTRO;
+      badgeBloqueio = (
+        <span
+          title="Bloqueio / Observação Geral"
+          className="shrink-0 text-slate-600 bg-slate-200/80 border border-slate-300/80 p-0.5 rounded-md flex items-center gap-0.5"
+        >
+          <Lock className="w-3 h-3" />
+        </span>
+      );
+    }
+  }
 
   const cardStyle = corCard || defaultBg;
+  const textoExibicao = isBloqueio ? getDescricaoBloqueio(item.paciente) : item.paciente;
 
   return (
     <div
@@ -50,15 +98,8 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
     >
       {/* Cabeçalho do Card: Nome e Badges */}
       <div className="font-semibold break-words mb-1 flex items-start justify-between gap-1">
-        <span className="leading-snug">{item.paciente}</span>
-        {isBloqueio && (
-          <span
-            title="Horário Fechado / Bloqueio"
-            className="shrink-0 text-amber-700 bg-amber-100/90 border border-amber-200/80 p-0.5 rounded-md"
-          >
-            <Lock className="w-3 h-3" />
-          </span>
-        )}
+        <span className="leading-snug">{textoExibicao}</span>
+        {isBloqueio && badgeBloqueio}
         {item.is_extra && !badge && (
           <span
             title="Atendimento Extra"

@@ -163,29 +163,47 @@ export const AgendaPage: React.FC = () => {
   const handleSalvarItemFixa = async (item: Partial<AgendaFixaItem>) => {
     try {
       if (item.id) {
-        const { error: errUpdate } = await supabase
+        const updatePayload: Record<string, any> = {
+          paciente: item.paciente,
+          aluno_id: item.aluno_id,
+          horario: item.horario,
+          dia_semana: item.dia_semana,
+          ...(item.tipo_registro ? { tipo_registro: item.tipo_registro } : {}),
+          ...(item.tipo_bloqueio ? { tipo_bloqueio: item.tipo_bloqueio } : {}),
+          updated_at: new Date().toISOString()
+        };
+        let { error: errUpdate } = await supabase
           .from('agenda_fixa')
-          .update({
-            paciente: item.paciente,
-            aluno_id: item.aluno_id,
-            horario: item.horario,
-            dia_semana: item.dia_semana,
-            ...(item.tipo_registro ? { tipo_registro: item.tipo_registro } : {}),
-            updated_at: new Date().toISOString()
-          })
+          .update(updatePayload)
           .eq('id', item.id);
+
+        if (errUpdate && errUpdate.message?.includes('tipo_bloqueio')) {
+          delete updatePayload.tipo_bloqueio;
+          const retry = await supabase.from('agenda_fixa').update(updatePayload).eq('id', item.id);
+          errUpdate = retry.error;
+        }
+
         if (errUpdate) throw errUpdate;
       } else {
-        const { error: errInsert } = await supabase
+        const insertPayload: Record<string, any> = {
+          turma_id: item.turma_id,
+          aluno_id: item.aluno_id,
+          paciente: item.paciente,
+          horario: item.horario,
+          dia_semana: item.dia_semana,
+          tipo_registro: item.tipo_registro || 'paciente',
+          ...(item.tipo_bloqueio ? { tipo_bloqueio: item.tipo_bloqueio } : {})
+        };
+        let { error: errInsert } = await supabase
           .from('agenda_fixa')
-          .insert({
-            turma_id: item.turma_id,
-            aluno_id: item.aluno_id,
-            paciente: item.paciente,
-            horario: item.horario,
-            dia_semana: item.dia_semana,
-            tipo_registro: item.tipo_registro || 'paciente'
-          });
+          .insert(insertPayload);
+
+        if (errInsert && errInsert.message?.includes('tipo_bloqueio')) {
+          delete insertPayload.tipo_bloqueio;
+          const retry = await supabase.from('agenda_fixa').insert(insertPayload);
+          errInsert = retry.error;
+        }
+
         if (errInsert) throw errInsert;
       }
       await carregarDadosTurma();

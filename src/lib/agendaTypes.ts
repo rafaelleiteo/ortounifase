@@ -20,6 +20,7 @@ export interface AgendaFixaItem {
   dia_semana: 'QUINTA' | 'SEXTA' | 'SABADO' | string;
   turma_id: string;
   tipo_registro?: 'paciente' | 'bloqueio';
+  tipo_bloqueio?: TipoBloqueio;
   created_at?: string;
   updated_at?: string;
   agenda_alunos?: {
@@ -168,5 +169,43 @@ export const NOME_ATENDIMENTO_EXTRA = 'Atendimento Extra';
 export function isAtendimentoExtra(nome?: string | null): boolean {
   if (!nome) return false;
   return nome.trim().toLowerCase().replace(/\s+/g, ' ') === 'atendimento extra';
+}
+
+/**
+ * Tipos de Bloqueio de Horário (Fechar Horário):
+ * - SEQUENCIA: Continuação do paciente anterior (cor AZUL, igual ao paciente agendado normalmente)
+ * - LIVRE: Horário intencionalmente vago / disponível confirmado pelo coordenador (cor AMARELA)
+ * - OUTRO: Observação livre (ex: feriado, manutenção, etc.) (cor CINZA por padrão)
+ */
+export type TipoBloqueio = 'SEQUENCIA' | 'LIVRE' | 'OUTRO';
+
+export const COR_BLOQUEIO_SEQUENCIA = 'bg-brand-50/50 border-brand-200 text-brand-900';
+export const COR_BLOQUEIO_LIVRE = 'bg-amber-50/70 border-amber-300 text-amber-900';
+// Constante nomeada para fácil customização da cor do tipo OUTRO:
+export const COR_BLOQUEIO_OUTRO = 'bg-slate-100/80 border-slate-300 text-slate-800';
+
+/**
+ * Identifica o tipo de bloqueio a partir do campo tipo_bloqueio ou do padrão de texto do paciente
+ * para garantir compatibilidade retroativa total com dados já existentes.
+ */
+export function getTipoBloqueio(item: { paciente?: string; tipo_bloqueio?: TipoBloqueio | null }): TipoBloqueio {
+  if (item.tipo_bloqueio) return item.tipo_bloqueio;
+  const p = (item.paciente || '').trim();
+  if (p.startsWith('[SEQUENCIA]')) return 'SEQUENCIA';
+  if (p.startsWith('[LIVRE]') || p.toLowerCase() === 'horário livre' || p.toLowerCase() === 'livre') return 'LIVRE';
+  if (p.startsWith('[OUTRO]')) return 'OUTRO';
+  if (p.toLowerCase().startsWith('continuação')) return 'SEQUENCIA';
+  // Bloqueios legados sem tag definida são tratados como "OUTRO" por padrão
+  return 'OUTRO';
+}
+
+/**
+ * Remove qualquer tag de prefixo [SEQUENCIA], [LIVRE], [OUTRO] para exibição limpa no card
+ */
+export function getDescricaoBloqueio(paciente: string): string {
+  if (!paciente) return '';
+  const limpo = paciente.replace(/^\[(SEQUENCIA|LIVRE|OUTRO)\]\s*/i, '').trim();
+  if (!limpo && paciente.includes('[LIVRE]')) return 'Horário Livre';
+  return limpo || paciente;
 }
 
