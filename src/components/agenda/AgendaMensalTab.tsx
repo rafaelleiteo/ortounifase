@@ -110,12 +110,16 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   // Função para determinar o status/cor da inconsistência em um card
   const getInconsistenciaInfo = (pacienteNome: string, horario: string, alunoNome?: string) => {
     const hNorm = normalizarHorario(horario);
-    const match = incPorHorario.find(
-      (inc) =>
+    const match = incPorHorario.find((inc) => {
+      const matchName = inc.paciente.toLowerCase() === pacienteNome.toLowerCase();
+      if (inc.tipo === 'HORARIO_ALTERADO' && matchName) {
+        return true;
+      }
+      return (
         normalizarHorario(inc.horario) === hNorm &&
-        (inc.paciente.toLowerCase() === pacienteNome.toLowerCase() ||
-         (inc.aluno_mensal && alunoNome && inc.aluno_mensal.toLowerCase() === alunoNome.toLowerCase()))
-    );
+        (matchName || (inc.aluno_mensal && alunoNome && inc.aluno_mensal.toLowerCase() === alunoNome.toLowerCase()))
+      );
+    });
 
     if (!match) return null;
 
@@ -143,7 +147,16 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         corBorder: 'border-emerald-400 bg-emerald-50/70 text-emerald-900',
         badge: 'bg-emerald-100 text-emerald-800 border-emerald-300',
         label: 'Paciente Novo',
-        detalhe: 'Não cadastrado neste horário na agenda fixa'
+        detalhe: 'Não cadastrado neste dia na agenda fixa'
+      };
+    }
+    if (match.tipo === 'HORARIO_ALTERADO') {
+      return {
+        tipo: 'HORARIO_ALTERADO',
+        corBorder: 'border-blue-400 bg-blue-50/70 text-blue-900',
+        badge: 'bg-blue-100 text-blue-800 border-blue-300',
+        label: 'Horário Alterado',
+        detalhe: match.observacao ? `Horário alterado: ${match.observacao}` : 'Horário alterado em relação à agenda fixa'
       };
     }
     return null;
@@ -188,6 +201,10 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
           <div className="flex items-center gap-1.5 text-amber-700">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
             Aluno Trocado
+          </div>
+          <div className="flex items-center gap-1.5 text-blue-700">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+            Horário Alterado
           </div>
           <div className="flex items-center gap-1.5 text-emerald-700">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>

@@ -46,7 +46,7 @@ export interface AgendaMensalItem {
 
 export interface InconsistenciaItem {
   id: string;
-  tipo: 'AUSENTE' | 'ALUNO_TROCADO' | 'PACIENTE_NOVO';
+  tipo: 'AUSENTE' | 'ALUNO_TROCADO' | 'PACIENTE_NOVO' | 'HORARIO_ALTERADO';
   paciente: string;
   aluno_fixa?: string | null;
   aluno_mensal?: string | null;

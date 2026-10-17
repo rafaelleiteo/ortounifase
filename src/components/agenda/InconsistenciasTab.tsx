@@ -79,6 +79,12 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
           classes: 'bg-emerald-100 text-emerald-800 border-emerald-300',
           dot: 'bg-emerald-500'
         };
+      case 'HORARIO_ALTERADO':
+        return {
+          label: 'Horário Alterado',
+          classes: 'bg-blue-100 text-blue-800 border-blue-300',
+          dot: 'bg-blue-500'
+        };
     }
   };
 
@@ -107,6 +113,7 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
             <option value="AUSENTE">Somente Ausentes</option>
             <option value="ALUNO_TROCADO">Somente Aluno Trocado</option>
             <option value="PACIENTE_NOVO">Somente Paciente Novo</option>
+            <option value="HORARIO_ALTERADO">Somente Horário Alterado</option>
           </select>
 
           {/* Filtro por Dia */}
@@ -226,6 +233,16 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
                               </div>
                               <div className="text-amber-700 font-medium">
                                 ➔ <strong>Aluno no Mensal:</strong> {item.aluno_mensal || 'N/A'}
+                              </div>
+                            </>
+                          )}
+                          {item.tipo === 'HORARIO_ALTERADO' && (
+                            <>
+                              <div>
+                                <strong>Mudança de Horário:</strong> {item.observacao || `${formatarHorarioExibicao(item.horario)} (Fixa)`}
+                              </div>
+                              <div>
+                                <strong>Aluno Responsável:</strong> {item.aluno_fixa || item.aluno_mensal || 'Não informado'}
                               </div>
                             </>
                           )}
