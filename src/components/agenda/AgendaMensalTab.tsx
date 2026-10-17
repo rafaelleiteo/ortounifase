@@ -27,6 +27,9 @@ import {
   UserPlus,
   HelpCircle
 } from 'lucide-react';
+import { AgendaCardAtendimento } from './AgendaCardAtendimento';
+import { AgendaModaisAtendimento } from './AgendaModaisAtendimento';
+import { useAgendaModais } from './useAgendaModais';
 
 interface AgendaMensalTabProps {
   turmaNome: string;
@@ -40,6 +43,15 @@ interface AgendaMensalTabProps {
   periodo?: TurnoAgenda;
   onPeriodoChange?: (periodo: TurnoAgenda) => void;
   onAbrirImportModal: () => void;
+  onSalvarItem?: (dados: {
+    id: string;
+    paciente?: string;
+    aluno_id?: string | null;
+    horario?: string;
+    dia_semana?: string;
+  }) => Promise<void> | void;
+  onRemoverItem?: (id: string, pacienteNome?: string) => Promise<void> | void;
+  isCoordenadorOrAdmin?: boolean;
 }
 
 export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
@@ -53,7 +65,10 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   onDiaSelecionadoChange,
   periodo: periodoProp,
   onPeriodoChange,
-  onAbrirImportModal
+  onAbrirImportModal,
+  onSalvarItem,
+  onRemoverItem,
+  isCoordenadorOrAdmin = false
 }) => {
   const [diaLocal, setDiaLocal] = useState<string>('QUINTA');
   const diaSelecionadoRaw = diaProp !== undefined ? diaProp : diaLocal;
@@ -186,6 +201,41 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
   // Também verificar se há pacientes AUSENTES na fixa para esse dia/horário que não estão em nenhuma célula do mensal
   const ausentesDoDia = incPorHorario.filter((inc) => inc.tipo === 'AUSENTE');
+
+  // Hook compartilhado para gestão de modais de atendimento (Editar, Reagendar, Trocar Aluno)
+  const {
+    modalEditar,
+    modalReagendar,
+    modalTrocarAluno,
+    abrirEditar,
+    abrirReagendar,
+    abrirTrocarAluno,
+    fecharEditar,
+    fecharReagendar,
+    fecharTrocarAluno,
+    handleSalvarEditar,
+    handleSalvarReagendar,
+    handleSalvarTrocaAluno,
+    setModalEditar,
+    setModalReagendar,
+    setModalTrocarAluno
+  } = useAgendaModais({
+    onSalvarItem: async (dados) => {
+      if (onSalvarItem) {
+        await onSalvarItem(dados);
+      }
+    },
+    itensExistentes: agendaMensal.map((m) => ({
+      id: m.id,
+      paciente: m.paciente,
+      aluno_id: m.aluno_id,
+      aluno: m.aluno,
+      horario: m.horario,
+      dia_semana: m.dia_semana
+    })),
+    alunos,
+    diaDefault: diaSelecionado
+  });
 
   return (
     <div className="space-y-5">
@@ -356,49 +406,56 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                   {items.map((item) => {
                                     const incInfo = getInconsistenciaInfo(item.paciente, h, aluno.nome);
                                     return (
-                                      <div
+                                      <AgendaCardAtendimento
                                         key={item.id}
-                                        className={`p-2 rounded-xl border shadow-2xs transition-all ${
-                                          incInfo
-                                            ? incInfo.corBorder
-                                            : isExtra
-                                            ? 'bg-amber-50/80 border-amber-300 text-slate-900'
-                                            : 'bg-white border-slate-200 text-slate-800'
-                                        }`}
-                                      >
-                                        <div className="font-semibold break-words mb-1 flex items-start justify-between gap-1">
-                                          <span>{item.paciente}</span>
-                                          {isExtra && !incInfo && (
-                                            <span
-                                              title="Atendimento Extra"
-                                              className="shrink-0 text-[10px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
-                                            >
-                                              Extra
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        {incInfo ? (
-                                          <div className="space-y-1">
+                                        item={{
+                                          id: item.id,
+                                          paciente: item.paciente,
+                                          aluno_id: item.aluno_id,
+                                          aluno: item.aluno || aluno.nome,
+                                          horario: item.horario,
+                                          dia_semana: item.dia_semana,
+                                          is_extra: isExtra
+                                        }}
+                                        badge={
+                                          incInfo ? (
                                             <span
                                               className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${incInfo.badge}`}
                                             >
                                               {incInfo.label}
                                             </span>
+                                          ) : undefined
+                                        }
+                                        detalhe={
+                                          incInfo ? (
                                             <div className="text-[10px] opacity-85 leading-tight">
                                               {incInfo.detalhe}
                                             </div>
-                                          </div>
-                                        ) : isExtra ? (
-                                          <span className="text-[10px] font-medium text-amber-700/80">
-                                            Revisar alocação
-                                          </span>
-                                        ) : (
-                                          <span className="text-[10px] font-medium text-slate-400">
-                                            Conforme agenda fixa
-                                          </span>
-                                        )}
-                                      </div>
+                                          ) : isExtra ? (
+                                            <span className="text-[10px] font-medium text-amber-700/80">
+                                              Revisar alocação
+                                            </span>
+                                          ) : (
+                                            <span className="text-[10px] font-medium text-slate-400">
+                                              Conforme agenda fixa
+                                            </span>
+                                          )
+                                        }
+                                        corCard={
+                                          incInfo
+                                            ? incInfo.corBorder
+                                            : isExtra
+                                            ? 'bg-amber-50/80 border-amber-300 text-slate-900'
+                                            : 'bg-white border-slate-200 text-slate-800'
+                                        }
+                                        podeEditar={isCoordenadorOrAdmin}
+                                        onEditar={abrirEditar}
+                                        onReagendar={abrirReagendar}
+                                        onTrocarAluno={abrirTrocarAluno}
+                                        onExcluir={(cardItem) =>
+                                          onRemoverItem && onRemoverItem(cardItem.id, cardItem.paciente)
+                                        }
+                                      />
                                     );
                                   })}
                                 </div>
@@ -425,6 +482,24 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modais de Edição, Reagendamento e Troca de Aluno */}
+      <AgendaModaisAtendimento
+        alunos={alunos}
+        permitirSemAluno={true}
+        modalEditar={modalEditar}
+        onFecharEditar={fecharEditar}
+        onSalvarEditar={handleSalvarEditar}
+        onUpdateModalEditar={(p) => setModalEditar((prev) => ({ ...prev, ...p }))}
+        modalReagendar={modalReagendar}
+        onFecharReagendar={fecharReagendar}
+        onSalvarReagendar={handleSalvarReagendar}
+        onUpdateModalReagendar={(p) => setModalReagendar((prev) => ({ ...prev, ...p }))}
+        modalTrocarAluno={modalTrocarAluno}
+        onFecharTrocarAluno={fecharTrocarAluno}
+        onSalvarTrocarAluno={handleSalvarTrocaAluno}
+        onUpdateModalTrocarAluno={(p) => setModalTrocarAluno((prev) => ({ ...prev, ...p }))}
+      />
     </div>
   );
 };

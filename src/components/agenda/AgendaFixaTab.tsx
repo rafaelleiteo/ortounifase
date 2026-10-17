@@ -31,6 +31,7 @@ import {
   AlertTriangle,
   Lock
 } from 'lucide-react';
+import { AgendaCardAtendimento } from './AgendaCardAtendimento';
 
 interface AgendaFixaTabProps {
   turmaId: string;
@@ -491,70 +492,37 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                               className="p-2 border-r border-slate-100 align-top relative group"
                             >
                               {item ? (
-                                <div className="p-2 rounded-xl bg-brand-50/70 border border-brand-200/90 shadow-2xs flex flex-col justify-between group-hover:border-brand-400 group-hover:bg-brand-50 transition-all">
-                                  <div className="flex items-start justify-between gap-1 mb-1.5">
-                                    <div className="font-semibold text-slate-800 break-words flex-1">
-                                      {item.paciente}
-                                    </div>
-                                    {item.tipo_registro === 'bloqueio' && (
-                                      <span
-                                        title="Horário Fechado / Bloqueio"
-                                        className="shrink-0 text-amber-700 bg-amber-100/90 border border-amber-200/80 p-0.5 rounded-md"
-                                      >
-                                        <Lock className="w-3 h-3" />
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 pt-1 border-t border-brand-200/50">
-                                    <button
-                                      type="button"
-                                      title="Editar Nome do Paciente"
-                                      onClick={() =>
-                                        setModalEditarNome({
-                                          isOpen: true,
-                                          item,
-                                          pacienteNome: item.paciente
-                                        })
-                                      }
-                                      className="p-1 text-slate-500 hover:text-brand-600 rounded-md hover:bg-white"
-                                    >
-                                      <Edit2 className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      title="Mover Paciente (Horário/Dia)"
-                                      onClick={() =>
-                                        setModalMoverHorario({
-                                          isOpen: true,
-                                          item,
-                                          diaSemana: item.dia_semana || diaSelecionado,
-                                          horario: formatarHorarioExibicao(item.horario),
-                                          alunoId: item.aluno_id,
-                                          erro: undefined
-                                        })
-                                      }
-                                      className="p-1 text-slate-500 hover:text-blue-600 rounded-md hover:bg-white"
-                                    >
-                                      <CalendarClock className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      title="Mover para outro Aluno"
-                                      onClick={() => setMoverModal({ isOpen: true, item, novoAlunoId: '' })}
-                                      className="p-1 text-slate-500 hover:text-amber-600 rounded-md hover:bg-white"
-                                    >
-                                      <ArrowRightLeft className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      title="Remover"
-                                      onClick={() => onRemoverItem(item.id)}
-                                      className="p-1 text-slate-500 hover:text-rose-600 rounded-md hover:bg-white"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                </div>
+                                <AgendaCardAtendimento
+                                  item={{
+                                    id: item.id,
+                                    paciente: item.paciente,
+                                    aluno_id: item.aluno_id,
+                                    aluno: item.agenda_alunos?.nome || alunos.find((a) => a.id === item.aluno_id)?.nome,
+                                    horario: item.horario,
+                                    dia_semana: item.dia_semana,
+                                    tipo_registro: item.tipo_registro
+                                  }}
+                                  podeEditar={isCoordenadorOrAdmin}
+                                  onEditar={() =>
+                                    setModalEditarNome({
+                                      isOpen: true,
+                                      item,
+                                      pacienteNome: item.paciente
+                                    })
+                                  }
+                                  onReagendar={() =>
+                                    setModalMoverHorario({
+                                      isOpen: true,
+                                      item,
+                                      diaSemana: item.dia_semana || diaSelecionado,
+                                      horario: formatarHorarioExibicao(item.horario),
+                                      alunoId: item.aluno_id,
+                                      erro: undefined
+                                    })
+                                  }
+                                  onTrocarAluno={() => setMoverModal({ isOpen: true, item, novoAlunoId: '' })}
+                                  onExcluir={() => onRemoverItem(item.id)}
+                                />
                               ) : (
                                 <div className="w-full h-11 border border-dashed border-slate-200 rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty hover:border-slate-300 transition-all">
                                   <button

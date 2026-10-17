@@ -8,7 +8,8 @@ import {
   AgendaFixaItem,
   AgendaMensalItem,
   InconsistenciaItem,
-  TurnoAgenda
+  TurnoAgenda,
+  normalizarHorario
 } from '@/lib/agendaTypes';
 import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
 import { AgendaMensalTab } from '@/components/agenda/AgendaMensalTab';
@@ -203,6 +204,85 @@ export const AgendaPage: React.FC = () => {
       await carregarDadosTurma();
     } catch (err: any) {
       alert('Erro ao remover: ' + err.message);
+    }
+  };
+
+  // Ações da Agenda Mensal
+  const handleSalvarItemMensal = async (dados: {
+    id: string;
+    paciente?: string;
+    aluno_id?: string | null;
+    horario?: string;
+    dia_semana?: string;
+  }) => {
+    if (!turmaSelecionada) return;
+    try {
+      setCarregandoDados(true);
+
+      const updatePayload: any = {};
+      if (dados.paciente !== undefined) updatePayload.paciente = dados.paciente.trim();
+      if (dados.horario !== undefined) updatePayload.horario = normalizarHorario(dados.horario);
+      if (dados.dia_semana !== undefined) updatePayload.dia_semana = dados.dia_semana;
+
+      if (dados.aluno_id !== undefined) {
+        updatePayload.aluno_id = dados.aluno_id;
+        const alunoObj = alunos.find((a) => a.id === dados.aluno_id);
+        updatePayload.aluno = alunoObj ? alunoObj.nome : 'ATENDIMENTO EXTRA';
+      }
+
+      const { error: errUpdate } = await supabase
+        .from('agenda_mensal')
+        .update(updatePayload)
+        .eq('id', dados.id);
+
+      if (errUpdate) throw errUpdate;
+
+      // Recalcula inconsistências para atualizar imediatamente badges e relatório
+      const { error: errCompare } = await supabase.rpc('compare_agendas', {
+        p_turma_id: turmaSelecionada.id,
+        p_mes_referencia: mesReferencia
+      });
+      if (errCompare) console.warn('Aviso ao recalcular comparação:', errCompare);
+
+      await carregarDadosTurma();
+    } catch (err: any) {
+      console.error('Erro ao salvar item na agenda mensal:', err);
+      alert('Erro ao atualizar atendimento na agenda mensal: ' + err.message);
+    } finally {
+      setCarregandoDados(false);
+    }
+  };
+
+  const handleRemoverItemMensal = async (id: string, pacienteNome?: string) => {
+    if (!turmaSelecionada) return;
+    const confirmMsg = pacienteNome
+      ? `Deseja realmente remover o atendimento do paciente "${pacienteNome}" da Agenda Mensal? Esta ação alterará os dados importados do mês.`
+      : 'Deseja realmente remover este atendimento da Agenda Mensal?';
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      setCarregandoDados(true);
+      const { error: errDel } = await supabase
+        .from('agenda_mensal')
+        .delete()
+        .eq('id', id);
+
+      if (errDel) throw errDel;
+
+      // Recalcula inconsistências
+      const { error: errCompare } = await supabase.rpc('compare_agendas', {
+        p_turma_id: turmaSelecionada.id,
+        p_mes_referencia: mesReferencia
+      });
+      if (errCompare) console.warn('Aviso ao recalcular comparação:', errCompare);
+
+      await carregarDadosTurma();
+    } catch (err: any) {
+      console.error('Erro ao remover item da agenda mensal:', err);
+      alert('Erro ao remover atendimento da agenda mensal: ' + err.message);
+    } finally {
+      setCarregandoDados(false);
     }
   };
 
@@ -471,6 +551,9 @@ export const AgendaPage: React.FC = () => {
                 periodo={periodo}
                 onPeriodoChange={setPeriodo}
                 onAbrirImportModal={() => setIsImportModalOpen(true)}
+                onSalvarItem={handleSalvarItemMensal}
+                onRemoverItem={handleRemoverItemMensal}
+                isCoordenadorOrAdmin={isAuthorized}
               />
             )}
 
