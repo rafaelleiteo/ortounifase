@@ -11,6 +11,7 @@ import {
   HORARIO_DIVISOR_TURNO,
   getHorariosPorTurno,
   normalizarHorario,
+  formatarHorarioExibicao,
   isAtendimentoExtra,
   NOME_ATENDIMENTO_EXTRA,
   DiaSemana
@@ -21,6 +22,7 @@ import {
   User,
   Clock,
   UploadCloud,
+  Download,
   AlertTriangle,
   AlertCircle,
   UserCheck,
@@ -237,6 +239,78 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     diaDefault: diaSelecionado
   });
 
+  const handleExportarCSV = () => {
+    if (agendaMensal.length === 0) {
+      alert('Não há registros na Agenda Mensal para exportar.');
+      return;
+    }
+
+    const alunoNomeMap = new Map<string, string>();
+    alunos.forEach((a) => alunoNomeMap.set(a.id, a.nome));
+
+    const headers = ['dia_semana', 'horario', 'paciente', 'aluno', 'status_inconsistencia'];
+    const escapeCSV = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
+
+    const rows = agendaMensal.map((item) => {
+      // 1. Aluno: nome do aluno oficial, ou valor do campo aluno ou "ATENDIMENTO EXTRA"
+      let nomeAluno = 'ATENDIMENTO EXTRA';
+      if (item.aluno_id && alunoNomeMap.has(item.aluno_id)) {
+        nomeAluno = alunoNomeMap.get(item.aluno_id)!;
+      } else if (item.agenda_alunos?.nome) {
+        nomeAluno = item.agenda_alunos.nome;
+      } else if (item.aluno && item.aluno.trim()) {
+        nomeAluno = item.aluno.trim();
+      }
+
+      // 2. Status inconsistência no mês
+      const matchInc = inconsistencias.find((inc) => {
+        const mesmoDia = (inc.dia_semana || '').toUpperCase().trim() === (item.dia_semana || '').toUpperCase().trim();
+        if (!mesmoDia) return false;
+
+        const matchName = inc.paciente.toLowerCase().trim() === item.paciente.toLowerCase().trim();
+        if (inc.tipo === 'HORARIO_ALTERADO' && matchName) {
+          return true;
+        }
+        return (
+          normalizarHorario(inc.horario) === normalizarHorario(item.horario) &&
+          (matchName || (inc.aluno_mensal && nomeAluno && inc.aluno_mensal.toLowerCase() === nomeAluno.toLowerCase()))
+        );
+      });
+
+      let statusInconsistencia = 'OK';
+      if (matchInc) {
+        const tNorm = (matchInc.tipo || '').toUpperCase().trim();
+        if (tNorm === 'HORARIO_ALTERADO') statusInconsistencia = 'Horário Alterado';
+        else if (tNorm === 'ALUNO_TROCADO') statusInconsistencia = 'Aluno Trocado';
+        else if (tNorm === 'PACIENTE_NOVO') statusInconsistencia = 'Paciente Novo';
+        else if (tNorm === 'AUSENTE') statusInconsistencia = 'Ausente';
+        else statusInconsistencia = matchInc.tipo;
+      }
+
+      return [
+        escapeCSV(item.dia_semana),
+        escapeCSV(formatarHorarioExibicao(item.horario)),
+        escapeCSV(item.paciente),
+        escapeCSV(nomeAluno),
+        escapeCSV(statusInconsistencia)
+      ].join(';');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    const anoMes = mesReferencia.substring(0, 7);
+    const nomeLimpoTurma = turmaNome.replace(/[^a-zA-Z0-9_-]/g, '_');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `agenda_mensal_${nomeLimpoTurma}_${anoMes}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   return (
     <div className="space-y-5">
       {/* Barra Superior de Controles: Dias e Períodos */}
@@ -266,6 +340,16 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
             >
               <UploadCloud className="w-3.5 h-3.5" />
               Importar e Comparar
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportarCSV}
+              title="Exportar agenda mensal deste mês em formato CSV"
+              className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-600" />
+              Exportar
             </button>
           </div>
 

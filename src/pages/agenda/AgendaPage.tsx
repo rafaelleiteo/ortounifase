@@ -11,6 +11,7 @@ import {
   TurnoAgenda,
   normalizarHorario
 } from '@/lib/agendaTypes';
+import { recalcularInconsistenciasComPreservacao } from '@/lib/agendaService';
 import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
 import { AgendaMensalTab } from '@/components/agenda/AgendaMensalTab';
 import { InconsistenciasTab } from '@/components/agenda/InconsistenciasTab';
@@ -235,14 +236,15 @@ export const AgendaPage: React.FC = () => {
         .update(updatePayload)
         .eq('id', dados.id);
 
-      if (errUpdate) throw errUpdate;
-
-      // Recalcula inconsistências para atualizar imediatamente badges e relatório
-      const { error: errCompare } = await supabase.rpc('compare_agendas', {
-        p_turma_id: turmaSelecionada.id,
-        p_mes_referencia: mesReferencia
-      });
-      if (errCompare) console.warn('Aviso ao recalcular comparação:', errCompare);
+      // Recalcula inconsistências preservando status revisados
+      try {
+        await recalcularInconsistenciasComPreservacao(
+          turmaSelecionada.id,
+          mesReferencia
+        );
+      } catch (errCompare: any) {
+        console.warn('Aviso ao recalcular comparação:', errCompare);
+      }
 
       await carregarDadosTurma();
     } catch (err: any) {
@@ -270,12 +272,15 @@ export const AgendaPage: React.FC = () => {
 
       if (errDel) throw errDel;
 
-      // Recalcula inconsistências
-      const { error: errCompare } = await supabase.rpc('compare_agendas', {
-        p_turma_id: turmaSelecionada.id,
-        p_mes_referencia: mesReferencia
-      });
-      if (errCompare) console.warn('Aviso ao recalcular comparação:', errCompare);
+      // Recalcula inconsistências preservando status revisados
+      try {
+        await recalcularInconsistenciasComPreservacao(
+          turmaSelecionada.id,
+          mesReferencia
+        );
+      } catch (errCompare: any) {
+        console.warn('Aviso ao recalcular comparação:', errCompare);
+      }
 
       await carregarDadosTurma();
     } catch (err: any) {

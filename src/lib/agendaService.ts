@@ -94,13 +94,11 @@ export async function importarAgendaMensal(payload: ImportPayload) {
 
   if (upsertError) throw upsertError;
 
-  // 5. Chamar a função compare_agendas no Postgres
-  const { data: compareResult, error: compareError } = await supabase.rpc('compare_agendas', {
-    p_turma_id: turma.id,
-    p_mes_referencia: payload.mes_referencia,
-  });
-
-  if (compareError) throw compareError;
+  // 5. Chamar a função compare_agendas preservando status revisados
+  const compareResult = await recalcularInconsistenciasComPreservacao(
+    turma.id,
+    payload.mes_referencia
+  );
 
   const totalVinculados = rowsToUpsert.filter((r) => r.aluno_id !== null).length;
   const totalExtras = rowsToUpsert.filter((r) => r.aluno_id === null).length;
@@ -114,4 +112,68 @@ export async function importarAgendaMensal(payload: ImportPayload) {
     totalExtras,
     compareResult,
   };
+}
+
+/**
+ * Executa a conciliação automática de inconsistências garantindo a preservação
+ * de status previamente revisados (REVISADO, OK, EDITAR) e notas manuais do coordenador.
+ */
+export async function recalcularInconsistenciasComPreservacao(
+  turmaId: string,
+  mesReferencia: string
+) {
+  // 1. Busca todas as inconsistências atuais que já foram revisadas ou possuem anotação do coordenador
+  const { data: inconsistenciasAtuais } = await supabase
+    .from('inconsistencias')
+    .select('tipo, paciente, dia_semana, status, observacao')
+    .eq('turma_id', turmaId)
+    .eq('mes_referencia', mesReferencia);
+
+  const revisadas = (inconsistenciasAtuais || []).filter(
+    (i) => (i.status && i.status !== 'PENDENTE') || (i.observacao && i.observacao.trim())
+  );
+
+  // 2. Executa a conciliação automática via RPC compare_agendas
+  const { data: compareResult, error: compareError } = await supabase.rpc('compare_agendas', {
+    p_turma_id: turmaId,
+    p_mes_referencia: mesReferencia
+  });
+
+  if (compareError) throw compareError;
+
+  // 3. Se havia itens previamente revisados, restaura status e observações nos novos registros correspondentes
+  if (revisadas.length > 0) {
+    const { data: novasInconsistencias } = await supabase
+      .from('inconsistencias')
+      .select('id, tipo, paciente, dia_semana')
+      .eq('turma_id', turmaId)
+      .eq('mes_referencia', mesReferencia);
+
+    if (novasInconsistencias && novasInconsistencias.length > 0) {
+      for (const rev of revisadas) {
+        const revNorm = rev.paciente.toLowerCase().trim();
+        const match = novasInconsistencias.find(
+          (nova) =>
+            nova.tipo === rev.tipo &&
+            (nova.dia_semana || '').toUpperCase().trim() === (rev.dia_semana || '').toUpperCase().trim() &&
+            (nova.paciente.toLowerCase().trim() === revNorm ||
+             nova.paciente.toLowerCase().includes(revNorm) ||
+             revNorm.includes(nova.paciente.toLowerCase().trim()))
+        );
+
+        if (match) {
+          await supabase
+            .from('inconsistencias')
+            .update({
+              status: rev.status,
+              ...(rev.observacao ? { observacao: rev.observacao } : {}),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', match.id);
+        }
+      }
+    }
+  }
+
+  return compareResult;
 }

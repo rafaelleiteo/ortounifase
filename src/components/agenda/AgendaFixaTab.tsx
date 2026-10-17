@@ -48,6 +48,69 @@ interface AgendaFixaTabProps {
   isCoordenadorOrAdmin?: boolean;
 }
 
+/**
+ * Sugere automaticamente a próxima sequência lógica de atendimento ao fechar/bloquear um horário.
+ * Baseia-se nos atendimentos já cadastrados para aquele aluno naquele dia.
+ */
+export function sugerirSequenciaFecharHorario(
+  agenda: AgendaFixaItem[],
+  alunoId: string,
+  diaSemana: string,
+  horario: string
+): string {
+  const hNorm = normalizarHorario(horario);
+
+  const atendimentosDoAluno = agenda
+    .filter(
+      (item) =>
+        item.aluno_id === alunoId &&
+        (item.dia_semana || '').toUpperCase().trim() === diaSemana.toUpperCase().trim() &&
+        item.paciente &&
+        item.paciente.trim().length > 0
+    )
+    .sort((a, b) => normalizarHorario(a.horario).localeCompare(normalizarHorario(b.horario)));
+
+  // 1. Procura o atendimento imediatamente anterior
+  const anteriores = atendimentosDoAluno.filter(
+    (item) => normalizarHorario(item.horario) < hNorm
+  );
+
+  if (anteriores.length > 0) {
+    const ultimo = anteriores[anteriores.length - 1];
+    const pacienteNome = ultimo.paciente.trim();
+
+    // Se o anterior for continuação numerada: "Continuação 2 - Nome" -> "Continuação 3 - Nome"
+    const matchNum = pacienteNome.match(/^continuação\s+(\d+)\s*[-:]?\s*(.*)$/i);
+    if (matchNum) {
+      const proximoNum = parseInt(matchNum[1], 10) + 1;
+      const nomeBase = matchNum[2].trim() || 'Atendimento';
+      return `Continuação ${proximoNum} - ${nomeBase}`;
+    }
+
+    // Se o anterior for continuação simples: "Continuação - Nome" -> "Continuação 2 - Nome"
+    const matchSimples = pacienteNome.match(/^continuação\s*[-:]?\s*(.*)$/i);
+    if (matchSimples) {
+      const nomeBase = matchSimples[1].trim() || 'Atendimento';
+      return `Continuação 2 - ${nomeBase}`;
+    }
+
+    // Atendimento inicial do paciente -> primeira continuação
+    return `Continuação - ${pacienteNome}`;
+  }
+
+  // 2. Se não houver atendimento anterior, mas houver atendimento posterior naquele dia
+  const posteriores = atendimentosDoAluno.filter(
+    (item) => normalizarHorario(item.horario) > hNorm
+  );
+  if (posteriores.length > 0) {
+    const proximo = posteriores[0];
+    const pacienteNome = proximo.paciente.replace(/^continuação(\s+\d+)?\s*[-:]?\s*/i, '').trim();
+    return `Continuação - ${pacienteNome}`;
+  }
+
+  return 'Bloqueio de Horário';
+}
+
 export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   turmaId,
   turmaNome,
@@ -537,15 +600,21 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                     <button
                                       type="button"
                                       title="Fechar Horário (Bloqueio)"
-                                      onClick={() =>
+                                      onClick={() => {
+                                        const sugestao = sugerirSequenciaFecharHorario(
+                                          agendaFixa,
+                                          aluno.id,
+                                          diaSelecionado,
+                                          h
+                                        );
                                         setModalFecharHorario({
                                           isOpen: true,
                                           alunoId: aluno.id,
                                           horario: h,
                                           diaSemana: diaSelecionado,
-                                          descricao: ''
-                                        })
-                                      }
+                                          descricao: sugestao
+                                        });
+                                      }}
                                       className="h-full px-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50/80 transition-all"
                                     >
                                       <Lock className="w-3 h-3 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
@@ -992,7 +1061,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
             <div>
               <label className="text-xs font-bold text-slate-700 block mb-1">
-                Descrição <span className="text-rose-500">*</span>
+                Sequência / Descrição do Bloqueio <span className="text-rose-500">*</span>
               </label>
               <input
                 id="input-fechar-horario-descricao"
@@ -1000,7 +1069,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                 autoFocus
                 value={modalFecharHorario.descricao}
                 onChange={(e) => setModalFecharHorario({ ...modalFecharHorario, descricao: e.target.value })}
-                placeholder="Ex: Continuação do atendimento anterior"
+                placeholder="Ex: Continuação - Nome do Paciente"
                 className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
                 onKeyDown={(e) => e.key === 'Enter' && handleSalvarFecharHorario()}
               />
