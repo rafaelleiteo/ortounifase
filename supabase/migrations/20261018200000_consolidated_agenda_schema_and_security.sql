@@ -135,7 +135,7 @@ CREATE OR REPLACE FUNCTION public.compare_agendas(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   rec_fixa RECORD;
@@ -480,6 +480,10 @@ REVOKE ALL ON FUNCTION public.mesclar_alunos(uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.mesclar_alunos(uuid, uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.mesclar_alunos(uuid, uuid) TO authenticated, service_role;
 
+-- Notifica o PostgREST para recarregar o schema cache imediatamente
+NOTIFY pgrst, 'reload schema';
+
 -- ==============================================================================
 -- FIM DA MIGRAÇÃO CONSOLIDADA
 -- ==============================================================================
+
