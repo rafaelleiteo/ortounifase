@@ -181,9 +181,10 @@ export function useAgendaModais({
     const isBloqueio = item?.tipo_registro === 'bloqueio' || isItemBloqueio(item);
     const tipo = item?.tipo_bloqueio || (isBloqueio ? getTipoBloqueio(item!) : undefined);
 
+    const isExtraDestino = !dados.novoAlunoId || dados.novoAlunoId === 'EXTRA' || dados.novoAlunoId === 'EXTRA_VIRTUAL';
     await onSalvarItem({
       id: dados.id,
-      aluno_id: dados.novoAlunoId,
+      aluno_id: isExtraDestino ? null : dados.novoAlunoId,
       tipo_registro: isBloqueio ? 'bloqueio' : undefined,
       tipo_bloqueio: isBloqueio ? tipo : undefined
     });

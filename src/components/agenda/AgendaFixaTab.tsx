@@ -12,6 +12,8 @@ import {
   normalizarHorario,
   formatarHorarioExibicao,
   isAtendimentoExtra,
+  NOME_ATENDIMENTO_EXTRA,
+  obterColunasTurma,
   DiaSemana,
   TipoBloqueio,
   getTipoBloqueio,
@@ -84,19 +86,12 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [criandoAluno, setCriandoAluno] = useState<boolean>(false);
 
-  // Filtra "Atendimento Extra" e alunos inativos da grade da Agenda Fixa,
-  // exibindo somente alunos regulares e ativos (a menos que já possuam algum item fixo vinculado).
-  const alunosFixa = useMemo(() => {
-    return alunos.filter((a) => {
-      if (isAtendimentoExtra(a.nome)) {
-        return agendaFixa.some((item) => item.aluno_id === a.id);
-      }
-      if (a.ativo === false) {
-        return agendaFixa.some((item) => item.aluno_id === a.id);
-      }
-      return true;
-    });
-  }, [alunos, agendaFixa]);
+  // Colunas da Agenda Fixa com single source of truth:
+  // - ESP2: As 4 duplas na ordem estrita + Atendimento Extra por último (sempre visível, mesmo vazia)
+  // - ESP1 e Serviço: Alunos ativos + Atendimento Extra por último (sempre visível, mesmo vazia)
+  const colunasFixa = useMemo(() => {
+    return obterColunasTurma(turmaNome, alunos, agendaFixa);
+  }, [turmaNome, alunos, agendaFixa]);
 
   // Modal para adicionar / editar paciente em célula
   const [modalCell, setModalCell] = useState<{
@@ -185,20 +180,25 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   const horarios = getHorariosPorTurno(periodo);
 
-  // Indexa itens por chave: alunoId_horarioNormalizado
-  const itemMap = new Map<string, AgendaFixaItem>();
+  // Indexa itens por chave: colId_horarioNormalizado (suporta múltiplos atendimentos na coluna extra)
+  const itemMap = new Map<string, AgendaFixaItem[]>();
   agendaFixa
     .filter((item) => (item.dia_semana || '').toUpperCase() === diaSelecionado.toUpperCase())
     .forEach((item) => {
       const hNorm = normalizarHorario(item.horario);
-      const key = `${item.aluno_id}_${hNorm}`;
-      itemMap.set(key, item);
+      const isExtra = !item.aluno_id || isAtendimentoExtra(item.agenda_alunos?.nome || item.aluno);
+      const colId = isExtra ? 'EXTRA_VIRTUAL' : (item.aluno_id || 'EXTRA_VIRTUAL');
+      const key = `${colId}_${hNorm}`;
+      const list = itemMap.get(key) || [];
+      list.push(item);
+      itemMap.set(key, list);
     });
 
   const handleAbrirCelular = (alunoId: string, horario: string) => {
     const hNorm = normalizarHorario(horario);
     const key = `${alunoId}_${hNorm}`;
-    const existente = itemMap.get(key);
+    const itens = itemMap.get(key) || [];
+    const existente = itens[0];
 
     setModalCell({
       isOpen: true,
@@ -212,9 +212,11 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   const handleSalvarCelula = async () => {
     if (!modalCell.pacienteNome.trim()) return;
+    const isExtra = modalCell.alunoId === 'EXTRA_VIRTUAL';
     await onSalvarItem({
       id: modalCell.itemExistente?.id,
-      aluno_id: modalCell.alunoId,
+      aluno_id: isExtra ? null : modalCell.alunoId,
+      aluno: isExtra ? NOME_ATENDIMENTO_EXTRA : undefined,
       horario: normalizarHorario(modalCell.horario),
       dia_semana: modalCell.diaSemana,
       turma_id: turmaId,
@@ -225,8 +227,10 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   const handleSalvarNovoPaciente = async () => {
     if (!modalNovoPaciente.pacienteNome.trim() || !modalNovoPaciente.alunoId) return;
+    const isExtra = modalNovoPaciente.alunoId === 'EXTRA_VIRTUAL';
     await onSalvarItem({
-      aluno_id: modalNovoPaciente.alunoId,
+      aluno_id: isExtra ? null : modalNovoPaciente.alunoId,
+      aluno: isExtra ? NOME_ATENDIMENTO_EXTRA : undefined,
       horario: normalizarHorario(modalNovoPaciente.horario),
       dia_semana: modalNovoPaciente.diaSemana,
       turma_id: turmaId,
@@ -237,7 +241,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       pacienteNome: '',
       diaSemana: diaSelecionado,
       horario: '08:00',
-      alunoId: alunosFixa[0]?.id || ''
+      alunoId: colunasFixa[0]?.id || ''
     });
   };
 
@@ -252,6 +256,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     await onSalvarItem({
       id: modalEditarNome.item.id,
       aluno_id: modalEditarNome.item.aluno_id,
+      aluno: modalEditarNome.item.aluno,
       horario: modalEditarNome.item.horario,
       dia_semana: modalEditarNome.item.dia_semana,
       turma_id: turmaId,
@@ -264,6 +269,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   const handleSalvarFecharHorario = async () => {
     if (!modalFecharHorario.alunoId) return;
+    const isExtra = modalFecharHorario.alunoId === 'EXTRA_VIRTUAL';
     const tipo = modalFecharHorario.tipoBloqueio;
     let descFinal = '';
 
@@ -278,7 +284,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     const pacientePayload = `[${tipo}] ${descFinal.replace(/^\[(SEQUENCIA|LIVRE|OUTRO)\]\s*/i, '')}`;
 
     await onSalvarItem({
-      aluno_id: modalFecharHorario.alunoId,
+      aluno_id: isExtra ? null : modalFecharHorario.alunoId,
+      aluno: isExtra ? NOME_ATENDIMENTO_EXTRA : undefined,
       horario: normalizarHorario(modalFecharHorario.horario),
       dia_semana: modalFecharHorario.diaSemana,
       turma_id: turmaId,
@@ -309,10 +316,10 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     // Cabeçalho CSV
     const headers = ['dia_semana', 'horario', 'paciente', 'aluno', 'tipo_registro'];
     const rows = agendaFixa.map((item) => {
-      const alunoNome =
-        item.agenda_alunos?.nome ||
-        alunoNomeMap.get(item.aluno_id) ||
-        'Não Informado';
+      const isExtra = !item.aluno_id || isAtendimentoExtra(item.aluno) || isAtendimentoExtra(item.agenda_alunos?.nome);
+      const alunoNome = isExtra
+        ? 'ATENDIMENTO EXTRA'
+        : (item.agenda_alunos?.nome || (item.aluno_id ? alunoNomeMap.get(item.aluno_id) : null) || 'ATENDIMENTO EXTRA');
 
       const escapeCSV = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
 
@@ -342,13 +349,17 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   const handleMoverPaciente = async () => {
     if (!moverModal.item || !moverModal.novoAlunoId) return;
+    const isDestinoExtra = moverModal.novoAlunoId === 'EXTRA_VIRTUAL';
     await onSalvarItem({
       id: moverModal.item.id,
-      aluno_id: moverModal.novoAlunoId,
+      aluno_id: isDestinoExtra ? null : moverModal.novoAlunoId,
+      aluno: isDestinoExtra ? NOME_ATENDIMENTO_EXTRA : undefined,
       horario: moverModal.item.horario,
       dia_semana: moverModal.item.dia_semana,
       turma_id: turmaId,
-      paciente: moverModal.item.paciente
+      paciente: moverModal.item.paciente,
+      tipo_registro: moverModal.item.tipo_registro,
+      tipo_bloqueio: moverModal.item.tipo_bloqueio
     });
     setMoverModal({ isOpen: false, novoAlunoId: '' });
   };
@@ -358,23 +369,26 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
     const { item, diaSemana, horario, alunoId } = modalMoverHorario;
     const hNormDestino = normalizarHorario(horario);
+    const isDestinoExtra = alunoId === 'EXTRA_VIRTUAL';
 
-    // Validação: verificar se já existe outro paciente no slot de destino
-    const conflito = agendaFixa.find(
-      (outro) =>
-        outro.id !== item.id &&
-        (outro.dia_semana || '').toUpperCase() === diaSemana.toUpperCase() &&
-        normalizarHorario(outro.horario) === hNormDestino &&
-        outro.aluno_id === alunoId
-    );
+    // Validação: verificar conflito somente para alunos regulares (Atendimento Extra permite múltiplos)
+    if (!isDestinoExtra) {
+      const conflito = agendaFixa.find(
+        (outro) =>
+          outro.id !== item.id &&
+          (outro.dia_semana || '').toUpperCase() === diaSemana.toUpperCase() &&
+          normalizarHorario(outro.horario) === hNormDestino &&
+          outro.aluno_id === alunoId
+      );
 
-    if (conflito) {
-      const alunoNome = alunos.find((a) => a.id === alunoId)?.nome || 'o aluno selecionado';
-      setModalMoverHorario((prev) => ({
-        ...prev,
-        erro: `Horário ocupado! Já existe o paciente "${conflito.paciente}" agendado para ${alunoNome} na ${diaSemana} às ${formatarHorarioExibicao(horario)}. Escolha outro slot ou aluno.`
-      }));
-      return;
+      if (conflito) {
+        const alunoNome = alunos.find((a) => a.id === alunoId)?.nome || 'o aluno selecionado';
+        setModalMoverHorario((prev) => ({
+          ...prev,
+          erro: `Horário ocupado! Já existe o paciente "${conflito.paciente}" agendado para ${alunoNome} na ${diaSemana} às ${formatarHorarioExibicao(horario)}. Escolha outro slot ou aluno.`
+        }));
+        return;
+      }
     }
 
     await onSalvarItem({
@@ -382,8 +396,11 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       paciente: item.paciente,
       dia_semana: diaSemana,
       horario: hNormDestino,
-      aluno_id: alunoId,
-      turma_id: turmaId
+      aluno_id: isDestinoExtra ? null : alunoId,
+      aluno: isDestinoExtra ? NOME_ATENDIMENTO_EXTRA : undefined,
+      turma_id: turmaId,
+      tipo_registro: item.tipo_registro,
+      tipo_bloqueio: item.tipo_bloqueio
     });
 
     setModalMoverHorario({
@@ -426,7 +443,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                   pacienteNome: '',
                   diaSemana: diaSelecionado,
                   horario: '08:00',
-                  alunoId: alunosFixa[0]?.id || ''
+                  alunoId: colunasFixa[0]?.id || ''
                 })
               }
               className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
@@ -471,7 +488,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       </AgendaFiltrosHeader>
 
       {/* Grid / Tabela Kanban da Agenda Fixa */}
-      {alunosFixa.length === 0 ? (
+      {colunasFixa.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
           <User className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h4 className="text-sm font-bold text-slate-700">Nenhum aluno cadastrado nesta turma</h4>
@@ -489,19 +506,29 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                       Horário
                     </div>
                   </th>
-                  {alunosFixa.map((aluno) => (
-                    <th
-                      key={aluno.id}
-                      className="p-3 text-xs font-bold text-slate-800 border-r border-slate-200 min-w-[200px]"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <User className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                          <span className="truncate" title={aluno.nome}>{aluno.nome}</span>
+                  {colunasFixa.map((col) => {
+                    const isExtra = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
+                    return (
+                      <th
+                        key={col.id}
+                        className={`p-3 text-xs font-bold border-r border-slate-200 min-w-[200px] ${
+                          isExtra ? 'bg-amber-50/50 text-amber-900' : 'text-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <User className={`w-3.5 h-3.5 shrink-0 ${isExtra ? 'text-amber-600' : 'text-brand-600'}`} />
+                            <span className="truncate" title={col.nome}>{col.nome}</span>
+                          </div>
+                          {isExtra && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0">
+                              Extra
+                            </span>
+                          )}
                         </div>
-                      </div>
-                    </th>
-                  ))}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
@@ -511,7 +538,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (
                         <tr className="bg-slate-100/80 font-bold text-slate-500 text-[11px]">
-                          <td colSpan={alunosFixa.length + 1} className="py-1 px-3 border-y border-slate-200">
+                          <td colSpan={colunasFixa.length + 1} className="py-1 px-3 border-y border-slate-200">
                             --- Turno da Tarde (Intervalos de 15 min) ---
                           </td>
                         </tr>
@@ -520,55 +547,67 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                         <td className="p-2.5 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono">
                           {h}
                         </td>
-                        {alunosFixa.map((aluno) => {
+                        {colunasFixa.map((col) => {
+                          const isExtraCol = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
                           const hNorm = normalizarHorario(h);
-                          const item = itemMap.get(`${aluno.id}_${hNorm}`);
+                          const itens = itemMap.get(`${col.id}_${hNorm}`) || [];
 
                           return (
                             <td
-                              key={aluno.id}
-                              className="p-2 border-r border-slate-100 align-top relative group"
+                              key={col.id}
+                              className={`p-2 border-r border-slate-100 align-top relative group ${
+                                isExtraCol ? 'bg-amber-50/10' : ''
+                              }`}
                             >
-                              {item ? (
-                                <AgendaCardAtendimento
-                                  item={{
-                                    id: item.id,
-                                    paciente: item.paciente,
-                                    aluno_id: item.aluno_id,
-                                    aluno: item.agenda_alunos?.nome || alunos.find((a) => a.id === item.aluno_id)?.nome,
-                                    horario: item.horario,
-                                    dia_semana: item.dia_semana,
-                                    tipo_registro: item.tipo_registro,
-                                    tipo_bloqueio: item.tipo_bloqueio
-                                  }}
-                                  podeEditar={isCoordenadorOrAdmin}
-                                  onEditar={() =>
-                                    setModalEditarNome({
-                                      isOpen: true,
-                                      item,
-                                      pacienteNome: item.tipo_registro === 'bloqueio' ? getDescricaoBloqueio(item.paciente) : item.paciente
-                                    })
-                                  }
-                                  onReagendar={() =>
-                                    setModalMoverHorario({
-                                      isOpen: true,
-                                      item,
-                                      diaSemana: item.dia_semana || diaSelecionado,
-                                      horario: formatarHorarioExibicao(item.horario),
-                                      alunoId: item.aluno_id,
-                                      erro: undefined
-                                    })
-                                  }
-                                  onTrocarAluno={() => setMoverModal({ isOpen: true, item, novoAlunoId: '' })}
-                                  onExcluir={() => onRemoverItem(item.id)}
-                                />
+                              {itens.length > 0 ? (
+                                <div className="space-y-1">
+                                  {itens.map((item) => (
+                                    <AgendaCardAtendimento
+                                      key={item.id}
+                                      item={{
+                                        id: item.id,
+                                        paciente: item.paciente,
+                                        aluno_id: item.aluno_id,
+                                        aluno: isExtraCol
+                                          ? NOME_ATENDIMENTO_EXTRA
+                                          : (item.agenda_alunos?.nome || alunos.find((a) => a.id === item.aluno_id)?.nome || col.nome),
+                                        horario: item.horario,
+                                        dia_semana: item.dia_semana,
+                                        tipo_registro: item.tipo_registro,
+                                        tipo_bloqueio: item.tipo_bloqueio
+                                      }}
+                                      podeEditar={isCoordenadorOrAdmin}
+                                      onEditar={() =>
+                                        setModalEditarNome({
+                                          isOpen: true,
+                                          item,
+                                          pacienteNome: item.tipo_registro === 'bloqueio' ? getDescricaoBloqueio(item.paciente) : item.paciente
+                                        })
+                                      }
+                                      onReagendar={() =>
+                                        setModalMoverHorario({
+                                          isOpen: true,
+                                          item,
+                                          diaSemana: item.dia_semana || diaSelecionado,
+                                          horario: formatarHorarioExibicao(item.horario),
+                                          alunoId: item.aluno_id || 'EXTRA_VIRTUAL',
+                                          erro: undefined
+                                        })
+                                      }
+                                      onTrocarAluno={() => setMoverModal({ isOpen: true, item, novoAlunoId: '' })}
+                                      onExcluir={() => onRemoverItem(item.id)}
+                                    />
+                                  ))}
+                                </div>
                               ) : (
-                                <div className="w-full h-11 border border-dashed border-slate-200 rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty hover:border-slate-300 transition-all">
+                                <div className={`w-full h-11 border border-dashed rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty transition-all ${
+                                  isExtraCol ? 'border-amber-200/60 hover:border-amber-300' : 'border-slate-200 hover:border-slate-300'
+                                }`}>
                                   <button
                                     type="button"
                                     title="Adicionar Paciente"
-                                    onClick={() => handleAbrirCelular(aluno.id, h)}
-                                    className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all"
+                                    onClick={() => handleAbrirCelular(col.id, h)}
+                                    className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
                                   >
                                     <Plus className="w-3.5 h-3.5 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
                                   </button>
@@ -577,9 +616,10 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                       type="button"
                                       title="Fechar Horário (Bloqueio)"
                                       onClick={() => {
+                                        const alunoIdSugestao = isExtraCol ? '' : col.id;
                                         const sugestao = sugerirSequenciaFecharHorario(
                                           agendaFixa,
-                                          aluno.id,
+                                          alunoIdSugestao,
                                           diaSelecionado,
                                           h
                                         );
@@ -588,7 +628,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
                                         setModalFecharHorario({
                                           isOpen: true,
-                                          alunoId: aluno.id,
+                                          alunoId: col.id,
                                           horario: h,
                                           diaSemana: diaSelecionado,
                                           tipoBloqueio: tipoInicial,
@@ -596,7 +636,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                           sugestaoSequencia: sugestao
                                         });
                                       }}
-                                      className="h-full px-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50/80 transition-all"
+                                      className="h-full px-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50/80 transition-all cursor-pointer"
                                     >
                                       <Lock className="w-3 h-3 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
                                     </button>
@@ -635,7 +675,12 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
             <div className="text-xs text-slate-500 space-y-1">
               <div><strong>Dia:</strong> {modalCell.diaSemana}</div>
               <div><strong>Horário:</strong> {modalCell.horario}</div>
-              <div><strong>Aluno:</strong> {alunos.find((a) => a.id === modalCell.alunoId)?.nome}</div>
+              <div>
+                <strong>Aluno / Coluna:</strong>{' '}
+                {modalCell.alunoId === 'EXTRA_VIRTUAL'
+                  ? NOME_ATENDIMENTO_EXTRA
+                  : (alunos.find((a) => a.id === modalCell.alunoId)?.nome || modalCell.alunoId)}
+              </div>
             </div>
 
             <div>
@@ -692,15 +737,18 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">Selecione o Novo Aluno</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Selecione o Novo Aluno Responsável</label>
               <select
                 value={moverModal.novoAlunoId}
                 onChange={(e) => setMoverModal({ ...moverModal, novoAlunoId: e.target.value })}
                 className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
-                <option value="">Selecione um aluno...</option>
-                {alunosFixa
-                  .filter((a) => a.id !== moverModal.item?.aluno_id)
+                <option value="">Selecione um aluno ou dupla...</option>
+                {colunasFixa
+                  .filter((a) => {
+                    const currentId = moverModal.item?.aluno_id || 'EXTRA_VIRTUAL';
+                    return a.id !== currentId;
+                  })
                   .map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.nome}
@@ -792,14 +840,14 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Aluno Responsável</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Aluno ou Dupla Responsável</label>
                 <select
                   value={modalNovoPaciente.alunoId}
                   onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, alunoId: e.target.value })}
                   className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
                 >
-                  <option value="">Selecione o aluno...</option>
-                  {alunosFixa.map((a) => (
+                  <option value="">Selecione o aluno ou dupla...</option>
+                  {colunasFixa.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.nome}
                     </option>
@@ -969,7 +1017,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Aluno Responsável</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Aluno ou Dupla Responsável</label>
                 <select
                   value={modalMoverHorario.alunoId}
                   onChange={(e) =>
@@ -981,7 +1029,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                   }
                   className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
                 >
-                  {alunosFixa.map((a) => (
+                  {colunasFixa.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.nome}
                     </option>
@@ -1049,9 +1097,9 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                   <strong>{formatarHorarioExibicao(modalFecharHorario.horario)}</strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Aluno</span>
-                  <strong className="truncate block" title={alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome}>
-                    {alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome || 'Aluno'}
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Aluno / Coluna</span>
+                  <strong className="truncate block" title={modalFecharHorario.alunoId === 'EXTRA_VIRTUAL' ? NOME_ATENDIMENTO_EXTRA : (alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome || 'Aluno')}>
+                    {modalFecharHorario.alunoId === 'EXTRA_VIRTUAL' ? NOME_ATENDIMENTO_EXTRA : (alunos.find((a) => a.id === modalFecharHorario.alunoId)?.nome || 'Aluno')}
                   </strong>
                 </div>
               </div>

@@ -4,7 +4,8 @@ import {
   AgendaAluno,
   AgendaFixaItem,
   AgendaMensalItem,
-  isAtendimentoExtra
+  isAtendimentoExtra,
+  getMembrosDupla
 } from '@/lib/agendaTypes';
 import {
   Users,
@@ -47,6 +48,8 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
+  const isEsp2 = (turmaNome || '').toUpperCase().includes('ESP2');
+
   // Estado para Edição de Nome Inline
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [nomeEmEdicao, setNomeEmEdicao] = useState('');
@@ -69,7 +72,9 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
   const fixaCountMap = useMemo(() => {
     const map = new Map<string, number>();
     agendaFixa.forEach((item) => {
-      map.set(item.aluno_id, (map.get(item.aluno_id) || 0) + 1);
+      if (item.aluno_id) {
+        map.set(item.aluno_id, (map.get(item.aluno_id) || 0) + 1);
+      }
     });
     return map;
   }, [agendaFixa]);
@@ -236,10 +241,10 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                Gerenciar Alunos — <span className="text-brand-600">{turmaNome}</span>
+                {isEsp2 ? 'Gerenciar Duplas — ' : 'Gerenciar Alunos — '}<span className="text-brand-600">{turmaNome}</span>
               </h3>
               <p className="text-xs text-slate-500">
-                {alunos.length} alunos cadastrados ({totalAtivos} ativos, {totalInativos} inativos)
+                {alunos.length} {isEsp2 ? 'duplas cadastradas' : 'alunos cadastrados'} ({totalAtivos} {isEsp2 ? 'ativas' : 'ativos'}, {totalInativos} {isEsp2 ? 'inativas' : 'inativos'})
               </p>
             </div>
           </div>
@@ -278,7 +283,7 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
               type="text"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar aluno..."
+              placeholder={isEsp2 ? "Buscar dupla ou membro..." : "Buscar aluno..."}
               className="w-full text-xs pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
             />
           </div>
@@ -288,7 +293,7 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
               type="text"
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
-              placeholder="Novo aluno..."
+              placeholder={isEsp2 ? "Nova dupla (ex: Nome 1 e Nome 2)..." : "Novo aluno..."}
               onKeyDown={(e) => e.key === 'Enter' && handleCriarAluno()}
               className="text-xs px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 w-full sm:w-48"
             />
@@ -299,7 +304,7 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
               className="px-3.5 py-2 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
             >
               <Plus className="w-3.5 h-3.5" />
-              Adicionar
+              {isEsp2 ? 'Adicionar Dupla' : 'Adicionar'}
             </button>
           </div>
         </div>
@@ -380,6 +385,11 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
                             <span className="text-xs font-bold text-slate-800 truncate" title={aluno.nome}>
                               {aluno.nome}
                             </span>
+                            {isEsp2 && !isExtra && getMembrosDupla(aluno).length > 1 && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-md font-semibold border bg-indigo-50 text-indigo-700 border-indigo-200">
+                                Dupla
+                              </span>
+                            )}
                             <span
                               className={`text-[10px] px-1.5 py-0.2 rounded-md font-semibold border ${
                                 isAtivo
@@ -395,6 +405,11 @@ export const GerenciarAlunosModal: React.FC<GerenciarAlunosModalProps> = ({
                               </span>
                             )}
                           </div>
+                          {isEsp2 && !isExtra && getMembrosDupla(aluno).length > 1 && (
+                            <div className="text-[11px] font-medium text-indigo-700 mt-0.5">
+                              Membros: {getMembrosDupla(aluno).join(' e ')}
+                            </div>
+                          )}
                           <div className="text-[11px] text-slate-400 mt-0.5">
                             {totalFixa} na agenda fixa • {totalMensal} na mensal
                           </div>

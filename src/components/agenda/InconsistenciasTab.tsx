@@ -271,21 +271,21 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
                         <div className="bg-slate-50 p-2 rounded-lg text-[11px] space-y-1 text-slate-600 border border-slate-100">
                           {item.tipo === 'AUSENTE' && (
                             <div>
-                              <strong>Aluno Habitual (Fixa):</strong> {item.aluno_fixa || 'Não informado'}
+                              <strong>Aluno Habitual (Fixa):</strong> {item.aluno_fixa || 'ATENDIMENTO EXTRA'}
                             </div>
                           )}
                           {item.tipo === 'PACIENTE_NOVO' && (
                             <div>
-                              <strong>Aluno (Mensal):</strong> {item.aluno_mensal || 'Não informado'}
+                              <strong>Aluno (Mensal):</strong> {item.aluno_mensal || 'ATENDIMENTO EXTRA'}
                             </div>
                           )}
                           {item.tipo === 'ALUNO_TROCADO' && (
                             <>
                               <div>
-                                <strong>Aluno na Fixa:</strong> {item.aluno_fixa || 'N/A'}
+                                <strong>Aluno na Fixa:</strong> {item.aluno_fixa || 'ATENDIMENTO EXTRA'}
                               </div>
                               <div className="text-amber-700 font-medium">
-                                ➔ <strong>Aluno no Mensal:</strong> {item.aluno_mensal || 'N/A'}
+                                ➔ <strong>Aluno no Mensal:</strong> {item.aluno_mensal || 'ATENDIMENTO EXTRA'}
                               </div>
                             </>
                           )}
@@ -295,7 +295,7 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
                                 <strong>Mudança de Horário:</strong> {item.observacao || `${formatarHorarioExibicao(item.horario)} (Fixa)`}
                               </div>
                               <div>
-                                <strong>Aluno Responsável:</strong> {item.aluno_fixa || item.aluno_mensal || 'Não informado'}
+                                <strong>Aluno Responsável:</strong> {item.aluno_fixa || item.aluno_mensal || 'ATENDIMENTO EXTRA'}
                               </div>
                             </>
                           )}

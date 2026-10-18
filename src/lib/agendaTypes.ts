@@ -10,12 +10,14 @@ export interface AgendaAluno {
   nome: string;
   turma_id: string;
   ativo: boolean;
+  membros?: string[] | null;
 }
 
 export interface AgendaFixaItem {
   id: string;
   paciente: string;
-  aluno_id: string;
+  aluno_id?: string | null;
+  aluno?: string | null;
   horario: string; // "HH:MM:SS" or "HH:MM"
   dia_semana: 'QUINTA' | 'SEXTA' | 'SABADO' | string;
   turma_id: string;
@@ -26,7 +28,7 @@ export interface AgendaFixaItem {
   agenda_alunos?: {
     id: string;
     nome: string;
-  };
+  } | null;
 }
 
 export interface AgendaMensalItem {
@@ -231,8 +233,8 @@ export function formatarAlteracaoParaRecepcao(inc: {
     return `Reagendado para ${formatarHorarioExibicao(inc.horario || '')}`;
   }
   if (tNorm === 'ALUNO_TROCADO') {
-    const f = inc.aluno_fixa || 'Anterior';
-    const m = inc.aluno_mensal || 'Novo';
+    const f = inc.aluno_fixa || 'ATENDIMENTO EXTRA';
+    const m = inc.aluno_mensal || 'ATENDIMENTO EXTRA';
     return `Aluno trocado: ${f} → ${m}`;
   }
   if (tNorm === 'PACIENTE_NOVO') {
@@ -319,5 +321,237 @@ export function sugerirSequenciaFecharHorario(
   }
 
   return 'Bloqueio de Horário';
+}
+
+/**
+ * Duplas oficiais confirmadas para a turma ESP2.
+ * Ordem estrita das colunas:
+ * 1. Gabriel e João
+ * 2. Leticia e Duda
+ * 3. Camila e Marcela
+ * 4. Carla e Mauro
+ * 5. Atendimento Extra
+ */
+export const DUPLAS_ESP2_OFICIAIS = [
+  'Gabriel e João',
+  'Leticia e Duda',
+  'Camila e Marcela',
+  'Carla e Mauro'
+] as const;
+
+export const MEMBROS_DUPLAS_ESP2: Record<string, string[]> = {
+  'Gabriel e João': ['Gabriel', 'João'],
+  'Leticia e Duda': ['Leticia', 'Duda'],
+  'Camila e Marcela': ['Camila', 'Marcela'],
+  'Carla e Mauro': ['Carla', 'Mauro']
+};
+
+/**
+ * Retorna a lista de membros individuais de uma dupla ou aluno.
+ */
+export function getMembrosDupla(aluno: { nome: string; membros?: string[] | null }): string[] {
+  if (aluno.membros && aluno.membros.length > 0) {
+    return aluno.membros;
+  }
+  const matchOficial = DUPLAS_ESP2_OFICIAIS.find(
+    (d) => d.toLowerCase() === aluno.nome.trim().toLowerCase()
+  );
+  if (matchOficial && MEMBROS_DUPLAS_ESP2[matchOficial]) {
+    return MEMBROS_DUPLAS_ESP2[matchOficial];
+  }
+  return aluno.nome
+    .split(/\s*(?:\be\b|\/|\+|,|&)\s*/i)
+    .map((m) => m.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Regra Unificada de Resolução de Colunas da Grade (Agenda Fixa e Agenda Mensal):
+ * - ESP2: As 4 duplas na ordem estrita + Atendimento Extra por último (sempre visível, mesmo vazia).
+ * - ESP1 e Serviço: Alunos ativos ordenados alfabeticamente + Atendimento Extra por último (sempre visível).
+ */
+export function obterColunasTurma(
+  turmaNome: string,
+  alunos: AgendaAluno[],
+  itensAtendimento?: Array<{ aluno_id?: string | null }>
+): (AgendaAluno & { isVirtual?: boolean })[] {
+  const isEsp2 = (turmaNome || '').toUpperCase().includes('ESP2');
+
+  if (isEsp2) {
+    const colunasDuplas: (AgendaAluno & { isVirtual?: boolean })[] = [];
+
+    for (const nomeDupla of DUPLAS_ESP2_OFICIAIS) {
+      const match = alunos.find(
+        (a) => a.nome.trim().toLowerCase() === nomeDupla.toLowerCase()
+      );
+      if (match) {
+        colunasDuplas.push({
+          ...match,
+          membros: match.membros || MEMBROS_DUPLAS_ESP2[nomeDupla]
+        });
+      } else {
+        colunasDuplas.push({
+          id: `ESP2_${nomeDupla.replace(/\s+/g, '_')}`,
+          nome: nomeDupla,
+          turma_id: turmaNome,
+          ativo: true,
+          membros: MEMBROS_DUPLAS_ESP2[nomeDupla]
+        });
+      }
+    }
+
+    colunasDuplas.push({
+      id: 'EXTRA_VIRTUAL',
+      nome: NOME_ATENDIMENTO_EXTRA,
+      turma_id: turmaNome,
+      ativo: true,
+      isVirtual: true
+    });
+
+    return colunasDuplas;
+  }
+
+  // Demais turmas (ESP1, SERVIÇO, etc.)
+  const visiveis = alunos.filter((a) => {
+    if (isAtendimentoExtra(a.nome)) return false; // Atendimento Extra físico é ignorado em favor da coluna virtual
+    if (a.ativo === false) {
+      return itensAtendimento ? itensAtendimento.some((item) => item.aluno_id === a.id) : false;
+    }
+    return true;
+  });
+
+  visiveis.sort((a, b) => a.nome.localeCompare(b.nome));
+
+  const colunas: (AgendaAluno & { isVirtual?: boolean })[] = [...visiveis];
+
+  // Coluna "Atendimento Extra" SEMPRE por último
+  colunas.push({
+    id: 'EXTRA_VIRTUAL',
+    nome: NOME_ATENDIMENTO_EXTRA,
+    turma_id: turmaNome,
+    ativo: true,
+    isVirtual: true
+  });
+
+  return colunas;
+}
+
+/**
+ * Normaliza string para comparação: minúsculas, sem acentos, espaços extras removidos.
+ */
+export function normalizarTextoComparacao(str: string): string {
+  if (!str) return '';
+  return str
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Resolve o aluno ou dupla responsável a partir do nome importado.
+ * 
+ * Regra ESP2:
+ * Cada dupla é composta por 2 membros:
+ * 1. Gabriel e João
+ * 2. Leticia e Duda
+ * 3. Camila e Marcela
+ * 4. Carla e Mauro
+ * 
+ * O campo `aluno` pode vir com:
+ * - O nome de um dos membros ("Camila", "Marcela", "Gabriel", "João", "Leticia", "Duda", "Carla", "Mauro")
+ * - A dupla completa ("Camila e Marcela", "Camila / Marcela", "Camila + Marcela", etc.)
+ * - Variações de caixa, espaço e acento.
+ * 
+ * Se casar com algum membro ou dupla da ESP2, resolve para o registro oficial daquela dupla.
+ * O que não casar cai em Atendimento Extra (aluno_id: null, aluno: 'ATENDIMENTO EXTRA').
+ * NUNCA cria aluno novo!
+ */
+export function resolverAlunoImportacao(
+  nomeImportado: string,
+  turmaNome: string,
+  alunosExistentes: AgendaAluno[]
+): { id: string | null; nome: string } {
+  if (!nomeImportado || isAtendimentoExtra(nomeImportado)) {
+    return { id: null, nome: 'ATENDIMENTO EXTRA' };
+  }
+
+  const isEsp2 = (turmaNome || '').toUpperCase().includes('ESP2');
+  const nomeNorm = normalizarTextoComparacao(nomeImportado);
+
+  if (isEsp2) {
+    const mapDuplas = [
+      { nomeOficial: 'Gabriel e João', membros: ['gabriel', 'joao'] },
+      { nomeOficial: 'Leticia e Duda', membros: ['leticia', 'duda'] },
+      { nomeOficial: 'Camila e Marcela', membros: ['camila', 'marcela'] },
+      { nomeOficial: 'Carla e Mauro', membros: ['carla', 'mauro'] }
+    ];
+
+    for (const d of mapDuplas) {
+      const matchDuplaNorm = normalizarTextoComparacao(d.nomeOficial);
+      if (
+        nomeNorm === matchDuplaNorm ||
+        nomeNorm === normalizarTextoComparacao(`${d.membros[0]} / ${d.membros[1]}`) ||
+        nomeNorm === normalizarTextoComparacao(`${d.membros[0]} + ${d.membros[1]}`) ||
+        nomeNorm === normalizarTextoComparacao(`${d.membros[0]} & ${d.membros[1]}`) ||
+        nomeNorm === normalizarTextoComparacao(`${d.membros[0]}, ${d.membros[1]}`)
+      ) {
+        const alunoCadastrado = alunosExistentes.find(
+          (a) => normalizarTextoComparacao(a.nome) === matchDuplaNorm
+        );
+        return {
+          id: alunoCadastrado ? alunoCadastrado.id : null,
+          nome: d.nomeOficial
+        };
+      }
+
+      if (nomeNorm.includes(d.membros[0]) && nomeNorm.includes(d.membros[1])) {
+        const alunoCadastrado = alunosExistentes.find(
+          (a) => normalizarTextoComparacao(a.nome) === matchDuplaNorm
+        );
+        return {
+          id: alunoCadastrado ? alunoCadastrado.id : null,
+          nome: d.nomeOficial
+        };
+      }
+
+      for (const membro of d.membros) {
+        const regex = new RegExp(`(^|\\s|[^a-z])${membro}($|\\s|[^a-z])`, 'i');
+        if (regex.test(nomeNorm)) {
+          const alunoCadastrado = alunosExistentes.find(
+            (a) => normalizarTextoComparacao(a.nome) === matchDuplaNorm
+          );
+          return {
+            id: alunoCadastrado ? alunoCadastrado.id : null,
+            nome: d.nomeOficial
+          };
+        }
+      }
+    }
+
+    return { id: null, nome: 'ATENDIMENTO EXTRA' };
+  }
+
+  for (const a of alunosExistentes) {
+    if (isAtendimentoExtra(a.nome)) continue;
+    const aNorm = normalizarTextoComparacao(a.nome);
+    if (nomeNorm === aNorm) {
+      return { id: a.id, nome: a.nome };
+    }
+  }
+
+  const matchesPrimeiroNome = alunosExistentes.filter((a) => {
+    if (isAtendimentoExtra(a.nome)) return false;
+    const aNorm = normalizarTextoComparacao(a.nome);
+    const primeiroNome = aNorm.split(' ')[0];
+    return nomeNorm === primeiroNome || aNorm.startsWith(nomeNorm + ' ');
+  });
+
+  if (matchesPrimeiroNome.length === 1) {
+    return { id: matchesPrimeiroNome[0].id, nome: matchesPrimeiroNome[0].nome };
+  }
+
+  return { id: null, nome: 'ATENDIMENTO EXTRA' };
 }
 

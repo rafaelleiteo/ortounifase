@@ -4,7 +4,9 @@ import {
   normalizarHorario,
   isAtendimentoExtra,
   NOME_ATENDIMENTO_EXTRA,
-  isItemBloqueio
+  isItemBloqueio,
+  resolverAlunoImportacao,
+  AgendaAluno
 } from './agendaTypes';
 
 export async function importarAgendaMensal(payload: ImportPayload) {
@@ -26,41 +28,26 @@ export async function importarAgendaMensal(payload: ImportPayload) {
   // 2. Buscar todos os alunos existentes da turma
   const { data: alunosExistentes, error: alunosError } = await supabase
     .from('agenda_alunos')
-    .select('id, nome')
+    .select('id, nome, ativo, turma_id')
     .eq('turma_id', turma.id);
 
   if (alunosError) throw alunosError;
 
-  // Mapa com chave normalizada (trim + lowercase + múltiplos espaços reduzidos a 1)
-  const alunoMap = new Map<string, { id: string; nome: string }>();
-  (alunosExistentes || []).forEach((a) => {
-    const key = (a.nome || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    if (key) {
-      alunoMap.set(key, { id: a.id, nome: a.nome });
-    }
-  });
-
   // NÃO CRIAR NOVOS ALUNOS!
   // Os alunos de cada turma são cadastrados manualmente pelo coordenador em agenda_alunos e são fixos —
   // a importação mensal NUNCA deve criar um novo registro em agenda_alunos.
+  // Na ESP2, os alunos atendem em DUPLA: membros individuais, duplas completas ou variações de
+  // caixa/espaço/acento resolvem para a respectiva dupla oficial. O que não casar cai em Atendimento Extra.
 
   // 3. Montar os registros para upsert em agenda_mensal
   // UNIQUE (turma_id, mes_referencia, paciente, horario, dia_semana)
   const rowsToUpsert = payload.registros.map((reg) => {
     const rawAluno = (reg.aluno || '').trim();
-    const searchKey = rawAluno.toLowerCase().replace(/\s+/g, ' ');
-
-    let alunoId: string | null = null;
-    let alunoTexto: string = 'ATENDIMENTO EXTRA';
-
-    // Se o valor não for "ATENDIMENTO EXTRA" e coincidir com um aluno existente na turma:
-    if (searchKey && !isAtendimentoExtra(rawAluno)) {
-      const match = alunoMap.get(searchKey);
-      if (match) {
-        alunoId = match.id;
-        alunoTexto = match.nome; // Salva o nome oficial encontrado
-      }
-    }
+    const resolvido = resolverAlunoImportacao(
+      rawAluno,
+      turma.nome,
+      (alunosExistentes as AgendaAluno[]) || []
+    );
 
     const diaSemanaNormalizado = (reg.dia_semana || 'QUINTA').trim().toUpperCase();
 
@@ -68,8 +55,8 @@ export async function importarAgendaMensal(payload: ImportPayload) {
       turma_id: turma.id,
       mes_referencia: payload.mes_referencia,
       paciente: (reg.paciente || '').trim(),
-      aluno_id: alunoId,
-      aluno: alunoTexto,
+      aluno_id: resolvido.id,
+      aluno: resolvido.nome,
       horario: normalizarHorario(reg.horario),
       dia_semana: diaSemanaNormalizado,
     };

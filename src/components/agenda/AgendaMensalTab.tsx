@@ -20,7 +20,8 @@ import {
   getTipoBloqueio,
   getDescricaoBloqueio,
   isItemBloqueio,
-  sugerirSequenciaFecharHorario
+  sugerirSequenciaFecharHorario,
+  obterColunasTurma
 } from '@/lib/agendaTypes';
 import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
@@ -95,41 +96,12 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   const periodo = periodoProp !== undefined ? periodoProp : periodoLocal;
   const handlePeriodoChange = onPeriodoChange || setPeriodoLocal;
 
-  // Coluna "Atendimento Extra" deve sempre aparecer por último (à direita de todas as colunas de alunos reais).
-  // Alunos inativos só aparecem se já possuírem atendimentos lançados na agenda mensal do mês.
-  const temAtendimentoExtra = useMemo(() => {
-    return agendaMensal.some((item) => !item.aluno_id || isAtendimentoExtra(item.aluno));
-  }, [agendaMensal]);
-
-  const extraAlunoCadastrado = useMemo(() => {
-    return alunos.find((a) => isAtendimentoExtra(a.nome));
-  }, [alunos]);
-
-  const extraColumnId = extraAlunoCadastrado ? extraAlunoCadastrado.id : 'EXTRA_VIRTUAL';
-
+  // Colunas da Agenda Mensal:
+  // - ESP2: As 4 duplas na ordem estrita + Atendimento Extra por último (sempre visível, mesmo vazia)
+  // - ESP1 e Serviço: Alunos ativos + Atendimento Extra por último (sempre visível, mesmo vazia)
   const alunosOrdenados = useMemo(() => {
-    const visiveis = alunos.filter((a) => {
-      if (a.ativo === false) {
-        return agendaMensal.some((item) => item.aluno_id === a.id);
-      }
-      return true;
-    });
-    const normais = visiveis.filter((a) => !isAtendimentoExtra(a.nome));
-    const extras = visiveis.filter((a) => isAtendimentoExtra(a.nome));
-
-    const colunas = [...normais, ...extras];
-    // Se houver atendimentos sem aluno_id (Atendimento Extra) e nenhum aluno "Atendimento Extra" na tabela de alunos,
-    // adicionamos uma coluna virtual "Atendimento Extra" com id 'EXTRA_VIRTUAL'
-    if (temAtendimentoExtra && extras.length === 0) {
-      colunas.push({
-        id: 'EXTRA_VIRTUAL',
-        nome: NOME_ATENDIMENTO_EXTRA,
-        turma_id: turmaNome,
-        ativo: true
-      });
-    }
-    return colunas;
-  }, [alunos, agendaMensal, temAtendimentoExtra, turmaNome]);
+    return obterColunasTurma(turmaNome, alunos, agendaMensal);
+  }, [turmaNome, alunos, agendaMensal]);
 
   const horarios = getHorariosPorTurno(periodo);
 
@@ -140,7 +112,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     .forEach((item) => {
       const hNorm = normalizarHorario(item.horario);
       const isItemExtra = !item.aluno_id || isAtendimentoExtra(item.aluno);
-      const chaveAluno = isItemExtra ? extraColumnId : (item.aluno_id || extraColumnId);
+      const chaveAluno = isItemExtra ? 'EXTRA_VIRTUAL' : (item.aluno_id || 'EXTRA_VIRTUAL');
       const key = `${chaveAluno}_${hNorm}`;
       const existing = mensalMap.get(key) || [];
       existing.push(item);
@@ -249,7 +221,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       horario: m.horario,
       dia_semana: m.dia_semana
     })),
-    alunos,
+    alunos: alunosOrdenados.filter((a) => a.id !== 'EXTRA_VIRTUAL'),
     diaDefault: diaSelecionado
   });
 
@@ -819,7 +791,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                             pacienteNome: '',
                                             diaSemana: diaSelecionado,
                                             horario: h,
-                                            alunoId: isExtra ? (extraAlunoCadastrado?.id || 'EXTRA_VIRTUAL') : aluno.id
+                                            alunoId: isExtra ? 'EXTRA_VIRTUAL' : aluno.id
                                           })
                                         }
                                         className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
@@ -830,10 +802,10 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                         type="button"
                                         title="Fechar Horário (Bloqueio)"
                                         onClick={() => {
-                                          const alunoIdReal = isExtra ? (extraAlunoCadastrado?.id || null) : aluno.id;
+                                          const alunoIdReal = isExtra ? '' : aluno.id;
                                           const sugestao = sugerirSequenciaFecharHorario(
                                             agendaMensal,
-                                            alunoIdReal || '',
+                                            alunoIdReal,
                                             diaSelecionado,
                                             h
                                           );
@@ -875,7 +847,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
       {/* Modais de Edição, Reagendamento e Troca de Aluno */}
       <AgendaModaisAtendimento
-        alunos={alunos}
+        alunos={alunosOrdenados.filter((a) => a.id !== 'EXTRA_VIRTUAL')}
         permitirSemAluno={true}
         modalEditar={modalEditar}
         onFecharEditar={fecharEditar}
