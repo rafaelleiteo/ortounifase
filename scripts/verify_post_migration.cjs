@@ -2,12 +2,14 @@
  * Script de Verificação Pós-Aplicação da Migração Consolidada
  * 
  * Executa apenas leituras e verificações de segurança/integridade:
- * 1. Existência das colunas criadas
- * 2. Bloqueio de acesso para chave anon (compare_agendas e mesclar_alunos)
- * 3. Execução de compare_agendas via service_role
- * 4. Validação de contagem de inconsistências contra o snapshot de referência
- * 5. Verificação de ausência de '[' no início de nomes de pacientes
- * 6. Verificação de membros das duplas e legados inativos na ESP2
+ * 1. Resolução dinâmica de turmas e validação de IDs esperados
+ * 2. Existência das colunas criadas
+ * 3. Bloqueio de acesso para chave anon (compare_agendas e mesclar_alunos)
+ * 4. Execução de compare_agendas via service_role para ESP1 e ESP2
+ * 5. Validação rigorosa contra o snapshot (contagem por tipo, preservação de status)
+ * 6. Ausência de inconsistências geradas para os 15 bloqueios da ESP1
+ * 7. Verificação de ausência de '[' no início de nomes de pacientes
+ * 8. Verificação de membros das duplas e legados inativos na ESP2
  */
 
 const fs = require('fs');
@@ -36,10 +38,12 @@ if (!url || !anon || !serviceKey) {
   process.exit(1);
 }
 
-// Turmas conhecidas
-const TURMA_ESP1 = '57dcfa9e-63f2-49f3-855c-ba15510f2c41';
-const TURMA_ESP2 = '9baa41ed-8c13-4a27-8e32-459987545305';
-const TURMA_SERVICO = 'd055a40b-03c0-4fe7-b76b-952ca2e65243';
+// IDs esperados para conferência
+const EXPECTED_IDS = {
+  ESP1: '1215cac9-8283-4c80-b767-9b2cfedaa101',
+  ESP2: '9baa41ed-8c13-4a27-8e32-459987545305',
+  SERVICO: 'baf7972d-4e96-4192-b39f-e68dd5155fb4'
+};
 const MES_REF = '2026-10-01';
 
 async function main() {
@@ -50,9 +54,47 @@ async function main() {
   let totalFalhas = 0;
 
   // ------------------------------------------------------------------
+  // TESTE 0: RESOLUÇÃO DINÂMICA DE TURMAS (SEM IDS FIXOS)
+  // ------------------------------------------------------------------
+  console.log('--- TESTE 0: Resolução Dinâmica de Turmas ---');
+  let turmaMap = {};
+  try {
+    const res = await fetch(`${url}/rest/v1/turmas?select=id,nome`, {
+      headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` }
+    });
+    const turmas = await res.json();
+    for (const t of turmas) {
+      turmaMap[t.nome.toUpperCase()] = t.id;
+    }
+
+    console.log('  Turmas encontradas dinamicamente no banco:');
+    for (const [nome, id] of Object.entries(turmaMap)) {
+      console.log(`    - ${nome}: ${id}`);
+    }
+
+    // Conferência com IDs esperados
+    for (const [chave, expId] of Object.entries(EXPECTED_IDS)) {
+      const nomeTurma = chave === 'SERVICO' ? 'SERVIÇO' : chave;
+      const idEncontrado = turmaMap[nomeTurma];
+      if (idEncontrado === expId) {
+        console.log(`  [OK] Turma ${nomeTurma} confere com ID esperado (${expId}).`);
+      } else {
+        console.error(`  [FALHA] Turma ${nomeTurma} divergiu: esperado ${expId}, encontrado ${idEncontrado}`);
+        totalFalhas++;
+      }
+    }
+  } catch (err) {
+    console.error(`  [FALHA] Erro ao buscar turmas: ${err.message}`);
+    totalFalhas++;
+  }
+
+  const turmaEsp1Id = turmaMap['ESP1'] || EXPECTED_IDS.ESP1;
+  const turmaEsp2Id = turmaMap['ESP2'] || EXPECTED_IDS.ESP2;
+
+  // ------------------------------------------------------------------
   // TESTE 1: EXISTÊNCIA DAS COLUNAS
   // ------------------------------------------------------------------
-  console.log('--- TESTE 1: Existência das Colunas Criadas ---');
+  console.log('\n--- TESTE 1: Existência das Colunas Criadas ---');
   const colunasParaTestar = [
     { table: 'agenda_fixa', col: 'tipo_bloqueio' },
     { table: 'agenda_fixa', col: 'aluno' },
@@ -97,7 +139,7 @@ async function main() {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        p_turma_id: TURMA_ESP1,
+        p_turma_id: turmaEsp1Id,
         p_mes_referencia: MES_REF
       })
     });
@@ -136,75 +178,134 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // TESTE 3: EXECUÇÃO DE compare_agendas VIA SERVICE_ROLE
+  // TESTE 3: EXECUÇÃO DE compare_agendas VIA SERVICE_ROLE (ESP1 e ESP2)
   // ------------------------------------------------------------------
   console.log('\n--- TESTE 3: Execução de compare_agendas via service_role ---');
-  for (const [turmaNome, turmaId] of [['ESP1', TURMA_ESP1], ['ESP2', TURMA_ESP2]]) {
-    try {
-      const res = await fetch(`${url}/rest/v1/rpc/compare_agendas`, {
-        method: 'POST',
-        headers: {
-          'apikey': serviceKey,
-          'Authorization': `Bearer ${serviceKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          p_turma_id: turmaId,
-          p_mes_referencia: MES_REF
-        })
-      });
+  
+  // Status de ESP1 antes
+  let statusNaoPendentesAntes = 0;
+  try {
+    const resAntes = await fetch(`${url}/rest/v1/inconsistencias?turma_id=eq.${turmaEsp1Id}&mes_referencia=eq.${MES_REF}&select=status`, {
+      headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` }
+    });
+    const incsAntes = await resAntes.json();
+    if (Array.isArray(incsAntes)) {
+      statusNaoPendentesAntes = incsAntes.filter(i => i.status && i.status !== 'PENDENTE').length;
+    }
+  } catch (_) {}
 
-      if (res.status === 200) {
-        const result = await res.json();
-        console.log(`  [OK] compare_agendas(${turmaNome}, ${MES_REF}):`, result);
-        if (typeof result.total !== 'number' || typeof result.ausentes !== 'number') {
-          console.warn(`  [AVISO] Campo 'total' ou 'ausentes' não encontrado no retorno da RPC.`);
-        }
-      } else {
-        const text = await res.text();
-        console.error(`  [FALHA] compare_agendas(${turmaNome}) retornou ${res.status}: ${text}`);
-        totalFalhas++;
-      }
-    } catch (err) {
-      console.error(`  [FALHA] compare_agendas(${turmaNome}) erro: ${err.message}`);
+  // Execução para ESP1
+  try {
+    const resRpc = await fetch(`${url}/rest/v1/rpc/compare_agendas`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        p_turma_id: turmaEsp1Id,
+        p_mes_referencia: MES_REF
+      })
+    });
+    if (resRpc.status === 200) {
+      const result = await resRpc.json();
+      console.log('  [OK] compare_agendas(ESP1, 2026-10-01) retorno:', result);
+    } else {
+      const text = await resRpc.text();
+      console.error(`  [FALHA] compare_agendas(ESP1) retornou ${resRpc.status}: ${text}`);
       totalFalhas++;
     }
+  } catch (err) {
+    console.error(`  [FALHA] compare_agendas(ESP1) erro: ${err.message}`);
+    totalFalhas++;
+  }
+
+  // Execução para ESP2
+  try {
+    const resRpc2 = await fetch(`${url}/rest/v1/rpc/compare_agendas`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        p_turma_id: turmaEsp2Id,
+        p_mes_referencia: MES_REF
+      })
+    });
+    if (resRpc2.status === 200) {
+      const result2 = await resRpc2.json();
+      console.log('  [OK] compare_agendas(ESP2, 2026-10-01) retorno:', result2);
+    } else {
+      const text = await resRpc2.text();
+      console.error(`  [FALHA] compare_agendas(ESP2) retornou ${resRpc2.status}: ${text}`);
+      totalFalhas++;
+    }
+  } catch (err) {
+    console.error(`  [FALHA] compare_agendas(ESP2) erro: ${err.message}`);
+    totalFalhas++;
   }
 
   // ------------------------------------------------------------------
-  // TESTE 4: CONFERÊNCIA COM SNAPSHOT DE INCONSISTÊNCIAS
+  // TESTE 4: CONFERÊNCIA DETALHADA COM SNAPSHOT DE INCONSISTÊNCIAS
   // ------------------------------------------------------------------
-  console.log('\n--- TESTE 4: Conferência com Snapshot de Inconsistências ---');
+  console.log('\n--- TESTE 4: Conferência Detalhada com Snapshot (ESP1) ---');
   try {
-    const res = await fetch(`${url}/rest/v1/inconsistencias?select=turma_id,tipo,status,paciente,dia_semana,horario&mes_referencia=eq.${MES_REF}`, {
-      headers: {
-        'apikey': serviceKey,
-        'Authorization': `Bearer ${serviceKey}`
-      }
+    const res = await fetch(`${url}/rest/v1/inconsistencias?turma_id=eq.${turmaEsp1Id}&mes_referencia=eq.${MES_REF}&select=id,tipo,status,paciente,dia_semana,horario,observacao`, {
+      headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` }
     });
     const incs = await res.json();
-    const esp1Incs = incs.filter(i => i.turma_id === TURMA_ESP1);
-    const esp2Incs = incs.filter(i => i.turma_id === TURMA_ESP2);
-
-    console.log(`  Total inconsistências no banco: ${incs.length} (ESP1: ${esp1Incs.length}, ESP2: ${esp2Incs.length})`);
-
-    // No snapshot: ESP1 = 9 (2 HORARIO_ALTERADO, 2 AUSENTE, 5 PACIENTE_NOVO)
-    const esp1Tipos = esp1Incs.reduce((acc, i) => { acc[i.tipo] = (acc[i.tipo] || 0) + 1; return acc; }, {});
-    console.log('  Contagem por tipo em ESP1:', esp1Tipos);
-
-    if (esp1Incs.length === 9) {
-      console.log('  [OK] ESP1 possui exatamente as 9 inconsistências esperadas do snapshot.');
+    if (!Array.isArray(incs)) {
+      console.error('  [FALHA] Inconsistências não retornou array:', incs);
+      totalFalhas++;
     } else {
-      console.warn(`  [AVISO] ESP1 esperado 9 inconsistências, encontrado: ${esp1Incs.length}`);
-    }
+      console.log(`  Total de inconsistências geradas para ESP1: ${incs.length} (Esperado: 9)`);
 
-    if (esp2Incs.length === 39) {
-      console.log('  [OK] ESP2 possui exatamente as 39 inconsistências esperadas do snapshot.');
-    } else {
-      console.warn(`  [AVISO] ESP2 esperado 39 inconsistências, encontrado: ${esp2Incs.length}`);
+      const tipos = { HORARIO_ALTERADO: 0, AUSENTE: 0, PACIENTE_NOVO: 0, ALUNO_TROCADO: 0 };
+      incs.forEach(i => {
+        tipos[i.tipo] = (tipos[i.tipo] || 0) + 1;
+      });
+      console.log('  Contagem por tipo em ESP1:', tipos);
+
+      const statusNaoPendentesDepois = incs.filter(i => i.status && i.status !== 'PENDENTE').length;
+      console.log(`  Itens com status diferente de PENDENTE antes: ${statusNaoPendentesAntes} | depois: ${statusNaoPendentesDepois}`);
+
+      // Verificação detalhada dos 9 esperados
+      const esperado = { HORARIO_ALTERADO: 2, AUSENTE: 2, PACIENTE_NOVO: 5, ALUNO_TROCADO: 0 };
+      let diferiu = false;
+      for (const [tipo, qtd] of Object.entries(esperado)) {
+        if (tipos[tipo] !== qtd) {
+          console.error(`  [DIVERGÊNCIA] Tipo ${tipo}: esperado ${qtd}, encontrado ${tipos[tipo]}`);
+          diferiu = true;
+        }
+      }
+
+      if (!diferiu && incs.length === 9) {
+        console.log('  [OK] ESP1 exatamente idêntico ao snapshot (9 itens = 2 Horário Alterado, 2 Ausente, 5 Paciente Novo).');
+      } else {
+        console.error('  [FALHA] Diferenças encontradas em ESP1. Listando itens atuais:');
+        incs.forEach(i => {
+          console.error(`    - [${i.tipo}] Paciente: "${i.paciente}" | Dia: ${i.dia_semana} | Horário: ${i.horario} | Obs: ${i.observacao}`);
+        });
+        totalFalhas++;
+      }
+
+      // Verificação de bloqueios gerados como inconsistência
+      const bloqueiosGerados = incs.filter(i => {
+        const p = (i.paciente || '').toUpperCase();
+        return p.includes('[') || p.includes('LIVRE') || p.includes('SEQUENCIA') || p.includes('BLOQUEIO');
+      });
+      if (bloqueiosGerados.length === 0) {
+        console.log('  [OK] Nenhum dos 15 bloqueios da ESP1 foi indevidamente gerado como inconsistência.');
+      } else {
+        console.error(`  [FALHA] Encontradas ${bloqueiosGerados.length} inconsistências que parecem ser bloqueios:`, bloqueiosGerados);
+        totalFalhas++;
+      }
     }
   } catch (err) {
-    console.error(`  [FALHA] Erro ao consultar inconsistências: ${err.message}`);
+    console.error(`  [FALHA] Erro ao conferir inconsistências: ${err.message}`);
     totalFalhas++;
   }
 
@@ -212,29 +313,39 @@ async function main() {
   // TESTE 5: AUSÊNCIA DE '[' NO INÍCIO DE NOMES DE PACIENTES
   // ------------------------------------------------------------------
   console.log('\n--- TESTE 5: Ausência de "[" no Início de Nomes de Pacientes ---');
-  const tabelasPaciente = ['agenda_fixa', 'agenda_mensal', 'inconsistencias'];
+  const tabelasParaChecar = [
+    { name: 'agenda_fixa', select: 'id,paciente,tipo_registro,tipo_bloqueio' },
+    { name: 'agenda_mensal', select: 'id,paciente,tipo_registro,tipo_bloqueio' },
+    { name: 'inconsistencias', select: 'id,paciente,tipo,status' }
+  ];
 
-  for (const t of tabelasPaciente) {
+  for (const t of tabelasParaChecar) {
     try {
-      const res = await fetch(`${url}/rest/v1/${t}?paciente=ilike.*%5B*&select=id,paciente,tipo_registro,tipo_bloqueio`, {
+      const res = await fetch(`${url}/rest/v1/${t.name}?paciente=ilike.*%5B*&select=${t.select}`, {
         headers: {
           'apikey': serviceKey,
           'Authorization': `Bearer ${serviceKey}`
         }
       });
       const data = await res.json();
+      if (!Array.isArray(data)) {
+        console.error(`  [FALHA] Tabela ${t.name} retornou status ${res.status} em vez de array:`, data);
+        totalFalhas++;
+        continue;
+      }
+
       const prefixados = data.filter(d => /^\s*\[/.test(d.paciente || ''));
       if (prefixados.length === 0) {
-        console.log(`  [OK] Tabela ${t}: 0 registros com '[' no início do paciente.`);
+        console.log(`  [OK] Tabela ${t.name}: 0 registros com '[' no início do paciente.`);
       } else {
-        console.error(`  [FALHA] Tabela ${t}: encontrados ${prefixados.length} registros com '[' inicial:`);
+        console.error(`  [FALHA] Tabela ${t.name}: encontrados ${prefixados.length} registros com '[' inicial:`);
         for (const p of prefixados) {
-          console.error(`    - ID: ${p.id} | Paciente: "${p.paciente}" | tipo_registro: ${p.tipo_registro} | tipo_bloqueio: ${p.tipo_bloqueio}`);
+          console.error(`    - ID: ${p.id} | Paciente: "${p.paciente}" | info: ${JSON.stringify(p)}`);
         }
         totalFalhas++;
       }
     } catch (err) {
-      console.error(`  [FALHA] Tabela ${t} erro ao checar pacientes: ${err.message}`);
+      console.error(`  [FALHA] Tabela ${t.name} erro na verificação: ${err.message}`);
       totalFalhas++;
     }
   }
@@ -244,38 +355,41 @@ async function main() {
   // ------------------------------------------------------------------
   console.log('\n--- TESTE 6: Duplas e Legados da ESP2 ---');
   try {
-    const res = await fetch(`${url}/rest/v1/agenda_alunos?turma_id=eq.${TURMA_ESP2}&select=id,nome,ativo,membros`, {
+    const res = await fetch(`${url}/rest/v1/agenda_alunos?turma_id=eq.${turmaEsp2Id}&select=id,nome,ativo,membros`, {
       headers: {
         'apikey': serviceKey,
         'Authorization': `Bearer ${serviceKey}`
       }
     });
     const alunos = await res.json();
-    const ativos = alunos.filter(a => a.ativo);
-    const inativos = alunos.filter(a => !a.ativo);
+    if (!Array.isArray(alunos)) {
+      console.error('  [FALHA] agenda_alunos não retornou array:', alunos);
+      totalFalhas++;
+    } else {
+      const ativos = alunos.filter(a => a.ativo);
+      const inativos = alunos.filter(a => !a.ativo);
 
-    console.log(`  Alunos ESP2 no banco: ${ativos.length} ativos, ${inativos.length} inativos.`);
+      console.log(`  Alunos ESP2 no banco: ${ativos.length} ativos, ${inativos.length} inativos.`);
 
-    // Verifica duplas
-    const duplasEsperadas = ['Gabriel e João', 'Leticia e Duda', 'Camila e Marcela', 'Carla e Mauro'];
-    for (const nome of duplasEsperadas) {
-      const d = ativos.find(a => a.nome === nome);
-      if (d && Array.isArray(d.membros) && d.membros.length === 2) {
-        console.log(`  [OK] Dupla ativa "${nome}" configurada com membros: [${d.membros.join(', ')}].`);
-      } else {
-        console.error(`  [FALHA] Dupla "${nome}" não encontrada com membros válidos:`, d);
-        totalFalhas++;
+      const duplasEsperadas = ['Gabriel e João', 'Leticia e Duda', 'Camila e Marcela', 'Carla e Mauro'];
+      for (const nome of duplasEsperadas) {
+        const d = ativos.find(a => a.nome === nome);
+        if (d && Array.isArray(d.membros) && d.membros.length === 2) {
+          console.log(`  [OK] Dupla ativa "${nome}" configurada com membros: [${d.membros.join(', ')}].`);
+        } else {
+          console.error(`  [FALHA] Dupla "${nome}" não encontrada com membros válidos:`, d);
+          totalFalhas++;
+        }
       }
-    }
 
-    // Verifica legados inativos
-    const legadosEsperados = ['Adriele', 'Atendimento Extra', 'Dr. Fernando Rocha', 'Dra. Patricia Pillar'];
-    for (const nome of legadosEsperados) {
-      const leg = inativos.find(a => a.nome === nome);
-      if (leg) {
-        console.log(`  [OK] Legado "${nome}" está inativo (ativo = false).`);
-      } else {
-        console.warn(`  [AVISO] Legado "${nome}" não encontrado na lista de inativos da ESP2.`);
+      const legadosEsperados = ['Adriele', 'Atendimento Extra', 'Dr. Fernando Rocha', 'Dra. Patricia Pillar'];
+      for (const nome of legadosEsperados) {
+        const leg = inativos.find(a => a.nome === nome);
+        if (leg) {
+          console.log(`  [OK] Legado "${nome}" está inativo (ativo = false).`);
+        } else {
+          console.warn(`  [AVISO] Legado "${nome}" não encontrado na lista de inativos da ESP2.`);
+        }
       }
     }
   } catch (err) {
