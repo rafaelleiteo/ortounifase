@@ -83,7 +83,7 @@ WHERE turma_id = '9baa41ed-8c13-4a27-8e32-459987545305'
 UPDATE public.agenda_fixa
 SET tipo_registro = 'bloqueio',
     tipo_bloqueio = 'SEQUENCIA',
-    paciente = NULLIF(trim(regexp_replace(paciente, '^\s*\[SEQUENCIA\]\s*', '', 'i')), ''),
+    paciente = COALESCE(NULLIF(trim(regexp_replace(paciente, '^\s*\[SEQUENCIA\]\s*', '', 'i')), ''), 'Continuação'),
     updated_at = now()
 WHERE paciente ~* '^\s*\[SEQUENCIA\]';
 
@@ -107,7 +107,7 @@ WHERE paciente ~* '^\s*\[OUTRO\]';
 UPDATE public.agenda_mensal
 SET tipo_registro = 'bloqueio',
     tipo_bloqueio = 'SEQUENCIA',
-    paciente = NULLIF(trim(regexp_replace(paciente, '^\s*\[SEQUENCIA\]\s*', '', 'i')), '')
+    paciente = COALESCE(NULLIF(trim(regexp_replace(paciente, '^\s*\[SEQUENCIA\]\s*', '', 'i')), ''), 'Continuação')
 WHERE paciente ~* '^\s*\[SEQUENCIA\]';
 
 -- Agenda Mensal: [LIVRE]
@@ -138,30 +138,40 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
+  rec_fixa RECORD;
+  rec_mensal RECORD;
+  v_match_mensal RECORD;
+  v_match_fixa RECORD;
   v_total_ausentes integer := 0;
   v_total_trocados integer := 0;
   v_total_novos integer := 0;
   v_total_horario_alterado integer := 0;
-  rec_fixa record;
-  rec_mensal record;
-  v_match_mensal record;
-  v_match_fixa record;
   v_prev_status text;
   v_prev_obs text;
 BEGIN
-  -- 1. Cria tabela temporária preservando status e observações de inconsistências anteriores
-  CREATE TEMP TABLE tmp_prev_inconsistencias ON COMMIT DROP AS
+  -- 1. Cria tabela temporária para reter status e observações previamente definidos pelo coordenador
+  CREATE TEMP TABLE IF NOT EXISTS tmp_prev_inconsistencias (
+    tipo text,
+    paciente text,
+    dia_semana text,
+    status text,
+    observacao text
+  ) ON COMMIT DROP;
+
+  TRUNCATE TABLE tmp_prev_inconsistencias;
+
+  INSERT INTO tmp_prev_inconsistencias (tipo, paciente, dia_semana, status, observacao)
   SELECT tipo, paciente, dia_semana, status, observacao
   FROM public.inconsistencias
   WHERE turma_id = p_turma_id
     AND mes_referencia = p_mes_referencia;
 
-  -- 2. Limpa inconsistências atuais deste mês e turma para recálculo atômico
+  -- 2. Limpa inconsistências prévias desta turma e mês
   DELETE FROM public.inconsistencias
   WHERE turma_id = p_turma_id
     AND mes_referencia = p_mes_referencia;
 
-  -- 3. Itera sobre cada registro de agenda_fixa (ignora bloqueios e padrões entre colchetes)
+  -- 3. Itera sobre cada registro de agenda_fixa da turma (somente tipo paciente e não bloqueios)
   FOR rec_fixa IN
     SELECT af.id, af.paciente, af.aluno_id, af.horario, af.dia_semana,
            COALESCE(aa.nome, af.aluno, 'ATENDIMENTO EXTRA') AS aluno_nome
@@ -173,7 +183,7 @@ BEGIN
       AND lower(trim(af.paciente)) NOT IN ('horário livre', 'livre')
       AND lower(trim(af.paciente)) NOT LIKE 'bloqueio%'
   LOOP
-    -- Busca correspondente em agenda_mensal no mesmo dia_semana por similaridade de nome >= 0.4
+    -- Busca correspondente em agenda_mensal no mesmo dia_semana (IGNORANDO HORARIO) por similaridade de nome >= 0.4
     SELECT am.id, am.paciente, am.aluno_id, am.horario,
            COALESCE(aa_m.nome, am.aluno, 'ATENDIMENTO EXTRA') AS aluno_nome
     INTO v_match_mensal
@@ -191,7 +201,7 @@ BEGIN
     LIMIT 1;
 
     IF v_match_mensal IS NULL THEN
-      -- AUSENTE
+      -- Paciente da fixa não compareceu em nenhum horário naquele dia da semana (AUSENTE)
       SELECT status, observacao
       INTO v_prev_status, v_prev_obs
       FROM tmp_prev_inconsistencias
@@ -216,10 +226,10 @@ BEGIN
         v_prev_obs
       );
       v_total_ausentes := v_total_ausentes + 1;
-
     ELSE
-      -- HORARIO_ALTERADO (mesmo paciente e aluno no mesmo dia, horário diferente)
-      IF rec_fixa.horario <> v_match_mensal.horario AND rec_fixa.aluno_nome = v_match_mensal.aluno_nome THEN
+      -- Paciente encontrado no mensal no mesmo dia!
+      -- 3.1 Verifica se o horário mudou (independente de quem é o aluno)
+      IF rec_fixa.horario <> v_match_mensal.horario THEN
         SELECT status, observacao
         INTO v_prev_status, v_prev_obs
         FROM tmp_prev_inconsistencias
@@ -236,18 +246,18 @@ BEGIN
           rec_fixa.paciente,
           rec_fixa.aluno_nome,
           v_match_mensal.aluno_nome,
-          rec_fixa.horario || ' -> ' || v_match_mensal.horario,
+          rec_fixa.horario,
           rec_fixa.dia_semana,
           p_turma_id,
           p_mes_referencia,
           COALESCE(v_prev_status, 'PENDENTE'),
-          v_prev_obs
+          COALESCE(v_prev_obs, to_char(rec_fixa.horario, 'HH24:MI') || ' ➔ ' || to_char(v_match_mensal.horario, 'HH24:MI'))
         );
         v_total_horario_alterado := v_total_horario_alterado + 1;
       END IF;
 
-      -- ALUNO_TROCADO (paciente com responsável diferente)
-      IF rec_fixa.aluno_nome IS DISTINCT FROM v_match_mensal.aluno_nome THEN
+      -- 3.2 Verifica se o aluno responsável mudou (verificação independente comparando aluno_id)
+      IF v_match_mensal.aluno_id IS DISTINCT FROM rec_fixa.aluno_id THEN
         SELECT status, observacao
         INTO v_prev_status, v_prev_obs
         FROM tmp_prev_inconsistencias
@@ -276,7 +286,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- 4. Itera sobre cada registro de agenda_mensal para identificar PACIENTE_NOVO
+  -- 4. Itera sobre cada registro de agenda_mensal para identificar PACIENTE_NOVO (ignorando bloqueios)
   FOR rec_mensal IN
     SELECT am.id, am.paciente, am.aluno_id, am.horario, am.dia_semana,
            COALESCE(aa.nome, am.aluno, 'ATENDIMENTO EXTRA') AS aluno_nome
@@ -289,6 +299,7 @@ BEGIN
       AND lower(trim(am.paciente)) NOT IN ('horário livre', 'livre')
       AND lower(trim(am.paciente)) NOT LIKE 'bloqueio%'
   LOOP
+    -- Busca se existe correspondente na fixa naquele dia da semana (IGNORANDO HORARIO)
     SELECT af.id
     INTO v_match_fixa
     FROM public.agenda_fixa af
@@ -368,7 +379,7 @@ DECLARE
   v_fixa_count integer := 0;
   v_mensal_count integer := 0;
 BEGIN
-  -- 1. Checagem de papel de segurança: apenas coordenador, admin_master ou service_role
+  -- Checagem de papel de segurança: apenas coordenador, admin_master ou service_role
   IF auth.role() <> 'service_role' AND NOT EXISTS (
     SELECT 1 FROM public.perfis
     WHERE id = auth.uid()
@@ -377,7 +388,7 @@ BEGIN
     RAISE EXCEPTION 'Acesso negado: apenas coordenador ou administrador podem mesclar alunos.';
   END IF;
 
-  -- 2. Validações básicas
+  -- 1. Validações básicas
   IF p_aluno_oficial_id IS NULL OR p_aluno_duplicado_id IS NULL THEN
     RAISE EXCEPTION 'IDs dos alunos não podem ser nulos.';
   END IF;
@@ -406,7 +417,7 @@ BEGIN
     RAISE EXCEPTION 'Os alunos pertencem a turmas diferentes e não podem ser mesclados.';
   END IF;
 
-  -- 3. Reatribui agenda_fixa
+  -- 2. Reatribui agenda_fixa
   WITH updated_fixa AS (
     UPDATE public.agenda_fixa
     SET aluno_id = p_aluno_oficial_id,
@@ -416,17 +427,17 @@ BEGIN
   )
   SELECT count(*) INTO v_fixa_count FROM updated_fixa;
 
-  -- 4. Reatribui agenda_mensal (remove antes duplicatas exatas para respeitar uq_agenda_mensal)
+  -- 3. Reatribui agenda_mensal (remove antes duplicatas idênticas para não violar uq_agenda_mensal)
   DELETE FROM public.agenda_mensal m_dup
   WHERE m_dup.aluno_id = p_aluno_duplicado_id
     AND EXISTS (
-      SELECT 1 FROM public.agenda_mensal m_oficial
-      WHERE m_oficial.turma_id = m_dup.turma_id
-        AND m_oficial.mes_referencia = m_dup.mes_referencia
-        AND m_oficial.paciente = m_dup.paciente
-        AND m_oficial.horario = m_dup.horario
-        AND m_oficial.dia_semana = m_dup.dia_semana
-        AND m_oficial.aluno_id = p_aluno_oficial_id
+      SELECT 1 FROM public.agenda_mensal m_ofic
+      WHERE m_ofic.turma_id = m_dup.turma_id
+        AND m_ofic.mes_referencia = m_dup.mes_referencia
+        AND m_ofic.paciente = m_dup.paciente
+        AND m_ofic.horario = m_dup.horario
+        AND m_ofic.dia_semana = m_dup.dia_semana
+        AND m_ofic.aluno_id = p_aluno_oficial_id
     );
 
   WITH updated_mensal AS (
@@ -437,15 +448,17 @@ BEGIN
   )
   SELECT count(*) INTO v_mensal_count FROM updated_mensal;
 
-  -- 5. Desativa o cadastro duplicado
-  UPDATE public.agenda_alunos
-  SET ativo = false
+  -- 4. Exclui o aluno duplicado
+  DELETE FROM public.agenda_alunos
   WHERE id = p_aluno_duplicado_id;
 
+  -- 5. Retorna o resumo da mesclagem
   RETURN jsonb_build_object(
     'success', true,
     'aluno_oficial_id', p_aluno_oficial_id,
+    'nome_oficial', v_nome_oficial,
     'aluno_duplicado_id', p_aluno_duplicado_id,
+    'nome_duplicado', v_nome_duplicado,
     'fixa_migrados', v_fixa_count,
     'mensal_migrados', v_mensal_count
   );
