@@ -593,3 +593,22 @@ export function resolverAlunoImportacao(
   return { id: null, nome: 'ATENDIMENTO EXTRA' };
 }
 
+/**
+ * Formata mês de referência (YYYY-MM ou YYYY-MM-DD) para exibição amigável em português (Ex: "Outubro/2026", "Novembro/2026").
+ */
+export function formatarMesAno(mesReferencia: string): string {
+  if (!mesReferencia) return '';
+  const partes = mesReferencia.substring(0, 7).split('-');
+  if (partes.length !== 2) return mesReferencia;
+  const ano = partes[0];
+  const meses = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  const idx = parseInt(partes[1], 10) - 1;
+  if (idx >= 0 && idx < 12) {
+    return `${meses[idx]}/${ano}`;
+  }
+  return mesReferencia;
+}
+

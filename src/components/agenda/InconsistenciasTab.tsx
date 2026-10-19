@@ -30,6 +30,8 @@ interface InconsistenciasTabProps {
   onDiaSelecionadoChange?: (dia: string) => void;
   periodo?: TurnoAgenda;
   onPeriodoChange?: (periodo: TurnoAgenda) => void;
+  turmaNome?: string;
+  onMesReferenciaChange?: (mes: string) => void;
 }
 
 const STATUS_COLUMNS: Array<{
@@ -52,7 +54,9 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
   diaSelecionado,
   onDiaSelecionadoChange,
   periodo = 'TODOS',
-  onPeriodoChange
+  onPeriodoChange,
+  turmaNome,
+  onMesReferenciaChange
 }) => {
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS');
 
@@ -134,9 +138,37 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
   };
 
   return (
-    <div className="space-y-5">
-      {/* Barra de Filtros */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
+    <div className="space-y-4">
+      {/* Topo Contextual: Turma, Mês de Referência com Seletor e Contagem Total */}
+      <div className="bg-white p-3.5 px-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+          {turmaNome && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Turma:</span>
+              <span className="text-xs font-extrabold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/60">
+                {turmaNome}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mês Ref:</span>
+            <input
+              type="month"
+              value={mesReferencia.substring(0, 7)}
+              onChange={(e) => onMesReferenciaChange && onMesReferenciaChange(`${e.target.value}-01`)}
+              className="text-xs font-bold text-slate-800 px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-slate-50"
+            />
+          </div>
+        </div>
+
+        <div className="text-xs font-semibold text-slate-500">
+          Total de Inconsistências: <strong className="text-slate-800">{itensFiltrados.length}</strong> de {inconsistencias.length}
+        </div>
+      </div>
+
+      {/* Barra de Filtros Secundários */}
+      <div className="bg-white p-3.5 px-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs text-slate-500 font-bold uppercase tracking-wider">
             <Filter className="w-3.5 h-3.5" />
@@ -196,10 +228,6 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
               </option>
             ))}
           </select>
-        </div>
-
-        <div className="text-xs font-semibold text-slate-500">
-          Total de Inconsistências: <strong className="text-slate-800">{itensFiltrados.length}</strong> de {inconsistencias.length}
         </div>
       </div>
 

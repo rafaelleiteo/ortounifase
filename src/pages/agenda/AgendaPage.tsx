@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -11,7 +12,9 @@ import {
   TurnoAgenda,
   normalizarHorario,
   TipoBloqueio,
-  isItemBloqueio
+  isItemBloqueio,
+  normalizarTextoComparacao,
+  formatarMesAno
 } from '@/lib/agendaTypes';
 import { recalcularInconsistenciasComPreservacao } from '@/lib/agendaService';
 import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
@@ -31,25 +34,96 @@ import {
   Users
 } from 'lucide-react';
 
+// Helpers para validação e persistência do contexto (URL + LocalStorage)
+const isValidMes = (val: string | null | undefined): boolean => {
+  if (!val) return false;
+  return /^\d{4}-(?:0[1-9]|1[0-2])$/.test(val.trim());
+};
+
+const isValidAba = (val: string | null | undefined): val is 'fixa' | 'mensal' | 'inconsistencias' => {
+  return val === 'fixa' || val === 'mensal' || val === 'inconsistencias';
+};
+
+const getMesAtualPadrao = (): string => {
+  const hoje = new Date();
+  const ano = hoje.getFullYear();
+  const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+  return `${ano}-${mes}`;
+};
+
+const STORAGE_KEY = 'agenda_contexto';
+
+interface ContextoPersistido {
+  turmaNome?: string;
+  turmaId?: string;
+  mes?: string; // YYYY-MM
+  aba?: 'fixa' | 'mensal' | 'inconsistencias';
+}
+
+const lerContextoLocalStorage = (): ContextoPersistido | null => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const salvarContextoLocalStorage = (ctx: ContextoPersistido) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(ctx));
+  } catch {
+    // Modo privado / quota de armazenamento
+  }
+};
+
+const encontrarTurma = (termo: string, lista: Turma[]): Turma | null => {
+  if (!termo || lista.length === 0) return null;
+  const termoNorm = normalizarTextoComparacao(termo);
+  // 1. Busca por ID exato
+  const porId = lista.find((t) => t.id === termo);
+  if (porId) return porId;
+  // 2. Busca por nome exato
+  const porNomeExato = lista.find((t) => t.nome.toLowerCase() === termo.toLowerCase());
+  if (porNomeExato) return porNomeExato;
+  // 3. Busca por nome normalizado (ignora acentos e maiúsculas/minúsculas)
+  const porNomeNorm = lista.find((t) => normalizarTextoComparacao(t.nome) === termoNorm);
+  if (porNomeNorm) return porNomeNorm;
+  return null;
+};
+
 export const AgendaPage: React.FC = () => {
   const { effectiveRole } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Estados principais
+  // Estados principais com persistência (URL -> localStorage -> default)
   const [turmas, setTurmas] = useState<Turma[]>([]);
   const [turmaSelecionada, setTurmaSelecionada] = useState<Turma | null>(null);
-  const [abaAtiva, setAbaAtiva] = useState<'fixa' | 'mensal' | 'inconsistencias'>('fixa');
+
+  const [abaAtiva, setAbaAtiva] = useState<'fixa' | 'mensal' | 'inconsistencias'>(() => {
+    const urlAba = searchParams.get('aba');
+    if (isValidAba(urlAba)) return urlAba;
+    const salvo = lerContextoLocalStorage();
+    if (salvo?.aba && isValidAba(salvo.aba)) return salvo.aba;
+    return 'fixa';
+  });
 
   // Navegação compartilhada entre abas (dia da semana e turno persistidos dentro da mesma turma)
   const [diaSelecionado, setDiaSelecionado] = useState<string>('QUINTA');
   const [periodo, setPeriodo] = useState<TurnoAgenda>('TODOS');
 
-  // Mês de referência atual (default: primeiro dia do mês atual em formato YYYY-MM-01)
+  // Mês de referência atual (default: primeiro dia do mês em formato YYYY-MM-01)
   const [mesReferencia, setMesReferencia] = useState<string>(() => {
-    const hoje = new Date();
-    const ano = hoje.getFullYear();
-    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-    return `${ano}-${mes}-01`;
+    const urlMes = searchParams.get('mes');
+    if (isValidMes(urlMes)) return `${urlMes}-01`;
+    const salvo = lerContextoLocalStorage();
+    if (salvo?.mes && isValidMes(salvo.mes)) return `${salvo.mes}-01`;
+    return `${getMesAtualPadrao()}-01`;
   });
+
+  // Meses com dados na turma selecionada (busca leve distinct em mes_referencia)
+  const [mesesComDados, setMesesComDados] = useState<string[]>([]);
 
   // Dados da turma selecionada
   const [alunos, setAlunos] = useState<AgendaAluno[]>([]);
@@ -83,9 +157,28 @@ export const AgendaPage: React.FC = () => {
       if (data && data.length > 0) {
         setTurmas(data);
         if (!turmaSelecionada) {
-          // Prefere 'ESP1' como padrão, se existir
-          const defaultTurma = data.find((t) => t.nome === 'ESP1') || data[0];
-          setTurmaSelecionada(defaultTurma);
+          const urlTurma = searchParams.get('turma');
+          let turmaInicial: Turma | null = null;
+
+          if (urlTurma) {
+            turmaInicial = encontrarTurma(urlTurma, data);
+          }
+
+          if (!turmaInicial) {
+            const salvo = lerContextoLocalStorage();
+            if (salvo?.turmaId) {
+              turmaInicial = data.find((t) => t.id === salvo.turmaId) || null;
+            }
+            if (!turmaInicial && salvo?.turmaNome) {
+              turmaInicial = encontrarTurma(salvo.turmaNome, data);
+            }
+          }
+
+          if (!turmaInicial) {
+            turmaInicial = data.find((t) => t.nome === 'ESP1') || data[0];
+          }
+
+          setTurmaSelecionada(turmaInicial);
         }
       }
     } catch (err: any) {
@@ -99,6 +192,28 @@ export const AgendaPage: React.FC = () => {
   useEffect(() => {
     carregarTurmas();
   }, []);
+
+  // 1.1 Carregar meses disponíveis com dados para a turma (consulta leve distinct)
+  const carregarMesesComDados = async (turmaId: string) => {
+    try {
+      const [resMensal, resInc] = await Promise.all([
+        supabase.from('agenda_mensal').select('mes_referencia').eq('turma_id', turmaId),
+        supabase.from('inconsistencias').select('mes_referencia').eq('turma_id', turmaId)
+      ]);
+
+      const mesesSet = new Set<string>();
+      (resMensal.data || []).forEach((r) => {
+        if (r.mes_referencia) mesesSet.add(r.mes_referencia);
+      });
+      (resInc.data || []).forEach((r) => {
+        if (r.mes_referencia) mesesSet.add(r.mes_referencia);
+      });
+
+      setMesesComDados(Array.from(mesesSet).sort());
+    } catch (err) {
+      console.warn('Erro ao consultar meses disponíveis da turma:', err);
+    }
+  };
 
   // 2. Carregar dados da turma selecionada
   const carregarDadosTurma = async () => {
@@ -158,8 +273,61 @@ export const AgendaPage: React.FC = () => {
   useEffect(() => {
     if (turmaSelecionada) {
       carregarDadosTurma();
+      carregarMesesComDados(turmaSelecionada.id);
     }
   }, [turmaSelecionada?.id, mesReferencia]);
+
+  // Sincroniza estado -> URL search params e localStorage
+  useEffect(() => {
+    if (!turmaSelecionada) return;
+
+    const mesAno = mesReferencia.substring(0, 7);
+
+    salvarContextoLocalStorage({
+      turmaNome: turmaSelecionada.nome,
+      turmaId: turmaSelecionada.id,
+      mes: mesAno,
+      aba: abaAtiva
+    });
+
+    const curTurma = searchParams.get('turma');
+    const curMes = searchParams.get('mes');
+    const curAba = searchParams.get('aba');
+
+    if (curTurma !== turmaSelecionada.nome || curMes !== mesAno || curAba !== abaAtiva) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set('turma', turmaSelecionada.nome);
+      nextParams.set('mes', mesAno);
+      nextParams.set('aba', abaAtiva);
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [turmaSelecionada?.id, turmaSelecionada?.nome, mesReferencia, abaAtiva]);
+
+  // Reage a alterações externas na URL (ex: botão Voltar/Avançar do navegador)
+  useEffect(() => {
+    if (turmas.length === 0) return;
+
+    const urlTurma = searchParams.get('turma');
+    if (urlTurma) {
+      const match = encontrarTurma(urlTurma, turmas);
+      if (match && match.id !== turmaSelecionada?.id) {
+        setTurmaSelecionada(match);
+      }
+    }
+
+    const urlMes = searchParams.get('mes');
+    if (isValidMes(urlMes)) {
+      const mesIso = `${urlMes}-01`;
+      if (mesIso !== mesReferencia) {
+        setMesReferencia(mesIso);
+      }
+    }
+
+    const urlAba = searchParams.get('aba');
+    if (isValidAba(urlAba) && urlAba !== abaAtiva) {
+      setAbaAtiva(urlAba);
+    }
+  }, [searchParams, turmas]);
 
   // Ações da Agenda Fixa
   const handleSalvarItemFixa = async (item: Partial<AgendaFixaItem>) => {
@@ -403,11 +571,14 @@ export const AgendaPage: React.FC = () => {
     setMensagemSucesso(
       `Importação concluída com sucesso! ${result.totalImportados} registros processados e comparação gerada (${result.compareResult?.total || 0} inconsistências identificadas).`
     );
-    if (result?.mesReferencia && result.mesReferencia !== mesReferencia) {
+    if (result?.mesReferencia) {
       setMesReferencia(result.mesReferencia);
-    } else {
-      carregarDadosTurma();
     }
+    setAbaAtiva('mensal');
+    if (turmaSelecionada) {
+      carregarMesesComDados(turmaSelecionada.id);
+    }
+    carregarDadosTurma();
     setTimeout(() => setMensagemSucesso(null), 8000);
   };
 
@@ -589,7 +760,49 @@ export const AgendaPage: React.FC = () => {
             Nenhuma turma disponível.
           </div>
         ) : (
-          <div>
+          <div className="space-y-4">
+            {/* Aviso quando não houver registros no mês selecionado (Mensal e Inconsistências) */}
+            {abaAtiva !== 'fixa' && !carregandoDados && (
+              (abaAtiva === 'mensal' && agendaMensal.length === 0) ||
+              (abaAtiva === 'inconsistencias' && inconsistencias.length === 0)
+            ) && (() => {
+              const outrosMeses = mesesComDados.filter((m) => m !== mesReferencia);
+              return (
+                <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-center gap-2.5 text-xs text-amber-900 font-medium">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      Nenhum registro em <strong>{formatarMesAno(mesReferencia)}</strong>.
+                      {outrosMeses.length === 1 ? (
+                        <>
+                          {' '}Há dados em <strong>{formatarMesAno(outrosMeses[0])}</strong>
+                        </>
+                      ) : outrosMeses.length > 1 ? (
+                        <> Há dados em outros meses:</>
+                      ) : (
+                        <> Nenhum dado registrado nesta turma em outros meses.</>
+                      )}
+                    </span>
+                  </div>
+
+                  {outrosMeses.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {outrosMeses.map((outroMes) => (
+                        <button
+                          key={outroMes}
+                          type="button"
+                          onClick={() => setMesReferencia(outroMes)}
+                          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 hover:shadow-xs"
+                        >
+                          <span>{outrosMeses.length === 1 ? 'Ver' : `Ver ${formatarMesAno(outroMes)}`}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {abaAtiva === 'fixa' && (
               <AgendaFixaTab
                 turmaId={turmaSelecionada.id}
@@ -628,9 +841,11 @@ export const AgendaPage: React.FC = () => {
 
             {abaAtiva === 'inconsistencias' && (
               <InconsistenciasTab
+                turmaNome={turmaSelecionada.nome}
                 inconsistencias={inconsistencias}
                 alunos={alunos}
                 mesReferencia={mesReferencia}
+                onMesReferenciaChange={setMesReferencia}
                 diaSelecionado={diaSelecionado}
                 onDiaSelecionadoChange={setDiaSelecionado}
                 periodo={periodo}
