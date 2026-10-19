@@ -10,6 +10,7 @@ import {
   HORARIO_DIVISOR_TURNO,
   getHorariosPorTurno,
   getHorariosTurma,
+  obterHorariosCompletos,
   normalizarHorario,
   formatarHorarioExibicao,
   isAtendimentoExtra,
@@ -202,8 +203,20 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     sugestaoSequencia: ''
   });
 
-  // Exibe sempre todos os horários da turma em rolagem contínua na Agenda Fixa
-  const horarios = getHorariosTurma(turmaNome);
+  // Exibe sempre todos os horários da turma em rolagem contínua na Agenda Fixa,
+  // com proteção contra sumiço para qualquer horário fora da grade padrão.
+  const horarios = useMemo(() => {
+    return obterHorariosCompletos({
+      turmaNome,
+      periodo: 'TODOS',
+      itens: agendaFixa,
+      diaSelecionado
+    });
+  }, [turmaNome, agendaFixa, diaSelecionado]);
+
+  const divisorTarde = useMemo(() => {
+    return horarios.find((h) => h >= '12:00') || HORARIO_DIVISOR_TURNO;
+  }, [horarios]);
 
   // Indexa itens por chave: colId_horarioNormalizado (suporta múltiplos atendimentos na coluna extra)
   const itemMap = new Map<string, AgendaFixaItem[]>();
@@ -558,7 +571,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {horarios.map((h) => {
-                  const isTurnoDivisor = h === HORARIO_DIVISOR_TURNO;
+                  const isTurnoDivisor = h === divisorTarde;
                   return (
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (
@@ -568,7 +581,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                           className="bg-slate-100/80 font-bold text-slate-500 text-[11px]"
                         >
                           <td colSpan={colunasFixa.length + 1} className="py-1 px-3 border-y border-slate-200">
-                            --- Turno da Tarde (Intervalos de 15 min) ---
+                            --- Turno da Tarde ---
                           </td>
                         </tr>
                       )}
@@ -859,7 +872,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                     onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, horario: e.target.value })}
                     className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
                   >
-                    {getHorariosTurma(turmaNome).map((h) => (
+                    {horarios.map((h) => (
                       <option key={h} value={h}>
                         {h}
                       </option>
@@ -1036,7 +1049,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                     }
                     className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
                   >
-                    {getHorariosTurma(turmaNome).map((h) => (
+                    {horarios.map((h) => (
                       <option key={h} value={h}>
                         {h}
                       </option>

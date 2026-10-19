@@ -11,6 +11,7 @@ import {
   HORARIO_DIVISOR_TURNO,
   getHorariosPorTurno,
   getHorariosTurma,
+  obterHorariosCompletos,
   normalizarHorario,
   formatarHorarioExibicao,
   isAtendimentoExtra,
@@ -104,7 +105,18 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     return obterColunasTurma(turmaNome, alunos, agendaMensal);
   }, [turmaNome, alunos, agendaMensal]);
 
-  const horarios = getHorariosPorTurno(periodo, turmaNome);
+  const horarios = useMemo(() => {
+    return obterHorariosCompletos({
+      turmaNome,
+      periodo,
+      itens: agendaMensal,
+      diaSelecionado
+    });
+  }, [turmaNome, periodo, agendaMensal, diaSelecionado]);
+
+  const divisorTarde = useMemo(() => {
+    return horarios.find((h) => h >= '12:00') || HORARIO_DIVISOR_TURNO;
+  }, [horarios]);
 
   // Mapas por chave: `${alunoId}_${horario}` => lista de itens (suporta múltiplos extras no mesmo horário)
   const mensalMap = new Map<string, AgendaMensalItem[]>();
@@ -680,13 +692,13 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {horarios.map((h) => {
-                  const isTurnoDivisor = h === HORARIO_DIVISOR_TURNO && periodo === 'TODOS';
+                  const isTurnoDivisor = h === divisorTarde && periodo === 'TODOS';
                   return (
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (
                         <tr className="bg-slate-100/80 font-bold text-slate-500 text-[11px]">
                           <td colSpan={alunosOrdenados.length + 1} className="py-1 px-3 border-y border-slate-200">
-                            --- Turno da Tarde (Intervalos de 15 min) ---
+                            --- Turno da Tarde ---
                           </td>
                         </tr>
                       )}
@@ -925,7 +937,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                     onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, horario: e.target.value })}
                     className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
                   >
-                    {getHorariosTurma(turmaNome).map((h) => (
+                    {horarios.map((h) => (
                       <option key={h} value={h}>
                         {h}
                       </option>

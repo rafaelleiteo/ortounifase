@@ -92,9 +92,9 @@ export const OPCOES_TURNO: OpcaoTurno[] = [
   {
     id: 'TODOS',
     label: 'Todos os Horários',
-    descricao: '08h - 15h45',
+    descricao: '08h - 16h00',
     horarioInicio: '08:00',
-    horarioFim: '15:45'
+    horarioFim: '16:00'
   },
   {
     id: 'MANHA',
@@ -106,9 +106,9 @@ export const OPCOES_TURNO: OpcaoTurno[] = [
   {
     id: 'TARDE',
     label: 'Tarde',
-    descricao: '13h30 - 15h45',
+    descricao: '13h30 - 16h00',
     horarioInicio: '13:30',
-    horarioFim: '15:45'
+    horarioFim: '16:00'
   }
 ];
 
@@ -117,7 +117,7 @@ export const HORARIOS_MANHA = [
 ];
 
 export const HORARIOS_TARDE = [
-  '13:30', '13:45', '14:00', '14:15', '14:30', '14:45', '15:00', '15:15', '15:30', '15:45'
+  '13:30', '13:45', '14:00', '14:15', '14:30', '14:45', '15:00', '15:15', '15:30', '15:45', '16:00'
 ];
 
 export const HORARIO_DIVISOR_TURNO = '13:30';
@@ -133,13 +133,13 @@ export function isTurmaServico(turmaNome?: string | null): boolean {
 }
 
 /**
- * Horários da manhã exclusivos da turma SERVIÇO com intervalos a cada 15 minutos (08:00 às 11:30).
+ * Horários da manhã exclusivos da turma SERVIÇO com intervalos a cada 15 minutos (08:00 às 11:00).
  */
 export const HORARIOS_MANHA_SERVICO = [
   '08:00', '08:15', '08:30', '08:45',
   '09:00', '09:15', '09:30', '09:45',
   '10:00', '10:15', '10:30', '10:45',
-  '11:00', '11:15', '11:30'
+  '11:00'
 ];
 
 export const HORARIOS_TARDE_SERVICO = [...HORARIOS_TARDE];
@@ -167,6 +167,66 @@ export function getHorariosPorTurno(turno: TurnoAgenda, turmaNome?: string): str
 
 export function getHorariosTurma(turmaNome?: string): string[] {
   return getHorariosPorTurno('TODOS', turmaNome);
+}
+
+export interface ObterHorariosOptions {
+  turmaNome?: string;
+  periodo?: TurnoAgenda;
+  itens?: Array<{ horario?: string | null; dia_semana?: string | null }>;
+  diaSelecionado?: string;
+}
+
+/**
+ * Retorna os horários da grade para a turma e turno especificados,
+ * incluindo automaticamente quaisquer horários atípicos presentes nos registros
+ * para garantir proteção total contra "sumiço" de pacientes.
+ */
+export function obterHorariosCompletos({
+  turmaNome,
+  periodo = 'TODOS',
+  itens = [],
+  diaSelecionado
+}: ObterHorariosOptions): string[] {
+  const servico = isTurmaServico(turmaNome);
+  const baseManha = servico ? HORARIOS_MANHA_SERVICO : HORARIOS_MANHA;
+  const baseTarde = servico ? HORARIOS_TARDE_SERVICO : HORARIOS_TARDE;
+
+  const extrasManha = new Set<string>();
+  const extrasTarde = new Set<string>();
+
+  const baseSet = new Set<string>([...baseManha, ...baseTarde]);
+
+  for (const item of itens) {
+    if (!item?.horario) continue;
+    if (diaSelecionado && item.dia_semana) {
+      if (item.dia_semana.toUpperCase() !== diaSelecionado.toUpperCase()) {
+        continue;
+      }
+    }
+    const hExib = formatarHorarioExibicao(item.horario);
+    if (!hExib) continue;
+
+    if (!baseSet.has(hExib)) {
+      if (hExib < '12:00') {
+        extrasManha.add(hExib);
+      } else {
+        extrasTarde.add(hExib);
+      }
+    }
+  }
+
+  const manhaFinal = Array.from(new Set([...baseManha, ...extrasManha])).sort((a, b) => a.localeCompare(b));
+  const tardeFinal = Array.from(new Set([...baseTarde, ...extrasTarde])).sort((a, b) => a.localeCompare(b));
+
+  switch (periodo) {
+    case 'MANHA':
+      return manhaFinal;
+    case 'TARDE':
+      return tardeFinal;
+    case 'TODOS':
+    default:
+      return [...manhaFinal, ...tardeFinal];
+  }
 }
 
 export function getTurnoDeHorario(horario?: string | null): 'MANHA' | 'TARDE' {

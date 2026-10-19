@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   DIAS_SEMANA,
   HORARIOS_MANHA,
@@ -87,7 +87,19 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
   onSalvarTrocarAluno,
   onUpdateModalTrocarAluno
 }) => {
-  const todosHorarios = getHorariosTurma(turmaNome);
+  const todosHorarios = useMemo(() => {
+    const base = getHorariosTurma(turmaNome);
+    const extras = new Set<string>(base);
+    if (modalEditar.horario) {
+      const h = formatarHorarioExibicao(modalEditar.horario);
+      if (h) extras.add(h);
+    }
+    if (modalReagendar.horario) {
+      const h = formatarHorarioExibicao(modalReagendar.horario);
+      if (h) extras.add(h);
+    }
+    return Array.from(extras).sort((a, b) => a.localeCompare(b));
+  }, [turmaNome, modalEditar.horario, modalReagendar.horario]);
 
   return (
     <>
