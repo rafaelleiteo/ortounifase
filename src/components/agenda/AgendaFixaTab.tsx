@@ -79,9 +79,32 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
   const diaSelecionado = (diaSelecionadoRaw && diaSelecionadoRaw !== 'TODOS') ? diaSelecionadoRaw : 'QUINTA';
   const handleDiaChange = onDiaSelecionadoChange || setDiaLocal;
 
-  const [periodoLocal, setPeriodoLocal] = useState<TurnoAgenda>('TODOS');
-  const periodo = periodoProp !== undefined ? periodoProp : periodoLocal;
-  const handlePeriodoChange = onPeriodoChange || setPeriodoLocal;
+  // Turno ativo local para atalho de rolagem na Agenda Fixa (sem filtrar linhas)
+  const [turnoAtivo, setTurnoAtivo] = useState<TurnoAgenda>('TODOS');
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const tardeDivisorRef = React.useRef<HTMLTableRowElement>(null);
+
+  const handleTurnoClick = (turno: TurnoAgenda) => {
+    setTurnoAtivo(turno);
+    if (turno === 'TARDE') {
+      if (scrollContainerRef.current) {
+        const el = tardeDivisorRef.current || document.getElementById('turno-tarde-fixa');
+        if (el) {
+          const containerTop = scrollContainerRef.current.getBoundingClientRect().top;
+          const elTop = el.getBoundingClientRect().top;
+          const currentScroll = scrollContainerRef.current.scrollTop;
+          // Compensação de 45px para a thead sticky não sobrepor o divisor
+          const targetScroll = currentScroll + (elTop - containerTop) - 45;
+          scrollContainerRef.current.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+        }
+      }
+    } else {
+      // MANHA ou TODOS: rola suavemente para o início do dia
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  };
 
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [criandoAluno, setCriandoAluno] = useState<boolean>(false);
@@ -178,7 +201,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     sugestaoSequencia: ''
   });
 
-  const horarios = getHorariosPorTurno(periodo);
+  // Exibe sempre todos os horários do dia em rolagem contínua na Agenda Fixa
+  const horarios = getHorariosPorTurno('TODOS');
 
   // Indexa itens por chave: colId_horarioNormalizado (suporta múltiplos atendimentos na coluna extra)
   const itemMap = new Map<string, AgendaFixaItem[]>();
@@ -429,8 +453,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       <AgendaFiltrosHeader
         diaSelecionado={diaSelecionado as DiaSemana}
         onDiaChange={handleDiaChange}
-        periodo={periodo}
-        onPeriodoChange={handlePeriodoChange}
+        periodo={turnoAtivo}
+        onPeriodoChange={handleTurnoClick}
       >
         {/* Ações da Turma: Adicionar Aluno, Adicionar Paciente e Exportar */}
         <div className="flex flex-wrap items-center gap-2 w-full">
@@ -496,7 +520,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto max-h-[750px] relative">
+          <div ref={scrollContainerRef} className="overflow-x-auto max-h-[750px] relative scroll-smooth">
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
                 <tr>
@@ -533,11 +557,15 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {horarios.map((h) => {
-                  const isTurnoDivisor = h === HORARIO_DIVISOR_TURNO && periodo === 'TODOS';
+                  const isTurnoDivisor = h === HORARIO_DIVISOR_TURNO;
                   return (
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (
-                        <tr className="bg-slate-100/80 font-bold text-slate-500 text-[11px]">
+                        <tr
+                          ref={tardeDivisorRef}
+                          id="turno-tarde-fixa"
+                          className="bg-slate-100/80 font-bold text-slate-500 text-[11px]"
+                        >
                           <td colSpan={colunasFixa.length + 1} className="py-1 px-3 border-y border-slate-200">
                             --- Turno da Tarde (Intervalos de 15 min) ---
                           </td>
