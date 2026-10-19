@@ -92,9 +92,9 @@ export const OPCOES_TURNO: OpcaoTurno[] = [
   {
     id: 'TODOS',
     label: 'Todos os Horários',
-    descricao: '08h - 16h00',
+    descricao: '08h - 15h45',
     horarioInicio: '08:00',
-    horarioFim: '16:00'
+    horarioFim: '15:45'
   },
   {
     id: 'MANHA',
@@ -106,9 +106,9 @@ export const OPCOES_TURNO: OpcaoTurno[] = [
   {
     id: 'TARDE',
     label: 'Tarde',
-    descricao: '13h30 - 16h00',
+    descricao: '13h30 - 15h45',
     horarioInicio: '13:30',
-    horarioFim: '16:00'
+    horarioFim: '15:45'
   }
 ];
 
@@ -117,7 +117,7 @@ export const HORARIOS_MANHA = [
 ];
 
 export const HORARIOS_TARDE = [
-  '13:30', '13:45', '14:00', '14:15', '14:30', '14:45', '15:00', '15:15', '15:30', '15:45', '16:00'
+  '13:30', '13:45', '14:00', '14:15', '14:30', '14:45', '15:00', '15:15', '15:30', '15:45'
 ];
 
 export const HORARIO_DIVISOR_TURNO = '13:30';
