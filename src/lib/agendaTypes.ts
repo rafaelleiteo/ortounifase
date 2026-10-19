@@ -124,16 +124,49 @@ export const HORARIO_DIVISOR_TURNO = '13:30';
 
 export const HORARIOS_TODOS = [...HORARIOS_MANHA, ...HORARIOS_TARDE];
 
-export function getHorariosPorTurno(turno: TurnoAgenda): string[] {
+/**
+ * Identifica se a turma é a turma SERVIÇO (ignorando acentuação e caixa alta/baixa).
+ */
+export function isTurmaServico(turmaNome?: string | null): boolean {
+  if (!turmaNome) return false;
+  return normalizarTextoComparacao(turmaNome).includes('servico');
+}
+
+/**
+ * Horários da manhã exclusivos da turma SERVIÇO com intervalos a cada 15 minutos (08:00 às 11:30).
+ */
+export const HORARIOS_MANHA_SERVICO = [
+  '08:00', '08:15', '08:30', '08:45',
+  '09:00', '09:15', '09:30', '09:45',
+  '10:00', '10:15', '10:30', '10:45',
+  '11:00', '11:15', '11:30'
+];
+
+export const HORARIOS_TARDE_SERVICO = [...HORARIOS_TARDE];
+
+export const HORARIOS_TODOS_SERVICO = [
+  ...HORARIOS_MANHA_SERVICO,
+  ...HORARIOS_TARDE_SERVICO
+];
+
+export function getHorariosPorTurno(turno: TurnoAgenda, turmaNome?: string): string[] {
+  const servico = isTurmaServico(turmaNome);
+  const manha = servico ? HORARIOS_MANHA_SERVICO : HORARIOS_MANHA;
+  const tarde = servico ? HORARIOS_TARDE_SERVICO : HORARIOS_TARDE;
+
   switch (turno) {
     case 'MANHA':
-      return [...HORARIOS_MANHA];
+      return [...manha];
     case 'TARDE':
-      return [...HORARIOS_TARDE];
+      return [...tarde];
     case 'TODOS':
     default:
-      return [...HORARIOS_TODOS];
+      return [...manha, ...tarde];
   }
+}
+
+export function getHorariosTurma(turmaNome?: string): string[] {
+  return getHorariosPorTurno('TODOS', turmaNome);
 }
 
 export function getTurnoDeHorario(horario?: string | null): 'MANHA' | 'TARDE' {

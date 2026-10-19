@@ -10,6 +10,7 @@ import {
   OPCOES_TURNO,
   HORARIO_DIVISOR_TURNO,
   getHorariosPorTurno,
+  getHorariosTurma,
   normalizarHorario,
   formatarHorarioExibicao,
   isAtendimentoExtra,
@@ -103,7 +104,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     return obterColunasTurma(turmaNome, alunos, agendaMensal);
   }, [turmaNome, alunos, agendaMensal]);
 
-  const horarios = getHorariosPorTurno(periodo);
+  const horarios = getHorariosPorTurno(periodo, turmaNome);
 
   // Mapas por chave: `${alunoId}_${horario}` => lista de itens (suporta múltiplos extras no mesmo horário)
   const mensalMap = new Map<string, AgendaMensalItem[]>();
@@ -847,6 +848,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
       {/* Modais de Edição, Reagendamento e Troca de Aluno */}
       <AgendaModaisAtendimento
+        turmaNome={turmaNome}
         alunos={alunosOrdenados.filter((a) => a.id !== 'EXTRA_VIRTUAL')}
         permitirSemAluno={true}
         modalEditar={modalEditar}
@@ -923,7 +925,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                     onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, horario: e.target.value })}
                     className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
                   >
-                    {[...HORARIOS_MANHA, ...HORARIOS_TARDE].map((h) => (
+                    {getHorariosTurma(turmaNome).map((h) => (
                       <option key={h} value={h}>
                         {h}
                       </option>

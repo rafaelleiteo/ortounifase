@@ -9,6 +9,7 @@ import {
   OPCOES_TURNO,
   HORARIO_DIVISOR_TURNO,
   getHorariosPorTurno,
+  getHorariosTurma,
   normalizarHorario,
   formatarHorarioExibicao,
   isAtendimentoExtra,
@@ -201,8 +202,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     sugestaoSequencia: ''
   });
 
-  // Exibe sempre todos os horários do dia em rolagem contínua na Agenda Fixa
-  const horarios = getHorariosPorTurno('TODOS');
+  // Exibe sempre todos os horários da turma em rolagem contínua na Agenda Fixa
+  const horarios = getHorariosTurma(turmaNome);
 
   // Indexa itens por chave: colId_horarioNormalizado (suporta múltiplos atendimentos na coluna extra)
   const itemMap = new Map<string, AgendaFixaItem[]>();
@@ -858,7 +859,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                     onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, horario: e.target.value })}
                     className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
                   >
-                    {[...HORARIOS_MANHA, ...HORARIOS_TARDE].map((h) => (
+                    {getHorariosTurma(turmaNome).map((h) => (
                       <option key={h} value={h}>
                         {h}
                       </option>
@@ -1035,7 +1036,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                     }
                     className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white font-mono"
                   >
-                    {[...HORARIOS_MANHA, ...HORARIOS_TARDE].map((h) => (
+                    {getHorariosTurma(turmaNome).map((h) => (
                       <option key={h} value={h}>
                         {h}
                       </option>

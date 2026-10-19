@@ -3,6 +3,7 @@ import {
   DIAS_SEMANA,
   HORARIOS_MANHA,
   HORARIOS_TARDE,
+  getHorariosTurma,
   formatarHorarioExibicao,
   DiaSemana
 } from '@/lib/agendaTypes';
@@ -34,6 +35,7 @@ export interface ModalTrocarAlunoState {
 }
 
 export interface AgendaModaisAtendimentoProps {
+  turmaNome?: string;
   alunos: Array<{ id: string; nome: string }>;
   permitirSemAluno?: boolean; // Para Agenda Mensal (Atendimento Extra)
   // Estado e handlers do Modal Editar
@@ -69,6 +71,7 @@ export interface AgendaModaisAtendimentoProps {
 }
 
 export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = ({
+  turmaNome,
   alunos,
   permitirSemAluno = false,
   modalEditar,
@@ -84,7 +87,7 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
   onSalvarTrocarAluno,
   onUpdateModalTrocarAluno
 }) => {
-  const todosHorarios = [...HORARIOS_MANHA, ...HORARIOS_TARDE];
+  const todosHorarios = getHorariosTurma(turmaNome);
 
   return (
     <>
