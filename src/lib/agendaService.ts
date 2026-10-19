@@ -6,6 +6,7 @@ import {
   NOME_ATENDIMENTO_EXTRA,
   isItemBloqueio,
   resolverAlunoImportacao,
+  normalizarTextoComparacao,
   AgendaAluno
 } from './agendaTypes';
 
@@ -14,16 +15,29 @@ export async function importarAgendaMensal(payload: ImportPayload) {
     throw new Error('Payload inválido. Certifique-se de preencher turma, mes_referencia e registros.');
   }
 
-  // 1. Obter a turma pelo nome
-  const { data: turma, error: turmaError } = await supabase
+  // 1. Obter a turma pelo nome ignorando acentos e maiúsculas/minúsculas
+  const { data: turmas, error: turmasError } = await supabase
     .from('turmas')
-    .select('id, nome')
-    .ilike('nome', payload.turma.trim())
-    .single();
+    .select('id, nome');
 
-  if (turmaError || !turma) {
+  if (turmasError) throw turmasError;
+
+  const inputTurmaNorm = normalizarTextoComparacao(payload.turma);
+  const turmasMatch = (turmas || []).filter(
+    (t) => normalizarTextoComparacao(t.nome) === inputTurmaNorm
+  );
+
+  if (turmasMatch.length === 0) {
     throw new Error(`Turma "${payload.turma}" não encontrada no sistema.`);
   }
+
+  if (turmasMatch.length > 1) {
+    throw new Error(
+      `Ambiguidade na turma: "${payload.turma}" corresponde a múltiplas turmas cadastradas (${turmasMatch.map((t) => t.nome).join(', ')}).`
+    );
+  }
+
+  const turma = turmasMatch[0];
 
   // 2. Buscar todos os alunos existentes da turma
   const { data: alunosExistentes, error: alunosError } = await supabase

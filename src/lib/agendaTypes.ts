@@ -488,8 +488,12 @@ export function resolverAlunoImportacao(
       { nomeOficial: 'Carla e Mauro', membros: ['carla', 'mauro'] }
     ];
 
+    const duplasCasadas: { id: string | null; nome: string }[] = [];
+
     for (const d of mapDuplas) {
       const matchDuplaNorm = normalizarTextoComparacao(d.nomeOficial);
+      let casou = false;
+
       if (
         nomeNorm === matchDuplaNorm ||
         nomeNorm === normalizarTextoComparacao(`${d.membros[0]} / ${d.membros[1]}`) ||
@@ -497,59 +501,93 @@ export function resolverAlunoImportacao(
         nomeNorm === normalizarTextoComparacao(`${d.membros[0]} & ${d.membros[1]}`) ||
         nomeNorm === normalizarTextoComparacao(`${d.membros[0]}, ${d.membros[1]}`)
       ) {
-        const alunoCadastrado = alunosExistentes.find(
-          (a) => normalizarTextoComparacao(a.nome) === matchDuplaNorm
-        );
-        return {
-          id: alunoCadastrado ? alunoCadastrado.id : null,
-          nome: d.nomeOficial
-        };
-      }
-
-      if (nomeNorm.includes(d.membros[0]) && nomeNorm.includes(d.membros[1])) {
-        const alunoCadastrado = alunosExistentes.find(
-          (a) => normalizarTextoComparacao(a.nome) === matchDuplaNorm
-        );
-        return {
-          id: alunoCadastrado ? alunoCadastrado.id : null,
-          nome: d.nomeOficial
-        };
-      }
-
-      for (const membro of d.membros) {
-        const regex = new RegExp(`(^|\\s|[^a-z])${membro}($|\\s|[^a-z])`, 'i');
-        if (regex.test(nomeNorm)) {
-          const alunoCadastrado = alunosExistentes.find(
-            (a) => normalizarTextoComparacao(a.nome) === matchDuplaNorm
-          );
-          return {
-            id: alunoCadastrado ? alunoCadastrado.id : null,
-            nome: d.nomeOficial
-          };
+        casou = true;
+      } else if (nomeNorm.includes(d.membros[0]) && nomeNorm.includes(d.membros[1])) {
+        casou = true;
+      } else {
+        for (const membro of d.membros) {
+          const regex = new RegExp(`(^|\\s|[^a-z])${membro}($|\\s|[^a-z])`, 'i');
+          if (regex.test(nomeNorm)) {
+            casou = true;
+            break;
+          }
         }
       }
+
+      if (casou) {
+        const alunoCadastrado = alunosExistentes.find(
+          (a) => a.ativo !== false && normalizarTextoComparacao(a.nome) === matchDuplaNorm
+        );
+        duplasCasadas.push({
+          id: alunoCadastrado ? alunoCadastrado.id : null,
+          nome: d.nomeOficial
+        });
+      }
+    }
+
+    if (duplasCasadas.length > 1) {
+      throw new Error(
+        `Ambiguidade no aluno "${nomeImportado}": combina com múltiplas duplas da ESP2 (${duplasCasadas.map(d => d.nome).join(', ')}).`
+      );
+    }
+
+    if (duplasCasadas.length === 1) {
+      return duplasCasadas[0];
     }
 
     return { id: null, nome: 'ATENDIMENTO EXTRA' };
   }
 
-  for (const a of alunosExistentes) {
-    if (isAtendimentoExtra(a.nome)) continue;
-    const aNorm = normalizarTextoComparacao(a.nome);
-    if (nomeNorm === aNorm) {
-      return { id: a.id, nome: a.nome };
-    }
+  // Demais turmas (ESP1, SERVIÇO, etc.)
+  // Consideramos alunos cadastrados não-extras ativos prioritariamente
+  const candidatos = alunosExistentes.filter((a) => !isAtendimentoExtra(a.nome) && a.ativo !== false);
+
+  // 1. Match exato normalizado (nome completo ignorando maiúsculas/minúsculas e acentos)
+  const matchesExato = candidatos.filter(
+    (a) => normalizarTextoComparacao(a.nome) === nomeNorm
+  );
+
+  if (matchesExato.length > 1) {
+    throw new Error(
+      `Ambiguidade no aluno "${nomeImportado}": corresponde a múltiplos alunos cadastrados (${matchesExato.map(a => a.nome).join(', ')}).`
+    );
   }
 
-  const matchesPrimeiroNome = alunosExistentes.filter((a) => {
-    if (isAtendimentoExtra(a.nome)) return false;
+  if (matchesExato.length === 1) {
+    return { id: matchesExato[0].id, nome: matchesExato[0].nome };
+  }
+
+  // 2. Match por primeiro nome ou prefixo
+  const matchesParcial = candidatos.filter((a) => {
     const aNorm = normalizarTextoComparacao(a.nome);
     const primeiroNome = aNorm.split(' ')[0];
-    return nomeNorm === primeiroNome || aNorm.startsWith(nomeNorm + ' ');
+    return nomeNorm === primeiroNome || aNorm.startsWith(nomeNorm + ' ') || nomeNorm.startsWith(aNorm + ' ');
   });
 
-  if (matchesPrimeiroNome.length === 1) {
-    return { id: matchesPrimeiroNome[0].id, nome: matchesPrimeiroNome[0].nome };
+  if (matchesParcial.length > 1) {
+    throw new Error(
+      `Ambiguidade no aluno "${nomeImportado}": combina com múltiplos alunos cadastrados (${matchesParcial.map(a => a.nome).join(', ')}).`
+    );
+  }
+
+  if (matchesParcial.length === 1) {
+    return { id: matchesParcial[0].id, nome: matchesParcial[0].nome };
+  }
+
+  // Se nenhum ativo casou, verifica se casa com algum inativo
+  const inativos = alunosExistentes.filter((a) => !isAtendimentoExtra(a.nome) && a.ativo === false);
+  const matchesInativos = inativos.filter(
+    (a) => normalizarTextoComparacao(a.nome) === nomeNorm
+  );
+
+  if (matchesInativos.length > 1) {
+    throw new Error(
+      `Ambiguidade no aluno "${nomeImportado}": corresponde a múltiplos alunos cadastrados inativos (${matchesInativos.map(a => a.nome).join(', ')}).`
+    );
+  }
+
+  if (matchesInativos.length === 1) {
+    return { id: matchesInativos[0].id, nome: matchesInativos[0].nome };
   }
 
   return { id: null, nome: 'ATENDIMENTO EXTRA' };
