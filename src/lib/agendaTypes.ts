@@ -133,13 +133,13 @@ export function isTurmaServico(turmaNome?: string | null): boolean {
 }
 
 /**
- * Horários da manhã exclusivos da turma SERVIÇO com intervalos a cada 15 minutos (08:00 às 11:00).
+ * Horários da manhã exclusivos da turma SERVIÇO com intervalos a cada 15 minutos (08:00 às 11:30).
  */
 export const HORARIOS_MANHA_SERVICO = [
   '08:00', '08:15', '08:30', '08:45',
   '09:00', '09:15', '09:30', '09:45',
   '10:00', '10:15', '10:30', '10:45',
-  '11:00'
+  '11:00', '11:15', '11:30'
 ];
 
 export const HORARIOS_TARDE_SERVICO = [...HORARIOS_TARDE];
