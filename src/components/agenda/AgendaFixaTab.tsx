@@ -358,43 +358,40 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     });
   };
 
-  // Auto-escala para garantir encaixe estrito em 1 página A4 Paisagem no modo de impressão
+  // Auto-escala com MEDIÇÃO REAL do DOM no modo de impressão
   const ajustarEscalaImpressao = React.useCallback(() => {
-    let totalAlturaLinhas = 0;
-    for (const h of horarios) {
-      const hNorm = normalizarHorario(h);
-      let maxItensNaLinha = 0;
-      for (const col of colunasFixa) {
-        const isExtraCol = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
-        const colId = isExtraCol ? 'EXTRA_VIRTUAL' : col.id;
-        const itens = itemMap.get(`${colId}_${hNorm}`);
-        if (itens && itens.length > maxItensNaLinha) {
-          maxItensNaLinha = itens.length;
-        }
-      }
-      if (maxItensNaLinha === 0) {
-        totalAlturaLinhas += 14;
-      } else {
-        totalAlturaLinhas += 30 + ((maxItensNaLinha - 1) * 20);
-      }
+    // 1. Aplica estilos de impressão temporariamente no DOM para medição real
+    document.documentElement.classList.add('agenda-modo-impressao');
+    document.documentElement.style.removeProperty('--agenda-print-scale');
+
+    const wrapper = document.querySelector('.agenda-print-wrapper') as HTMLElement | null;
+    if (!wrapper) {
+      document.documentElement.classList.remove('agenda-modo-impressao');
+      return;
     }
-    // Cabeçalho print: ~22px, thead: ~20px, divisor tarde: ~16px. Altura útil alvo da tabela: 650px.
-    const alturaEstimada = 22 + 20 + 16 + totalAlturaLinhas;
-    const alturaDisponivel = 650;
-    let scale = 1;
-    if (alturaEstimada > alturaDisponivel) {
-      scale = alturaDisponivel / alturaEstimada;
+
+    // 2. Mede a altura real da tabela impressa com o cabeçalho de impressão
+    const rect = wrapper.getBoundingClientRect();
+    const alturaReal = Math.max(wrapper.scrollHeight, rect.height, wrapper.offsetHeight);
+
+    // 3. Altura útil da página A4 paisagem com margens de 5mm (210mm - 10mm = 200mm = ~756px; área útil segura: 680px)
+    const alturaUtilPagina = 680;
+    let scale = 1.0;
+    if (alturaReal > alturaUtilPagina) {
+      scale = alturaUtilPagina / alturaReal;
     }
-    // Trava mínima de 0.75 para manter legibilidade estrita (>= 6pt para nomes e horários no pior caso)
-    scale = Math.max(0.75, Math.min(1, Math.round(scale * 100) / 100));
+
+    // 4. Piso estrito de 0.75 para manter legibilidade das fontes (>= 6pt no pior caso)
+    scale = Math.max(0.75, Math.min(1.0, Math.round(scale * 100) / 100));
     document.documentElement.style.setProperty('--agenda-print-scale', String(scale));
-  }, [horarios, colunasFixa, itemMap]);
+  }, []);
 
   React.useEffect(() => {
     const handleBeforePrint = () => {
       ajustarEscalaImpressao();
     };
     const handleAfterPrint = () => {
+      document.documentElement.classList.remove('agenda-modo-impressao');
       document.documentElement.style.removeProperty('--agenda-print-scale');
     };
     window.addEventListener('beforeprint', handleBeforePrint);
@@ -402,6 +399,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     return () => {
       window.removeEventListener('beforeprint', handleBeforePrint);
       window.removeEventListener('afterprint', handleAfterPrint);
+      document.documentElement.classList.remove('agenda-modo-impressao');
+      document.documentElement.style.removeProperty('--agenda-print-scale');
     };
   }, [ajustarEscalaImpressao]);
 
