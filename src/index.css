@@ -71,6 +71,7 @@
   }
 
   /* Wrapper com auto-escala dinâmica via variável CSS */
+  html.agenda-modo-impressao .agenda-print-wrapper,
   .agenda-print-wrapper {
     position: static !important;
     visibility: visible !important;
@@ -278,117 +279,124 @@
    ESTILOS TEMPORÁRIOS DE MEDIÇÃO REAL DO DOM (Evento beforeprint)
    Força largura útil exata do papel A4 paisagem (287mm = ~1085px) e isolamento
    fora do fluxo visual (position: fixed; visibility: hidden) sem piscadas na tela.
+   Ativo exclusivamente na mídia screen durante o cálculo síncrono instantâneo no JS.
    ========================================================================= */
-html.agenda-modo-impressao aside,
-html.agenda-modo-impressao header,
-html.agenda-modo-impressao nav,
-html.agenda-modo-impressao .no-print,
-html.agenda-modo-impressao .print\:hidden,
-html.agenda-modo-impressao .agenda-card-actions {
-  display: none !important;
+@media screen {
+  html.agenda-modo-impressao aside,
+  html.agenda-modo-impressao header,
+  html.agenda-modo-impressao nav,
+  html.agenda-modo-impressao .no-print,
+  html.agenda-modo-impressao .print\:hidden,
+  html.agenda-modo-impressao .agenda-card-actions {
+    display: none !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-wrapper {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 287mm !important;
+    max-width: 287mm !important;
+    min-width: 287mm !important;
+    visibility: hidden !important;
+    z-index: -9999 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-header {
+    display: flex !important;
+  }
+
+  html.agenda-modo-impressao .agenda-table-scroll {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-table {
+    min-width: 100% !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-table th {
+    padding: 2px 3px !important;
+    font-size: 11px !important;
+    line-height: 1.15 !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-table td {
+    padding: 1px 2px !important;
+    font-size: 11px !important;
+    line-height: 1.15 !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-table th:first-child,
+  html.agenda-modo-impressao .agenda-print-table td:first-child {
+    width: 48px !important;
+    min-width: 48px !important;
+    max-width: 48px !important;
+    padding: 1px 2px !important;
+    font-size: 11px !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-row-empty {
+    height: 14px !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-row-empty td {
+    height: 14px !important;
+    line-height: 14px !important;
+    font-size: 10px !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-row-empty .agenda-slot-vazio {
+    display: none !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-divisor-tarde td {
+    padding: 1px 4px !important;
+    font-size: 10px !important;
+    line-height: 1.15 !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-card {
+    padding: 1px 2.5px !important;
+    font-size: 11px !important;
+    line-height: 1.15 !important;
+    margin-bottom: 1px !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-card .card-title {
+    font-size: 11px !important;
+    line-height: 1.15 !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-card .card-title span {
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-badge {
+    font-size: 9.5px !important;
+    line-height: 1.1 !important;
+    padding: 0.5px 2px !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-detalhe {
+    font-size: 8.5px !important;
+    line-height: 1.1 !important;
+  }
+
+  html.agenda-modo-impressao .agenda-card-actions {
+    display: none !important;
+  }
 }
 
-html.agenda-modo-impressao .agenda-print-wrapper {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 287mm !important;
-  max-width: 287mm !important;
-  min-width: 287mm !important;
-  visibility: hidden !important;
-  z-index: -9999 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: visible !important;
-}
-
-html.agenda-modo-impressao .agenda-print-header {
-  display: flex !important;
-}
-
-html.agenda-modo-impressao .agenda-table-scroll {
-  max-height: none !important;
-  height: auto !important;
-  overflow: visible !important;
-}
-
-html.agenda-modo-impressao .agenda-print-table {
-  min-width: 100% !important;
-  width: 100% !important;
-  table-layout: fixed !important;
-}
-
-html.agenda-modo-impressao .agenda-print-table th {
-  padding: 2px 3px !important;
-  font-size: 11px !important;
-  line-height: 1.15 !important;
-}
-
-html.agenda-modo-impressao .agenda-print-table td {
-  padding: 1px 2px !important;
-  font-size: 11px !important;
-  line-height: 1.15 !important;
-}
-
-html.agenda-modo-impressao .agenda-print-table th:first-child,
-html.agenda-modo-impressao .agenda-print-table td:first-child {
-  width: 48px !important;
-  min-width: 48px !important;
-  max-width: 48px !important;
-  padding: 1px 2px !important;
-  font-size: 11px !important;
-}
-
-html.agenda-modo-impressao .agenda-print-row-empty {
-  height: 14px !important;
-}
-
-html.agenda-modo-impressao .agenda-print-row-empty td {
-  height: 14px !important;
-  line-height: 14px !important;
-  font-size: 10px !important;
-}
-
-html.agenda-modo-impressao .agenda-print-row-empty .agenda-slot-vazio {
-  display: none !important;
-}
-
-html.agenda-modo-impressao .agenda-print-divisor-tarde td {
-  padding: 1px 4px !important;
-  font-size: 10px !important;
-  line-height: 1.15 !important;
-}
-
-html.agenda-modo-impressao .agenda-print-card {
-  padding: 1px 2.5px !important;
-  font-size: 11px !important;
-  line-height: 1.15 !important;
-  margin-bottom: 1px !important;
-}
-
-html.agenda-modo-impressao .agenda-print-card .card-title {
-  font-size: 11px !important;
-  line-height: 1.15 !important;
-}
-
-html.agenda-modo-impressao .agenda-print-card .card-title span {
-  display: -webkit-box !important;
-  -webkit-line-clamp: 2 !important;
-  -webkit-box-orient: vertical !important;
-  overflow: hidden !important;
-}
-
-html.agenda-modo-impressao .agenda-print-badge {
-  font-size: 9.5px !important;
-  line-height: 1.1 !important;
-  padding: 0.5px 2px !important;
-}
-
-html.agenda-modo-impressao .agenda-print-detalhe {
-  font-size: 8.5px !important;
-  line-height: 1.1 !important;
-}
-
-html.agenda-modo-impressao .agenda-card-actions {
-  display: none !important;
-}

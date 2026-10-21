@@ -360,30 +360,32 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   // Auto-escala com MEDIÇÃO REAL do DOM no modo de impressão
   const ajustarEscalaImpressao = React.useCallback(() => {
-    // 1. Aplica estilos de impressão temporariamente no DOM para medição real
+    // 1. Aplica estilos de impressão temporariamente no DOM para medição instantânea
     document.documentElement.classList.add('agenda-modo-impressao');
     document.documentElement.style.removeProperty('--agenda-print-scale');
 
-    const wrapper = document.querySelector('.agenda-print-wrapper') as HTMLElement | null;
-    if (!wrapper) {
+    try {
+      const wrapper = document.querySelector('.agenda-print-wrapper') as HTMLElement | null;
+      if (!wrapper) return;
+
+      // 2. Mede a altura real da tabela impressa com o cabeçalho de impressão
+      const rect = wrapper.getBoundingClientRect();
+      const alturaReal = Math.max(wrapper.scrollHeight, rect.height, wrapper.offsetHeight);
+
+      // 3. Altura útil da página A4 paisagem com margens de 5mm (210mm - 10mm = 200mm = ~756px; área útil segura: 680px)
+      const alturaUtilPagina = 680;
+      let scale = 1.0;
+      if (alturaReal > alturaUtilPagina) {
+        scale = alturaUtilPagina / alturaReal;
+      }
+
+      // 4. Piso estrito de 0.75 para manter legibilidade das fontes (>= 6pt no pior caso)
+      scale = Math.max(0.75, Math.min(1.0, Math.round(scale * 100) / 100));
+      document.documentElement.style.setProperty('--agenda-print-scale', String(scale));
+    } finally {
+      // 5. Remove a classe de medição imediatamente para que ela NÃO permaneça durante a impressão real
       document.documentElement.classList.remove('agenda-modo-impressao');
-      return;
     }
-
-    // 2. Mede a altura real da tabela impressa com o cabeçalho de impressão
-    const rect = wrapper.getBoundingClientRect();
-    const alturaReal = Math.max(wrapper.scrollHeight, rect.height, wrapper.offsetHeight);
-
-    // 3. Altura útil da página A4 paisagem com margens de 5mm (210mm - 10mm = 200mm = ~756px; área útil segura: 680px)
-    const alturaUtilPagina = 680;
-    let scale = 1.0;
-    if (alturaReal > alturaUtilPagina) {
-      scale = alturaUtilPagina / alturaReal;
-    }
-
-    // 4. Piso estrito de 0.75 para manter legibilidade das fontes (>= 6pt no pior caso)
-    scale = Math.max(0.75, Math.min(1.0, Math.round(scale * 100) / 100));
-    document.documentElement.style.setProperty('--agenda-print-scale', String(scale));
   }, []);
 
   React.useEffect(() => {
