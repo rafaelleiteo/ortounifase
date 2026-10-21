@@ -94,7 +94,7 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
 
   return (
     <div
-      className={`agenda-print-card group p-2 print:p-1 rounded-xl print:rounded-md border text-xs print:text-[8.5px] print:leading-tight shadow-2xs print:shadow-none transition-all relative ${item.is_extra ? 'agenda-cor-extra ' : ''}${cardStyle}`}
+      className={`agenda-print-card group p-2 print:p-0.5 rounded-xl print:rounded-xs border text-xs print:text-[11px] print:leading-tight shadow-2xs print:shadow-none transition-all relative ${item.is_extra ? 'agenda-cor-extra ' : ''}${cardStyle}`}
     >
       {/* Cabeçalho do Card: Nome e Badges */}
       <div className="card-title font-semibold break-words mb-1 print:mb-0 flex items-start justify-between gap-1 leading-snug print:leading-tight">
@@ -103,7 +103,7 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
         {item.is_extra && !badge && (
           <span
             title="Atendimento Extra"
-            className="shrink-0 text-[10px] print:text-[7.5px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
+            className="shrink-0 text-[10px] print:text-[9.5px] print:leading-tight agenda-print-badge bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
           >
             Extra
           </span>
@@ -111,8 +111,8 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
       </div>
 
       {/* Badge ou Detalhe (ex: Inconsistência) */}
-      {badge && <div className="mb-1 print:mb-0">{badge}</div>}
-      {detalhe && <div className="text-[10px] print:text-[7.5px] print:leading-tight opacity-85 leading-tight mb-1 print:mb-0">{detalhe}</div>}
+      {badge && <div className="mb-1 print:mb-0 agenda-print-badge">{badge}</div>}
+      {detalhe && <div className="agenda-print-detalhe text-[10px] print:text-[8.5px] print:leading-tight opacity-85 leading-tight mb-1 print:mb-0">{detalhe}</div>}
 
       {/* Barra de Ações (Visível e com destaque no hover - Oculta na impressão) */}
       {podeEditar && (

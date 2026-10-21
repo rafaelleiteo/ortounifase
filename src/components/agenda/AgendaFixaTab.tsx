@@ -360,27 +360,33 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   // Auto-escala para garantir encaixe estrito em 1 página A4 Paisagem no modo de impressão
   const ajustarEscalaImpressao = React.useCallback(() => {
-    let linhasOcupadas = 0;
+    let totalAlturaLinhas = 0;
     for (const h of horarios) {
       const hNorm = normalizarHorario(h);
-      const ocupada = colunasFixa.some((col) => {
+      let maxItensNaLinha = 0;
+      for (const col of colunasFixa) {
         const isExtraCol = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
         const colId = isExtraCol ? 'EXTRA_VIRTUAL' : col.id;
         const itens = itemMap.get(`${colId}_${hNorm}`);
-        return itens && itens.length > 0;
-      });
-      if (ocupada) linhasOcupadas++;
+        if (itens && itens.length > maxItensNaLinha) {
+          maxItensNaLinha = itens.length;
+        }
+      }
+      if (maxItensNaLinha === 0) {
+        totalAlturaLinhas += 14;
+      } else {
+        totalAlturaLinhas += 30 + ((maxItensNaLinha - 1) * 20);
+      }
     }
-    const linhasVazias = horarios.length - linhasOcupadas;
-    // Thead: ~24px, Divisor: ~16px, cabeçalho print: ~35px. Altura útil alvo da tabela: 670px.
-    const alturaEstimada = 35 + 24 + 16 + (linhasVazias * 16) + (linhasOcupadas * 31);
-    const alturaDisponivel = 670;
+    // Cabeçalho print: ~22px, thead: ~20px, divisor tarde: ~16px. Altura útil alvo da tabela: 650px.
+    const alturaEstimada = 22 + 20 + 16 + totalAlturaLinhas;
+    const alturaDisponivel = 650;
     let scale = 1;
     if (alturaEstimada > alturaDisponivel) {
       scale = alturaDisponivel / alturaEstimada;
     }
-    // Trava mínima de 0.70 (~7pt) para manter legibilidade estrita
-    scale = Math.max(0.70, Math.min(1, Math.round(scale * 100) / 100));
+    // Trava mínima de 0.75 para manter legibilidade estrita (>= 6pt para nomes e horários no pior caso)
+    scale = Math.max(0.75, Math.min(1, Math.round(scale * 100) / 100));
     document.documentElement.style.setProperty('--agenda-print-scale', String(scale));
   }, [horarios, colunasFixa, itemMap]);
 
@@ -637,7 +643,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                               <span className="truncate" title={col.nome}>{col.nome}</span>
                             </div>
                             {isExtra && (
-                              <span className="text-[10px] print:text-[7.5px] px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0">
+                              <span className="text-[10px] print:text-[9.5px] agenda-print-badge px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0">
                                 Extra
                               </span>
                             )}

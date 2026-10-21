@@ -400,27 +400,33 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
   // Auto-escala para garantir encaixe estrito em 1 página A4 Paisagem no modo de impressão
   const ajustarEscalaImpressao = React.useCallback(() => {
-    let linhasOcupadas = 0;
+    let totalAlturaLinhas = 0;
     for (const h of horarios) {
       const hNorm = normalizarHorario(h);
-      const ocupada = alunosOrdenados.some((aluno) => {
+      let maxItensNaLinha = 0;
+      for (const aluno of alunosOrdenados) {
         const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
         const colId = isExtra ? 'EXTRA_VIRTUAL' : aluno.id;
         const itens = mensalMap.get(`${colId}_${hNorm}`);
-        return itens && itens.length > 0;
-      });
-      if (ocupada) linhasOcupadas++;
+        if (itens && itens.length > maxItensNaLinha) {
+          maxItensNaLinha = itens.length;
+        }
+      }
+      if (maxItensNaLinha === 0) {
+        totalAlturaLinhas += 14;
+      } else {
+        totalAlturaLinhas += 30 + ((maxItensNaLinha - 1) * 20);
+      }
     }
-    const linhasVazias = horarios.length - linhasOcupadas;
-    // Thead: ~24px, Divisor: ~16px, cabeçalho print: ~35px. Altura útil alvo da tabela: 670px.
-    const alturaEstimada = 35 + 24 + 16 + (linhasVazias * 16) + (linhasOcupadas * 31);
-    const alturaDisponivel = 670;
+    // Cabeçalho print: ~22px, thead: ~20px, divisor tarde: ~16px. Altura útil alvo da tabela: 650px.
+    const alturaEstimada = 22 + 20 + 16 + totalAlturaLinhas;
+    const alturaDisponivel = 650;
     let scale = 1;
     if (alturaEstimada > alturaDisponivel) {
       scale = alturaDisponivel / alturaEstimada;
     }
-    // Trava mínima de 0.70 (~7pt) para manter legibilidade estrita
-    scale = Math.max(0.70, Math.min(1, Math.round(scale * 100) / 100));
+    // Trava mínima de 0.75 para manter legibilidade estrita (>= 6pt para nomes e horários no pior caso)
+    scale = Math.max(0.75, Math.min(1, Math.round(scale * 100) / 100));
     document.documentElement.style.setProperty('--agenda-print-scale', String(scale));
   }, [horarios, alunosOrdenados, mensalMap]);
 
@@ -782,7 +788,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                             {isExtra && (
                               <span
                                 title="Coluna de atendimento extra / aguardando revisão de aluno"
-                                className="text-[10px] print:text-[7.5px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0"
+                                className="text-[10px] print:text-[9.5px] agenda-print-badge px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0"
                               >
                                 Revisão
                               </span>
@@ -858,7 +864,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                           badge={
                                             itemBloqueio ? undefined : incInfo ? (
                                               <span
-                                                className={`inline-block text-[10px] print:text-[7.5px] font-bold px-1.5 py-0.5 rounded-md border ${incInfo.badge}`}
+                                                className={`inline-block text-[10px] print:text-[9.5px] agenda-print-badge font-bold px-1.5 py-0.5 rounded-md border ${incInfo.badge}`}
                                               >
                                                 {incInfo.label}
                                               </span>
@@ -866,15 +872,15 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                           }
                                           detalhe={
                                             itemBloqueio ? undefined : incInfo ? (
-                                              <div className="text-[10px] print:text-[7.5px] opacity-85 leading-tight">
+                                              <div className="agenda-print-detalhe text-[10px] print:text-[8.5px] opacity-85 leading-tight">
                                                 {incInfo.detalhe}
                                               </div>
                                             ) : isExtra ? (
-                                              <span className="text-[10px] print:text-[7.5px] font-medium text-amber-700/80">
+                                              <span className="agenda-print-detalhe text-[10px] print:text-[8.5px] font-medium text-amber-700/80">
                                                 Revisar alocação
                                               </span>
                                             ) : (
-                                              <span className="text-[10px] print:text-[7.5px] font-medium text-slate-400">
+                                              <span className="agenda-print-detalhe text-[10px] print:text-[8.5px] font-medium text-slate-400">
                                                 Conforme agenda fixa
                                               </span>
                                             )
