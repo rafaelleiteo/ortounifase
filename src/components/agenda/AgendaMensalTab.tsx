@@ -42,11 +42,13 @@ import {
   Copy,
   Check,
   Lock,
-  Link2
+  Link2,
+  Printer
 } from 'lucide-react';
 import { AgendaCardAtendimento } from './AgendaCardAtendimento';
 import { AgendaModaisAtendimento } from './AgendaModaisAtendimento';
 import { useAgendaModais } from './useAgendaModais';
+import { AgendaPrintHeader } from './AgendaPrintHeader';
 
 interface AgendaMensalTabProps {
   turmaNome: string;
@@ -396,6 +398,52 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       });
   }, [inconsistencias]);
 
+  // Auto-escala para garantir encaixe estrito em 1 página A4 Paisagem no modo de impressão
+  const ajustarEscalaImpressao = React.useCallback(() => {
+    let linhasOcupadas = 0;
+    for (const h of horarios) {
+      const hNorm = normalizarHorario(h);
+      const ocupada = alunosOrdenados.some((aluno) => {
+        const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
+        const colId = isExtra ? 'EXTRA_VIRTUAL' : aluno.id;
+        const itens = mensalMap.get(`${colId}_${hNorm}`);
+        return itens && itens.length > 0;
+      });
+      if (ocupada) linhasOcupadas++;
+    }
+    const linhasVazias = horarios.length - linhasOcupadas;
+    // Thead: ~24px, Divisor: ~16px, cabeçalho print: ~35px. Altura útil alvo da tabela: 670px.
+    const alturaEstimada = 35 + 24 + 16 + (linhasVazias * 16) + (linhasOcupadas * 31);
+    const alturaDisponivel = 670;
+    let scale = 1;
+    if (alturaEstimada > alturaDisponivel) {
+      scale = alturaDisponivel / alturaEstimada;
+    }
+    // Trava mínima de 0.70 (~7pt) para manter legibilidade estrita
+    scale = Math.max(0.70, Math.min(1, Math.round(scale * 100) / 100));
+    document.documentElement.style.setProperty('--agenda-print-scale', String(scale));
+  }, [horarios, alunosOrdenados, mensalMap]);
+
+  React.useEffect(() => {
+    const handleBeforePrint = () => {
+      ajustarEscalaImpressao();
+    };
+    const handleAfterPrint = () => {
+      document.documentElement.style.removeProperty('--agenda-print-scale');
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, [ajustarEscalaImpressao]);
+
+  const handleImprimir = () => {
+    ajustarEscalaImpressao();
+    window.print();
+  };
+
   // Exportação CSV Completa com Coluna e Seção de Resumo para Recepção
   const handleExportarCSV = () => {
     if (agendaMensal.length === 0) {
@@ -553,106 +601,118 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Barra Superior de Controles: Dias e Períodos */}
-      <AgendaFiltrosHeader
-        diaSelecionado={diaSelecionado as DiaSemana}
-        onDiaChange={handleDiaChange}
-        periodo={turnoAtivo}
-        onPeriodoChange={handleTurnoClick}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4 w-full">
-          {/* Seletor de Mês e Botões de Ação */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mês Ref:</span>
-              <input
-                type="month"
-                value={mesReferencia.substring(0, 7)}
-                onChange={(e) => onMesReferenciaChange(`${e.target.value}-01`)}
-                className="text-xs font-bold text-slate-800 px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-slate-50"
-              />
-            </div>
+      {/* Barra Superior de Controles: Dias e Períodos (Oculta na impressão) */}
+      <div className="print:hidden">
+        <AgendaFiltrosHeader
+          diaSelecionado={diaSelecionado as DiaSemana}
+          onDiaChange={handleDiaChange}
+          periodo={turnoAtivo}
+          onPeriodoChange={handleTurnoClick}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4 w-full">
+            {/* Seletor de Mês e Botões de Ação */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mês Ref:</span>
+                <input
+                  type="month"
+                  value={mesReferencia.substring(0, 7)}
+                  onChange={(e) => onMesReferenciaChange(`${e.target.value}-01`)}
+                  className="text-xs font-bold text-slate-800 px-3 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-slate-50"
+                />
+              </div>
 
-            {isCoordenadorOrAdmin && (
+              {isCoordenadorOrAdmin && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModalNovoPaciente({
+                      isOpen: true,
+                      pacienteNome: '',
+                      diaSemana: diaSelecionado,
+                      horario: '08:00',
+                      alunoId: alunosOrdenados[0]?.id || ''
+                    })
+                  }
+                  className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Adicionar Paciente
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() =>
-                  setModalNovoPaciente({
-                    isOpen: true,
-                    pacienteNome: '',
-                    diaSemana: diaSelecionado,
-                    horario: '08:00',
-                    alunoId: alunosOrdenados[0]?.id || ''
-                  })
-                }
-                className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
+                onClick={onAbrirImportModal}
+                className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5 hover:shadow-md"
               >
-                <Plus className="w-3.5 h-3.5" />
-                Adicionar Paciente
+                <UploadCloud className="w-3.5 h-3.5" />
+                Importar e Comparar
               </button>
-            )}
 
-            <button
-              type="button"
-              onClick={onAbrirImportModal}
-              className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5 hover:shadow-md"
-            >
-              <UploadCloud className="w-3.5 h-3.5" />
-              Importar e Comparar
-            </button>
+              <button
+                type="button"
+                onClick={handleExportarCSV}
+                title="Exportar agenda mensal deste mês em formato CSV (com coluna e resumo de alterações)"
+                className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-600" />
+                Exportar
+              </button>
 
-            <button
-              type="button"
-              onClick={handleExportarCSV}
-              title="Exportar agenda mensal deste mês em formato CSV (com coluna e resumo de alterações)"
-              className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-600" />
-              Exportar
-            </button>
+              <button
+                type="button"
+                onClick={handleImprimir}
+                title="Imprimir agenda deste dia em A4 paisagem (página única)"
+                className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-600" />
+                Imprimir
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setModalResumoRecepcao({ isOpen: true, copiado: false })}
-              title="Visualizar e exportar resumo de alterações formatado para a recepção (CSV e WhatsApp)"
-              className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
-            >
-              <FileText className="w-3.5 h-3.5 text-emerald-600" />
-              Resumo Recepção
-              {inconsistencias.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200 text-emerald-900 font-bold">
-                  {inconsistencias.length}
-                </span>
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={() => setModalResumoRecepcao({ isOpen: true, copiado: false })}
+                title="Visualizar e exportar resumo de alterações formatado para a recepção (CSV e WhatsApp)"
+                className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                Resumo Recepção
+                {inconsistencias.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200 text-emerald-900 font-bold">
+                    {inconsistencias.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Legenda de Cores de Inconsistência */}
+            <div className="flex items-center gap-3 text-[11px] font-semibold bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+              <span className="text-slate-500 font-bold">Legenda:</span>
+              <div className="flex items-center gap-1.5 text-rose-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                Ausente
+              </div>
+              <div className="flex items-center gap-1.5 text-amber-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                Aluno Trocado
+              </div>
+              <div className="flex items-center gap-1.5 text-blue-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                Horário Alterado
+              </div>
+              <div className="flex items-center gap-1.5 text-emerald-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                Paciente Novo
+              </div>
+            </div>
           </div>
+        </AgendaFiltrosHeader>
+      </div>
 
-          {/* Legenda de Cores de Inconsistência */}
-          <div className="flex items-center gap-3 text-[11px] font-semibold bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
-            <span className="text-slate-500 font-bold">Legenda:</span>
-            <div className="flex items-center gap-1.5 text-rose-700">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-              Ausente
-            </div>
-            <div className="flex items-center gap-1.5 text-amber-700">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-              Aluno Trocado
-            </div>
-            <div className="flex items-center gap-1.5 text-blue-700">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-              Horário Alterado
-            </div>
-            <div className="flex items-center gap-1.5 text-emerald-700">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              Paciente Novo
-            </div>
-          </div>
-        </div>
-      </AgendaFiltrosHeader>
-
-      {/* Painel de Ausentes identificados para o Dia Selecionado */}
+      {/* Painel de Ausentes identificados para o Dia Selecionado (Oculto na impressão) */}
       {ausentesDoDia.length > 0 && (
-        <div className="bg-rose-50 border border-rose-200/90 rounded-2xl p-4">
+        <div className="bg-rose-50 border border-rose-200/90 rounded-2xl p-4 print:hidden">
           <div className="flex items-center gap-2 mb-2 text-rose-800 font-bold text-xs">
             <AlertTriangle className="w-4 h-4 text-rose-600" />
             <span>Pacientes Ausentes da Agenda Fixa neste dia ({ausentesDoDia.length}):</span>
@@ -671,7 +731,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         </div>
       )}
 
-      {/* Grid / Tabela Kanban da Agenda Mensal */}
+      {/* Grid / Tabela Kanban da Agenda Mensal com Suporte a Impressão em Página Única */}
       {alunosOrdenados.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
           <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -679,224 +739,236 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
           <p className="text-xs text-slate-500 mt-1">Clique no botão "Importar e Comparar" para colar o JSON da agenda mensal.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div ref={scrollContainerRef} onScroll={handleScroll} className="overflow-x-auto max-h-[750px] relative scroll-smooth">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
-                <tr>
-                  <th className="p-3 text-xs font-bold text-slate-600 uppercase tracking-wider w-24 bg-slate-50 border-r border-slate-200 sticky left-0 z-20">
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
-                      Horário
-                    </div>
-                  </th>
-                  {alunosOrdenados.map((aluno) => {
-                    const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
-                    return (
-                      <th
-                        key={aluno.id}
-                        className={`p-3 text-xs font-bold border-r min-w-[210px] transition-colors ${
-                          isExtra
-                            ? 'bg-amber-50/80 border-amber-300 border-dashed border-r-2 text-amber-950'
-                            : 'bg-slate-50 border-slate-200 text-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <div className="flex items-center gap-1.5 truncate">
-                            {isExtra ? (
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                            ) : (
-                              <User className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+        <div className="agenda-print-wrapper">
+          {/* Cabeçalho exclusivo para modo de impressão */}
+          <AgendaPrintHeader turmaNome={turmaNome} diaSemana={diaSelecionado} tipo="mensal" mesReferencia={mesReferencia} />
+
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden print:border-none print:shadow-none print:rounded-none">
+            <div ref={scrollContainerRef} onScroll={handleScroll} className="agenda-table-scroll overflow-x-auto max-h-[750px] relative scroll-smooth print:max-h-none print:overflow-visible print:h-auto">
+              <table className="agenda-print-table w-full text-left border-collapse min-w-[800px] print:min-w-0 print:w-full">
+                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20 print:static">
+                  <tr>
+                    <th className="p-3 print:p-1 text-xs font-bold text-slate-600 uppercase tracking-wider w-24 bg-slate-50 border-r border-slate-200 sticky left-0 z-20 print:static">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-slate-400 print:hidden" />
+                        Horário
+                      </div>
+                    </th>
+                    {alunosOrdenados.map((aluno) => {
+                      const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
+                      return (
+                        <th
+                          key={aluno.id}
+                          className={`p-3 print:p-1 text-xs font-bold border-r min-w-[210px] print:min-w-0 transition-colors ${
+                            isExtra
+                              ? 'bg-amber-50/80 border-amber-300 border-dashed border-r-2 text-amber-950'
+                              : 'bg-slate-50 border-slate-200 text-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center gap-1.5 truncate">
+                              {isExtra ? (
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 print:hidden" />
+                              ) : (
+                                <User className="w-3.5 h-3.5 text-brand-600 shrink-0 print:hidden" />
+                              )}
+                              <span
+                                className={`truncate ${isExtra ? 'font-extrabold text-amber-900' : ''}`}
+                                title={aluno.nome}
+                              >
+                                {aluno.nome}
+                              </span>
+                            </div>
+                            {isExtra && (
+                              <span
+                                title="Coluna de atendimento extra / aguardando revisão de aluno"
+                                className="text-[10px] print:text-[7.5px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0"
+                              >
+                                Revisão
+                              </span>
                             )}
-                            <span
-                              className={`truncate ${isExtra ? 'font-extrabold text-amber-900' : ''}`}
-                              title={aluno.nome}
-                            >
-                              {aluno.nome}
-                            </span>
                           </div>
-                          {isExtra && (
-                            <span
-                              title="Coluna de atendimento extra / aguardando revisão de aluno"
-                              className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0"
-                            >
-                              Revisão
-                            </span>
-                          )}
-                        </div>
-                      </th>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {horarios.map((h) => {
+                    const isTurnoDivisor = h === divisorTarde;
+                    const hNorm = normalizarHorario(h);
+                    const isLinhaVazia = alunosOrdenados.every((aluno) => {
+                      const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
+                      const colId = isExtra ? 'EXTRA_VIRTUAL' : aluno.id;
+                      const items = mensalMap.get(`${colId}_${hNorm}`);
+                      return !items || items.length === 0;
+                    });
+
+                    return (
+                      <React.Fragment key={h}>
+                        {isTurnoDivisor && (
+                          <tr
+                            ref={tardeDivisorRef}
+                            id="turno-tarde-mensal"
+                            className="agenda-print-divisor-tarde bg-slate-100/80 font-bold text-slate-500 text-[11px]"
+                          >
+                            <td colSpan={alunosOrdenados.length + 1} className="py-1 px-3 border-y border-slate-200">
+                              --- Turno da Tarde ---
+                            </td>
+                          </tr>
+                        )}
+                        <tr className={`hover:bg-slate-50/50 transition-colors ${isLinhaVazia ? 'agenda-print-row-empty' : ''}`}>
+                          <td className="p-2.5 print:p-1 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono print:static">
+                            {h}
+                          </td>
+                          {alunosOrdenados.map((aluno) => {
+                            const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
+                            const items = mensalMap.get(`${aluno.id}_${hNorm}`) || [];
+
+                            return (
+                              <td
+                                key={aluno.id}
+                                className={`p-2 border-r align-top relative transition-colors ${
+                                  isExtra
+                                    ? 'bg-amber-50/15 border-dashed border-amber-200/80 border-r-2'
+                                    : 'border-slate-100'
+                                }`}
+                              >
+                                {items.length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    {items.map((item) => {
+                                      const itemBloqueio = isItemBloqueio(item);
+                                      const incInfo = itemBloqueio ? null : getInconsistenciaInfo(item.paciente, h, aluno.nome);
+                                      const tipoBloq = itemBloqueio ? (item.tipo_bloqueio || getTipoBloqueio(item)) : undefined;
+
+                                      return (
+                                        <AgendaCardAtendimento
+                                          key={item.id}
+                                          item={{
+                                            id: item.id,
+                                            paciente: item.paciente,
+                                            aluno_id: item.aluno_id,
+                                            aluno: item.aluno || aluno.nome,
+                                            horario: item.horario,
+                                            dia_semana: item.dia_semana,
+                                            tipo_registro: itemBloqueio ? 'bloqueio' : 'paciente',
+                                            tipo_bloqueio: tipoBloq,
+                                            is_extra: isExtra
+                                          }}
+                                          badge={
+                                            itemBloqueio ? undefined : incInfo ? (
+                                              <span
+                                                className={`inline-block text-[10px] print:text-[7.5px] font-bold px-1.5 py-0.5 rounded-md border ${incInfo.badge}`}
+                                              >
+                                                {incInfo.label}
+                                              </span>
+                                            ) : undefined
+                                          }
+                                          detalhe={
+                                            itemBloqueio ? undefined : incInfo ? (
+                                              <div className="text-[10px] print:text-[7.5px] opacity-85 leading-tight">
+                                                {incInfo.detalhe}
+                                              </div>
+                                            ) : isExtra ? (
+                                              <span className="text-[10px] print:text-[7.5px] font-medium text-amber-700/80">
+                                                Revisar alocação
+                                              </span>
+                                            ) : (
+                                              <span className="text-[10px] print:text-[7.5px] font-medium text-slate-400">
+                                                Conforme agenda fixa
+                                              </span>
+                                            )
+                                          }
+                                          corCard={
+                                            itemBloqueio
+                                              ? undefined
+                                              : incInfo
+                                              ? `${incInfo.corBorder} ${incInfo.tipo === 'AUSENTE' ? 'agenda-cor-ausente' : incInfo.tipo === 'ALUNO_TROCADO' ? 'agenda-cor-trocado' : incInfo.tipo === 'HORARIO_ALTERADO' ? 'agenda-cor-alterado' : 'agenda-cor-novo'}`
+                                              : isExtra
+                                              ? 'bg-amber-50/80 border-amber-300 text-slate-900 agenda-cor-extra'
+                                              : 'bg-white border-slate-200 text-slate-800'
+                                          }
+                                          podeEditar={isCoordenadorOrAdmin}
+                                          onEditar={abrirEditar}
+                                          onReagendar={abrirReagendar}
+                                          onTrocarAluno={abrirTrocarAluno}
+                                          onExcluir={(cardItem) =>
+                                            onRemoverItem && onRemoverItem(cardItem.id, cardItem.paciente)
+                                          }
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div
+                                    className={`agenda-slot-vazio w-full h-11 print:hidden border border-dashed rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty transition-all ${
+                                      isExtra
+                                        ? 'border-amber-200/60 hover:border-amber-300'
+                                        : 'border-slate-200 hover:border-slate-300'
+                                    }`}
+                                  >
+                                    {isCoordenadorOrAdmin ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          title="Adicionar Paciente neste horário"
+                                          onClick={() =>
+                                            setModalNovoPaciente({
+                                              isOpen: true,
+                                              pacienteNome: '',
+                                              diaSemana: diaSelecionado,
+                                              horario: h,
+                                              alunoId: isExtra ? 'EXTRA_VIRTUAL' : aluno.id
+                                            })
+                                          }
+                                          className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
+                                        >
+                                          <Plus className="w-3.5 h-3.5 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          title="Fechar Horário (Bloqueio)"
+                                          onClick={() => {
+                                            const alunoIdReal = isExtra ? '' : aluno.id;
+                                            const sugestao = sugerirSequenciaFecharHorario(
+                                              agendaMensal,
+                                              alunoIdReal,
+                                              diaSelecionado,
+                                              h
+                                            );
+                                            const hasSequencia = sugestao.toLowerCase().startsWith('continuação');
+                                            const tipoInicial: TipoBloqueio = hasSequencia ? 'SEQUENCIA' : 'LIVRE';
+
+                                            setModalFecharHorario({
+                                              isOpen: true,
+                                              alunoId: aluno.id,
+                                              horario: h,
+                                              diaSemana: diaSelecionado,
+                                              tipoBloqueio: tipoInicial,
+                                              descricao: tipoInicial === 'SEQUENCIA' ? sugestao : (tipoInicial === 'LIVRE' ? 'Horário Livre' : ''),
+                                              sugestaoSequencia: sugestao
+                                            });
+                                          }}
+                                          className="h-full px-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50/80 transition-all cursor-pointer"
+                                        >
+                                          <Lock className="w-3 h-3 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-300">-</span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      </React.Fragment>
                     );
                   })}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {horarios.map((h) => {
-                  const isTurnoDivisor = h === divisorTarde;
-                  return (
-                    <React.Fragment key={h}>
-                      {isTurnoDivisor && (
-                        <tr
-                          ref={tardeDivisorRef}
-                          id="turno-tarde-mensal"
-                          className="bg-slate-100/80 font-bold text-slate-500 text-[11px]"
-                        >
-                          <td colSpan={alunosOrdenados.length + 1} className="py-1 px-3 border-y border-slate-200">
-                            --- Turno da Tarde ---
-                          </td>
-                        </tr>
-                      )}
-                      <tr className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-2.5 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono">
-                          {h}
-                        </td>
-                        {alunosOrdenados.map((aluno) => {
-                          const isExtra = isAtendimentoExtra(aluno.nome) || aluno.id === 'EXTRA_VIRTUAL';
-                          const hNorm = normalizarHorario(h);
-                          const items = mensalMap.get(`${aluno.id}_${hNorm}`) || [];
-
-                          return (
-                            <td
-                              key={aluno.id}
-                              className={`p-2 border-r align-top relative transition-colors ${
-                                isExtra
-                                  ? 'bg-amber-50/15 border-dashed border-amber-200/80 border-r-2'
-                                  : 'border-slate-100'
-                              }`}
-                            >
-                              {items.length > 0 ? (
-                                <div className="space-y-1.5">
-                                  {items.map((item) => {
-                                    const itemBloqueio = isItemBloqueio(item);
-                                    const incInfo = itemBloqueio ? null : getInconsistenciaInfo(item.paciente, h, aluno.nome);
-                                    const tipoBloq = itemBloqueio ? (item.tipo_bloqueio || getTipoBloqueio(item)) : undefined;
-
-                                    return (
-                                      <AgendaCardAtendimento
-                                        key={item.id}
-                                        item={{
-                                          id: item.id,
-                                          paciente: item.paciente,
-                                          aluno_id: item.aluno_id,
-                                          aluno: item.aluno || aluno.nome,
-                                          horario: item.horario,
-                                          dia_semana: item.dia_semana,
-                                          tipo_registro: itemBloqueio ? 'bloqueio' : 'paciente',
-                                          tipo_bloqueio: tipoBloq,
-                                          is_extra: isExtra
-                                        }}
-                                        badge={
-                                          itemBloqueio ? undefined : incInfo ? (
-                                            <span
-                                              className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${incInfo.badge}`}
-                                            >
-                                              {incInfo.label}
-                                            </span>
-                                          ) : undefined
-                                        }
-                                        detalhe={
-                                          itemBloqueio ? undefined : incInfo ? (
-                                            <div className="text-[10px] opacity-85 leading-tight">
-                                              {incInfo.detalhe}
-                                            </div>
-                                          ) : isExtra ? (
-                                            <span className="text-[10px] font-medium text-amber-700/80">
-                                              Revisar alocação
-                                            </span>
-                                          ) : (
-                                            <span className="text-[10px] font-medium text-slate-400">
-                                              Conforme agenda fixa
-                                            </span>
-                                          )
-                                        }
-                                        corCard={
-                                          itemBloqueio
-                                            ? undefined
-                                            : incInfo
-                                            ? incInfo.corBorder
-                                            : isExtra
-                                            ? 'bg-amber-50/80 border-amber-300 text-slate-900'
-                                            : 'bg-white border-slate-200 text-slate-800'
-                                        }
-                                        podeEditar={isCoordenadorOrAdmin}
-                                        onEditar={abrirEditar}
-                                        onReagendar={abrirReagendar}
-                                        onTrocarAluno={abrirTrocarAluno}
-                                        onExcluir={(cardItem) =>
-                                          onRemoverItem && onRemoverItem(cardItem.id, cardItem.paciente)
-                                        }
-                                      />
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <div
-                                  className={`w-full h-11 border border-dashed rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty transition-all ${
-                                    isExtra
-                                      ? 'border-amber-200/60 hover:border-amber-300'
-                                      : 'border-slate-200 hover:border-slate-300'
-                                  }`}
-                                >
-                                  {isCoordenadorOrAdmin ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        title="Adicionar Paciente neste horário"
-                                        onClick={() =>
-                                          setModalNovoPaciente({
-                                            isOpen: true,
-                                            pacienteNome: '',
-                                            diaSemana: diaSelecionado,
-                                            horario: h,
-                                            alunoId: isExtra ? 'EXTRA_VIRTUAL' : aluno.id
-                                          })
-                                        }
-                                        className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
-                                      >
-                                        <Plus className="w-3.5 h-3.5 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        title="Fechar Horário (Bloqueio)"
-                                        onClick={() => {
-                                          const alunoIdReal = isExtra ? '' : aluno.id;
-                                          const sugestao = sugerirSequenciaFecharHorario(
-                                            agendaMensal,
-                                            alunoIdReal,
-                                            diaSelecionado,
-                                            h
-                                          );
-                                          const hasSequencia = sugestao.toLowerCase().startsWith('continuação');
-                                          const tipoInicial: TipoBloqueio = hasSequencia ? 'SEQUENCIA' : 'LIVRE';
-
-                                          setModalFecharHorario({
-                                            isOpen: true,
-                                            alunoId: aluno.id,
-                                            horario: h,
-                                            diaSemana: diaSelecionado,
-                                            tipoBloqueio: tipoInicial,
-                                            descricao: tipoInicial === 'SEQUENCIA' ? sugestao : (tipoInicial === 'LIVRE' ? 'Horário Livre' : ''),
-                                            sugestaoSequencia: sugestao
-                                          });
-                                        }}
-                                        className="h-full px-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50/80 transition-all cursor-pointer"
-                                      >
-                                        <Lock className="w-3 h-3 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-300">-</span>
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

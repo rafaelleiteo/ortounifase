@@ -45,15 +45,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex print:block print:bg-white print:min-h-0">
       {/* Lateral Sidebar Navigation */}
       <Sidebar isCollapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-50 print:bg-white print:block">
         {/* Banner Fixo Amarelo para Modo Visualização (Preview) */}
         {previewRole && (
-          <div className="bg-amber-400 text-slate-900 px-6 py-2.5 flex items-center justify-between shadow-xs sticky top-0 z-30 font-medium text-xs border-b border-amber-500">
+          <div className="bg-amber-400 text-slate-900 px-6 py-2.5 flex items-center justify-between shadow-xs sticky top-0 z-30 font-medium text-xs border-b border-amber-500 print:hidden">
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="w-4 h-4 text-slate-900 shrink-0" />
               <span>
@@ -72,7 +72,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         )}
 
         {/* Top App Bar */}
-        <header className="h-16 bg-white/90 backdrop-blur border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-20">
+        <header className="h-16 bg-white/90 backdrop-blur border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-20 print:hidden">
           <div>
             <h2 className="text-sm font-bold text-slate-800 tracking-tight">{pageTitle}</h2>
             <p className="text-xs text-slate-500">{pageSubtitle}</p>
@@ -133,7 +133,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         </header>
 
         {/* Page Body */}
-        <main className="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto print:p-0 print:m-0 print:max-w-none print:w-full">
           {children}
         </main>
       </div>

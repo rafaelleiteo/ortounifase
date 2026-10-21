@@ -607,7 +607,8 @@ export const AgendaPage: React.FC = () => {
     <DashboardLayout>
       <div className="space-y-4">
         {/* Header Compacto da Página */}
-        <div className="bg-white border-b border-slate-200/80 -mx-6 -mt-6 px-6 py-3 sm:px-8 sm:py-3.5">
+        {/* Top Control Bar com Seletores e Abas (Ocultos na impressão) */}
+        <div className="bg-white border-b border-slate-200/80 -mx-6 -mt-6 px-6 py-3 sm:px-8 sm:py-3.5 print:hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shadow-2xs shrink-0">
@@ -726,7 +727,7 @@ export const AgendaPage: React.FC = () => {
 
         {/* Mensagens de Feedback */}
         {mensagemSucesso && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-800 flex items-center justify-between shadow-xs">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-800 flex items-center justify-between shadow-xs print:hidden">
             <span>{mensagemSucesso}</span>
             <button
               onClick={() => setMensagemSucesso(null)}
@@ -738,7 +739,7 @@ export const AgendaPage: React.FC = () => {
         )}
 
         {error && (
-          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-800 flex items-center justify-between shadow-xs">
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-800 flex items-center justify-between shadow-xs print:hidden">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{error}</span>
@@ -760,7 +761,7 @@ export const AgendaPage: React.FC = () => {
             Nenhuma turma disponível.
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 print:space-y-0">
             {/* Aviso quando não houver registros no mês selecionado (Mensal e Inconsistências) */}
             {abaAtiva !== 'fixa' && !carregandoDados && (
               (abaAtiva === 'mensal' && agendaMensal.length === 0) ||
@@ -768,7 +769,7 @@ export const AgendaPage: React.FC = () => {
             ) && (() => {
               const outrosMeses = mesesComDados.filter((m) => m !== mesReferencia);
               return (
-                <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs print:hidden">
                   <div className="flex items-center gap-2.5 text-xs text-amber-900 font-medium">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                     <span>

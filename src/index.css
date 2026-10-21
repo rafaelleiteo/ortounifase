@@ -26,3 +26,217 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* =========================================================================
+   MODO DE IMPRESSÃO DA AGENDA (A4 Paisagem - Página Única)
+   ========================================================================= */
+@page {
+  size: A4 landscape;
+  margin: 8mm;
+}
+
+@media print {
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Ocultar elementos desnecessários na impressão */
+  aside,
+  header,
+  nav,
+  .no-print,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Resetar container principal do dashboard */
+  main {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Wrapper com auto-escala dinâmica via variável CSS */
+  .agenda-print-wrapper {
+    zoom: var(--agenda-print-scale, 1);
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Scroll container desativado para exibir tabela completa */
+  .agenda-table-scroll {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+  }
+
+  /* Tabela de impressão compacta em largura total */
+  .agenda-print-table {
+    min-width: 100% !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .agenda-print-table thead {
+    position: static !important;
+  }
+
+  .agenda-print-table th {
+    position: static !important;
+    padding: 2.5px 4px !important;
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    background-color: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #1e293b !important;
+  }
+
+  .agenda-print-table td {
+    position: static !important;
+    padding: 1.5px 3px !important;
+    font-size: 8.5px !important;
+    line-height: 1.15 !important;
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  /* Coluna Horário (primeira coluna) */
+  .agenda-print-table th:first-child,
+  .agenda-print-table td:first-child {
+    width: 58px !important;
+    min-width: 58px !important;
+    max-width: 58px !important;
+    padding: 1.5px 2px !important;
+    text-align: center !important;
+    font-size: 8.5px !important;
+    font-weight: 700 !important;
+    background-color: #f8fafc !important;
+    border-right: 1px solid #cbd5e1 !important;
+  }
+
+  /* Linhas sem atendimentos (vazias): altura compacta para economia vertical */
+  .agenda-print-row-empty {
+    height: 15px !important;
+  }
+
+  .agenda-print-row-empty td {
+    height: 15px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    line-height: 15px !important;
+  }
+
+  .agenda-print-row-empty .agenda-slot-vazio {
+    display: none !important;
+  }
+
+  /* Divisor de Turno da Tarde */
+  .agenda-print-divisor-tarde {
+    page-break-before: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  .agenda-print-divisor-tarde td {
+    padding: 1.5px 6px !important;
+    font-size: 8.5px !important;
+    line-height: 1.15 !important;
+    background-color: #f1f5f9 !important;
+    color: #475569 !important;
+    font-weight: 700 !important;
+    border-top: 1px solid #cbd5e1 !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    text-align: left !important;
+  }
+
+  /* Cards de atendimento compactos */
+  .agenda-print-card {
+    padding: 1.5px 3.5px !important;
+    border-radius: 4px !important;
+    font-size: 8.5px !important;
+    line-height: 1.15 !important;
+    margin-bottom: 1px !important;
+    box-shadow: none !important;
+  }
+
+  .agenda-print-card .card-title {
+    font-size: 8.5px !important;
+    margin-bottom: 0 !important;
+    line-height: 1.15 !important;
+  }
+
+  .agenda-card-actions {
+    display: none !important;
+  }
+
+  /* Preservação estrita das cores dos cards no print */
+  .agenda-cor-sequencia {
+    background-color: #eff6ff !important;
+    border-color: #bfdbfe !important;
+    color: #1e3a8a !important;
+  }
+
+  .agenda-cor-livre {
+    background-color: #fefce8 !important;
+    border-color: #fde047 !important;
+    color: #713f12 !important;
+  }
+
+  .agenda-cor-outro {
+    background-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #1e293b !important;
+  }
+
+  .agenda-cor-extra {
+    background-color: #fffbeb !important;
+    border-color: #fde68a !important;
+    color: #92400e !important;
+  }
+
+  .agenda-cor-ausente {
+    background-color: #ffe4e6 !important;
+    border-color: #fda4af !important;
+    color: #9f1239 !important;
+  }
+
+  .agenda-cor-trocado {
+    background-color: #fef3c7 !important;
+    border-color: #fcd34d !important;
+    color: #92400e !important;
+  }
+
+  .agenda-cor-alterado {
+    background-color: #dbeafe !important;
+    border-color: #93c5fd !important;
+    color: #1e40af !important;
+  }
+
+  .agenda-cor-novo {
+    background-color: #d1fae5 !important;
+    border-color: #6ee7b7 !important;
+    color: #065f46 !important;
+  }
+}

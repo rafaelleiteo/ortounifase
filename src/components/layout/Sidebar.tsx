@@ -167,7 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       className={cn(
-        "bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 h-screen sticky top-0 z-30 transition-all duration-300 relative",
+        "bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 h-screen sticky top-0 z-30 transition-all duration-300 relative print:hidden",
         isCollapsed ? "w-16" : "w-64"
       )}
     >

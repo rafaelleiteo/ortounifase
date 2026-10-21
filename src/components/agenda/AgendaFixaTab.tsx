@@ -40,9 +40,11 @@ import {
   AlertTriangle,
   Lock,
   Link2,
-  FileText
+  FileText,
+  Printer
 } from 'lucide-react';
 import { AgendaCardAtendimento } from './AgendaCardAtendimento';
+import { AgendaPrintHeader } from './AgendaPrintHeader';
 
 interface AgendaFixaTabProps {
   turmaId: string;
@@ -356,6 +358,52 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     });
   };
 
+  // Auto-escala para garantir encaixe estrito em 1 página A4 Paisagem no modo de impressão
+  const ajustarEscalaImpressao = React.useCallback(() => {
+    let linhasOcupadas = 0;
+    for (const h of horarios) {
+      const hNorm = normalizarHorario(h);
+      const ocupada = colunasFixa.some((col) => {
+        const isExtraCol = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
+        const colId = isExtraCol ? 'EXTRA_VIRTUAL' : col.id;
+        const itens = itemMap.get(`${colId}_${hNorm}`);
+        return itens && itens.length > 0;
+      });
+      if (ocupada) linhasOcupadas++;
+    }
+    const linhasVazias = horarios.length - linhasOcupadas;
+    // Thead: ~24px, Divisor: ~16px, cabeçalho print: ~35px. Altura útil alvo da tabela: 670px.
+    const alturaEstimada = 35 + 24 + 16 + (linhasVazias * 16) + (linhasOcupadas * 31);
+    const alturaDisponivel = 670;
+    let scale = 1;
+    if (alturaEstimada > alturaDisponivel) {
+      scale = alturaDisponivel / alturaEstimada;
+    }
+    // Trava mínima de 0.70 (~7pt) para manter legibilidade estrita
+    scale = Math.max(0.70, Math.min(1, Math.round(scale * 100) / 100));
+    document.documentElement.style.setProperty('--agenda-print-scale', String(scale));
+  }, [horarios, colunasFixa, itemMap]);
+
+  React.useEffect(() => {
+    const handleBeforePrint = () => {
+      ajustarEscalaImpressao();
+    };
+    const handleAfterPrint = () => {
+      document.documentElement.style.removeProperty('--agenda-print-scale');
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, [ajustarEscalaImpressao]);
+
+  const handleImprimir = () => {
+    ajustarEscalaImpressao();
+    window.print();
+  };
+
   const handleExportarCSV = () => {
     if (agendaFixa.length === 0) {
       alert('Não há registros na Agenda Fixa para exportar.');
@@ -477,69 +525,81 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Barra Superior de Controles: Dias e Períodos */}
-      <AgendaFiltrosHeader
-        diaSelecionado={diaSelecionado as DiaSemana}
-        onDiaChange={handleDiaChange}
-        periodo={turnoAtivo}
-        onPeriodoChange={handleTurnoClick}
-      >
-        {/* Ações da Turma: Adicionar Aluno, Adicionar Paciente e Exportar */}
-        <div className="flex flex-wrap items-center gap-2 w-full">
-          {isCoordenadorOrAdmin && (
+      {/* Barra Superior de Controles: Dias e Períodos (Oculta na impressão) */}
+      <div className="print:hidden">
+        <AgendaFiltrosHeader
+          diaSelecionado={diaSelecionado as DiaSemana}
+          onDiaChange={handleDiaChange}
+          periodo={turnoAtivo}
+          onPeriodoChange={handleTurnoClick}
+        >
+          {/* Ações da Turma: Adicionar Aluno, Adicionar Paciente, Exportar e Imprimir */}
+          <div className="flex flex-wrap items-center gap-2 w-full">
+            {isCoordenadorOrAdmin && (
+              <button
+                type="button"
+                onClick={() =>
+                  setModalNovoPaciente({
+                    isOpen: true,
+                    pacienteNome: '',
+                    diaSemana: diaSelecionado,
+                    horario: '08:00',
+                    alunoId: colunasFixa[0]?.id || ''
+                  })
+                }
+                className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Adicionar Paciente
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() =>
-                setModalNovoPaciente({
-                  isOpen: true,
-                  pacienteNome: '',
-                  diaSemana: diaSelecionado,
-                  horario: '08:00',
-                  alunoId: colunasFixa[0]?.id || ''
-                })
-              }
-              className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
+              onClick={handleExportarCSV}
+              title="Exportar agenda fixa desta turma em formato CSV"
+              className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
             >
-              <Plus className="w-3.5 h-3.5" />
-              Adicionar Paciente
+              <Download className="w-3.5 h-3.5 text-slate-600" />
+              Exportar
             </button>
-          )}
 
-          <button
-            type="button"
-            onClick={handleExportarCSV}
-            title="Exportar agenda fixa desta turma em formato CSV"
-            className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-600" />
-            Exportar
-          </button>
-
-          {/* Adicionar Aluno Rápido */}
-          <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
-            <input
-              type="text"
-              value={novoAlunoNome}
-              onChange={(e) => setNovoAlunoNome(e.target.value)}
-              placeholder="Novo aluno..."
-              className="text-xs px-2.5 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 w-32"
-              onKeyDown={(e) => e.key === 'Enter' && handleAdicionarAluno()}
-            />
             <button
               type="button"
-              onClick={handleAdicionarAluno}
-              disabled={criandoAluno || !novoAlunoNome.trim()}
-              className="px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-all flex items-center gap-1 disabled:opacity-50"
-              title="Cadastrar Aluno na Turma"
+              onClick={handleImprimir}
+              title="Imprimir agenda deste dia em A4 paisagem (página única)"
+              className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
             >
-              <Plus className="w-3.5 h-3.5" />
-              Aluno
+              <Printer className="w-3.5 h-3.5 text-slate-600" />
+              Imprimir
             </button>
+
+            {/* Adicionar Aluno Rápido */}
+            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
+              <input
+                type="text"
+                value={novoAlunoNome}
+                onChange={(e) => setNovoAlunoNome(e.target.value)}
+                placeholder="Novo aluno..."
+                className="text-xs px-2.5 py-1.5 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-brand-500 w-32"
+                onKeyDown={(e) => e.key === 'Enter' && handleAdicionarAluno()}
+              />
+              <button
+                type="button"
+                onClick={handleAdicionarAluno}
+                disabled={criandoAluno || !novoAlunoNome.trim()}
+                className="px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-all flex items-center gap-1 disabled:opacity-50"
+                title="Cadastrar Aluno na Turma"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Aluno
+              </button>
+            </div>
           </div>
-        </div>
-      </AgendaFiltrosHeader>
+        </AgendaFiltrosHeader>
+      </div>
 
-      {/* Grid / Tabela Kanban da Agenda Fixa */}
+      {/* Grid / Tabela Kanban da Agenda Fixa com Suporte a Impressão em Página Única */}
       {colunasFixa.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
           <User className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -547,126 +607,138 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
           <p className="text-xs text-slate-500 mt-1">Adicione alunos acima ou importe um JSON para criá-los automaticamente.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div ref={scrollContainerRef} onScroll={handleScroll} className="overflow-x-auto max-h-[750px] relative scroll-smooth">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
-                <tr>
-                  <th className="p-3 text-xs font-bold text-slate-600 uppercase tracking-wider w-24 bg-slate-50 border-r border-slate-200 sticky left-0 z-20">
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
-                      Horário
-                    </div>
-                  </th>
-                  {colunasFixa.map((col) => {
-                    const isExtra = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
-                    return (
-                      <th
-                        key={col.id}
-                        className={`p-3 text-xs font-bold border-r border-slate-200 min-w-[200px] ${
-                          isExtra ? 'bg-amber-50/50 text-amber-900' : 'text-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 truncate">
-                            <User className={`w-3.5 h-3.5 shrink-0 ${isExtra ? 'text-amber-600' : 'text-brand-600'}`} />
-                            <span className="truncate" title={col.nome}>{col.nome}</span>
-                          </div>
-                          {isExtra && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0">
-                              Extra
-                            </span>
-                          )}
-                        </div>
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {horarios.map((h) => {
-                  const isTurnoDivisor = h === divisorTarde;
-                  return (
-                    <React.Fragment key={h}>
-                      {isTurnoDivisor && (
-                        <tr
-                          ref={tardeDivisorRef}
-                          id="turno-tarde-fixa"
-                          className="bg-slate-100/80 font-bold text-slate-500 text-[11px]"
-                        >
-                          <td colSpan={colunasFixa.length + 1} className="py-1 px-3 border-y border-slate-200">
-                            --- Turno da Tarde ---
-                          </td>
-                        </tr>
-                      )}
-                      <tr className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-2.5 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono">
-                          {h}
-                        </td>
-                        {colunasFixa.map((col) => {
-                          const isExtraCol = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
-                          const hNorm = normalizarHorario(h);
-                          const itens = itemMap.get(`${col.id}_${hNorm}`) || [];
+        <div className="agenda-print-wrapper">
+          {/* Cabeçalho exclusivo para modo de impressão */}
+          <AgendaPrintHeader turmaNome={turmaNome} diaSemana={diaSelecionado} tipo="fixa" />
 
-                          return (
-                            <td
-                              key={col.id}
-                              className={`p-2 border-r border-slate-100 align-top relative group ${
-                                isExtraCol ? 'bg-amber-50/10' : ''
-                              }`}
-                            >
-                              {itens.length > 0 ? (
-                                <div className="space-y-1">
-                                  {itens.map((item) => (
-                                    <AgendaCardAtendimento
-                                      key={item.id}
-                                      item={{
-                                        id: item.id,
-                                        paciente: item.paciente,
-                                        aluno_id: item.aluno_id,
-                                        aluno: isExtraCol
-                                          ? NOME_ATENDIMENTO_EXTRA
-                                          : (item.agenda_alunos?.nome || alunos.find((a) => a.id === item.aluno_id)?.nome || col.nome),
-                                        horario: item.horario,
-                                        dia_semana: item.dia_semana,
-                                        tipo_registro: item.tipo_registro,
-                                        tipo_bloqueio: item.tipo_bloqueio
-                                      }}
-                                      podeEditar={isCoordenadorOrAdmin}
-                                      onEditar={() =>
-                                        setModalEditarNome({
-                                          isOpen: true,
-                                          item,
-                                          pacienteNome: item.tipo_registro === 'bloqueio' ? getDescricaoBloqueio(item.paciente) : item.paciente
-                                        })
-                                      }
-                                      onReagendar={() =>
-                                        setModalMoverHorario({
-                                          isOpen: true,
-                                          item,
-                                          diaSemana: item.dia_semana || diaSelecionado,
-                                          horario: formatarHorarioExibicao(item.horario),
-                                          alunoId: item.aluno_id || 'EXTRA_VIRTUAL',
-                                          erro: undefined
-                                        })
-                                      }
-                                      onTrocarAluno={() => setMoverModal({ isOpen: true, item, novoAlunoId: '' })}
-                                      onExcluir={() => onRemoverItem(item.id)}
-                                    />
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className={`w-full h-11 border border-dashed rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty transition-all ${
-                                  isExtraCol ? 'border-amber-200/60 hover:border-amber-300' : 'border-slate-200 hover:border-slate-300'
-                                }`}>
-                                  <button
-                                    type="button"
-                                    title="Adicionar Paciente"
-                                    onClick={() => handleAbrirCelular(col.id, h)}
-                                    className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
-                                  >
-                                    <Plus className="w-3.5 h-3.5 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
-                                  </button>
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden print:border-none print:shadow-none print:rounded-none">
+            <div ref={scrollContainerRef} onScroll={handleScroll} className="agenda-table-scroll overflow-x-auto max-h-[750px] relative scroll-smooth print:max-h-none print:overflow-visible print:h-auto">
+              <table className="agenda-print-table w-full text-left border-collapse min-w-[800px] print:min-w-0 print:w-full">
+                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20 print:static">
+                  <tr>
+                    <th className="p-3 print:p-1 text-xs font-bold text-slate-600 uppercase tracking-wider w-24 bg-slate-50 border-r border-slate-200 sticky left-0 z-20 print:static">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-slate-400 print:hidden" />
+                        Horário
+                      </div>
+                    </th>
+                    {colunasFixa.map((col) => {
+                      const isExtra = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
+                      return (
+                        <th
+                          key={col.id}
+                          className={`p-3 print:p-1 text-xs font-bold border-r border-slate-200 min-w-[200px] print:min-w-0 ${
+                            isExtra ? 'bg-amber-50/50 text-amber-900' : 'text-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 truncate">
+                              <User className={`w-3.5 h-3.5 shrink-0 print:hidden ${isExtra ? 'text-amber-600' : 'text-brand-600'}`} />
+                              <span className="truncate" title={col.nome}>{col.nome}</span>
+                            </div>
+                            {isExtra && (
+                              <span className="text-[10px] print:text-[7.5px] px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold shrink-0">
+                                Extra
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {horarios.map((h) => {
+                    const isTurnoDivisor = h === divisorTarde;
+                    const hNorm = normalizarHorario(h);
+                    const isLinhaVazia = colunasFixa.every((col) => {
+                      const isExtraCol = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
+                      const colId = isExtraCol ? 'EXTRA_VIRTUAL' : col.id;
+                      const itens = itemMap.get(`${colId}_${hNorm}`);
+                      return !itens || itens.length === 0;
+                    });
+
+                    return (
+                      <React.Fragment key={h}>
+                        {isTurnoDivisor && (
+                          <tr
+                            ref={tardeDivisorRef}
+                            id="turno-tarde-fixa"
+                            className="agenda-print-divisor-tarde bg-slate-100/80 font-bold text-slate-500 text-[11px]"
+                          >
+                            <td colSpan={colunasFixa.length + 1} className="py-1 px-3 border-y border-slate-200">
+                              --- Turno da Tarde ---
+                            </td>
+                          </tr>
+                        )}
+                        <tr className={`hover:bg-slate-50/50 transition-colors ${isLinhaVazia ? 'agenda-print-row-empty' : ''}`}>
+                          <td className="p-2.5 print:p-1 font-bold text-slate-700 bg-slate-50/90 border-r border-slate-200 sticky left-0 z-10 text-center font-mono print:static">
+                            {h}
+                          </td>
+                          {colunasFixa.map((col) => {
+                            const isExtraCol = col.id === 'EXTRA_VIRTUAL' || isAtendimentoExtra(col.nome);
+                            const colId = isExtraCol ? 'EXTRA_VIRTUAL' : col.id;
+                            const itens = itemMap.get(`${colId}_${hNorm}`) || [];
+
+                            return (
+                              <td
+                                key={col.id}
+                                className={`p-2 border-r border-slate-100 align-top relative group ${
+                                  isExtraCol ? 'bg-amber-50/10' : ''
+                                }`}
+                              >
+                                {itens.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {itens.map((item) => (
+                                      <AgendaCardAtendimento
+                                        key={item.id}
+                                        item={{
+                                          id: item.id,
+                                          paciente: item.paciente,
+                                          aluno_id: item.aluno_id,
+                                          aluno: isExtraCol
+                                            ? NOME_ATENDIMENTO_EXTRA
+                                            : (item.agenda_alunos?.nome || alunos.find((a) => a.id === item.aluno_id)?.nome || col.nome),
+                                          horario: item.horario,
+                                          dia_semana: item.dia_semana,
+                                          tipo_registro: item.tipo_registro,
+                                          tipo_bloqueio: item.tipo_bloqueio
+                                        }}
+                                        podeEditar={isCoordenadorOrAdmin}
+                                        onEditar={() =>
+                                          setModalEditarNome({
+                                            isOpen: true,
+                                            item,
+                                            pacienteNome: item.tipo_registro === 'bloqueio' ? getDescricaoBloqueio(item.paciente) : item.paciente
+                                          })
+                                        }
+                                        onReagendar={() =>
+                                          setModalMoverHorario({
+                                            isOpen: true,
+                                            item,
+                                            diaSemana: item.dia_semana || diaSelecionado,
+                                            horario: formatarHorarioExibicao(item.horario),
+                                            alunoId: item.aluno_id || 'EXTRA_VIRTUAL',
+                                            erro: undefined
+                                          })
+                                        }
+                                        onTrocarAluno={() => setMoverModal({ isOpen: true, item, novoAlunoId: '' })}
+                                        onExcluir={() => onRemoverItem(item.id)}
+                                      />
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className={`agenda-slot-vazio w-full h-11 print:hidden border border-dashed rounded-xl flex items-center justify-center gap-1 p-0.5 group/empty transition-all ${
+                                    isExtraCol ? 'border-amber-200/60 hover:border-amber-300' : 'border-slate-200 hover:border-slate-300'
+                                  }`}>
+                                    <button
+                                      type="button"
+                                      title="Adicionar Paciente"
+                                      onClick={() => handleAbrirCelular(col.id, h)}
+                                      className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5 opacity-60 group-hover/empty:opacity-100 transition-opacity" />
+                                    </button>
                                   {isCoordenadorOrAdmin && (
                                     <button
                                       type="button"
@@ -710,7 +782,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
             </table>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
       {/* Modal Editar / Inserir Célula */}
       {modalCell.isOpen && (

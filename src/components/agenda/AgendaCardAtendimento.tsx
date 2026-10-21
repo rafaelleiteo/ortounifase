@@ -49,41 +49,41 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
   const isBloqueio = item.tipo_registro === 'bloqueio';
   const tipoBloqueio = isBloqueio ? (item.tipo_bloqueio || getTipoBloqueio(item)) : null;
 
-  let defaultBg = 'bg-brand-50/50 border-brand-200 text-brand-900';
+  let defaultBg = 'bg-brand-50/50 border-brand-200 text-brand-900 agenda-cor-sequencia';
   let badgeBloqueio = null;
 
   if (isBloqueio) {
     if (tipoBloqueio === 'SEQUENCIA') {
       // 1. TIPO SEQUÊNCIA DE ATENDIMENTO: AZUL (mesmo token de paciente agendado normalmente)
-      defaultBg = COR_BLOQUEIO_SEQUENCIA;
+      defaultBg = `${COR_BLOQUEIO_SEQUENCIA} agenda-cor-sequencia`;
       badgeBloqueio = (
         <span
           title="Sequência de Atendimento (Continuação)"
-          className="shrink-0 text-brand-700 bg-brand-100/90 border border-brand-200/80 p-0.5 rounded-md flex items-center gap-0.5"
+          className="shrink-0 text-brand-700 bg-brand-100/90 border border-brand-200/80 p-0.5 rounded-md flex items-center gap-0.5 print:border-none print:p-0"
         >
-          <Lock className="w-3 h-3" />
+          <Lock className="w-3 h-3 print:w-2.5 print:h-2.5" />
         </span>
       );
     } else if (tipoBloqueio === 'LIVRE') {
       // 2. TIPO LIVRE: AMARELO (horário intencionalmente vago/disponível)
-      defaultBg = COR_BLOQUEIO_LIVRE;
+      defaultBg = `${COR_BLOQUEIO_LIVRE} agenda-cor-livre`;
       badgeBloqueio = (
         <span
           title="Horário Livre (Vago)"
-          className="shrink-0 text-amber-700 bg-amber-100/90 border border-amber-200/80 p-0.5 rounded-md flex items-center gap-0.5"
+          className="shrink-0 text-amber-700 bg-amber-100/90 border border-amber-200/80 p-0.5 rounded-md flex items-center gap-0.5 print:border-none print:p-0"
         >
-          <Lock className="w-3 h-3" />
+          <Lock className="w-3 h-3 print:w-2.5 print:h-2.5" />
         </span>
       );
     } else {
       // 3. TIPO OUTRO: CINZA (observação livre ou legado sem tipo definido)
-      defaultBg = COR_BLOQUEIO_OUTRO;
+      defaultBg = `${COR_BLOQUEIO_OUTRO} agenda-cor-outro`;
       badgeBloqueio = (
         <span
           title="Bloqueio / Observação Geral"
-          className="shrink-0 text-slate-600 bg-slate-200/80 border border-slate-300/80 p-0.5 rounded-md flex items-center gap-0.5"
+          className="shrink-0 text-slate-600 bg-slate-200/80 border border-slate-300/80 p-0.5 rounded-md flex items-center gap-0.5 print:border-none print:p-0"
         >
-          <Lock className="w-3 h-3" />
+          <Lock className="w-3 h-3 print:w-2.5 print:h-2.5" />
         </span>
       );
     }
@@ -94,16 +94,16 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
 
   return (
     <div
-      className={`group p-2 rounded-xl border text-xs shadow-2xs transition-all relative ${cardStyle}`}
+      className={`agenda-print-card group p-2 print:p-1 rounded-xl print:rounded-md border text-xs print:text-[8.5px] print:leading-tight shadow-2xs print:shadow-none transition-all relative ${item.is_extra ? 'agenda-cor-extra ' : ''}${cardStyle}`}
     >
       {/* Cabeçalho do Card: Nome e Badges */}
-      <div className="font-semibold break-words mb-1 flex items-start justify-between gap-1">
-        <span className="leading-snug">{textoExibicao}</span>
+      <div className="card-title font-semibold break-words mb-1 print:mb-0 flex items-start justify-between gap-1 leading-snug print:leading-tight">
+        <span className="leading-snug print:leading-tight">{textoExibicao}</span>
         {isBloqueio && badgeBloqueio}
         {item.is_extra && !badge && (
           <span
             title="Atendimento Extra"
-            className="shrink-0 text-[10px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
+            className="shrink-0 text-[10px] print:text-[7.5px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold"
           >
             Extra
           </span>
@@ -111,12 +111,12 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
       </div>
 
       {/* Badge ou Detalhe (ex: Inconsistência) */}
-      {badge && <div className="mb-1">{badge}</div>}
-      {detalhe && <div className="text-[10px] opacity-85 leading-tight mb-1">{detalhe}</div>}
+      {badge && <div className="mb-1 print:mb-0">{badge}</div>}
+      {detalhe && <div className="text-[10px] print:text-[7.5px] print:leading-tight opacity-85 leading-tight mb-1 print:mb-0">{detalhe}</div>}
 
-      {/* Barra de Ações (Visível e com destaque no hover) */}
+      {/* Barra de Ações (Visível e com destaque no hover - Oculta na impressão) */}
       {podeEditar && (
-        <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 pt-1 mt-1 border-t border-slate-200/50">
+        <div className="agenda-card-actions flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 pt-1 mt-1 border-t border-slate-200/50 print:hidden">
           {onEditar && (
             <button
               type="button"
