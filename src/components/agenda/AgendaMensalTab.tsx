@@ -94,9 +94,46 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   const diaSelecionado = (diaSelecionadoRaw && diaSelecionadoRaw !== 'TODOS') ? diaSelecionadoRaw : 'QUINTA';
   const handleDiaChange = onDiaSelecionadoChange || setDiaLocal;
 
-  const [periodoLocal, setPeriodoLocal] = useState<TurnoAgenda>('TODOS');
-  const periodo = periodoProp !== undefined ? periodoProp : periodoLocal;
-  const handlePeriodoChange = onPeriodoChange || setPeriodoLocal;
+  // Turno ativo local para atalho de rolagem na Agenda Mensal (sem filtrar linhas)
+  const [turnoAtivo, setTurnoAtivo] = useState<TurnoAgenda>('TODOS');
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const tardeDivisorRef = React.useRef<HTMLTableRowElement>(null);
+
+  const handleTurnoClick = (turno: TurnoAgenda) => {
+    setTurnoAtivo(turno);
+    if (turno === 'TARDE') {
+      if (scrollContainerRef.current) {
+        const el = tardeDivisorRef.current || document.getElementById('turno-tarde-mensal');
+        if (el) {
+          const containerTop = scrollContainerRef.current.getBoundingClientRect().top;
+          const elTop = el.getBoundingClientRect().top;
+          const currentScroll = scrollContainerRef.current.scrollTop;
+          // Compensação de 45px para a thead sticky não sobrepor o divisor
+          const targetScroll = currentScroll + (elTop - containerTop) - 45;
+          scrollContainerRef.current.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+        }
+      }
+    } else {
+      // MANHA ou TODOS: rola suavemente para o início do dia
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  };
+
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const el = tardeDivisorRef.current || document.getElementById('turno-tarde-mensal');
+    if (el) {
+      const containerTop = scrollContainerRef.current.getBoundingClientRect().top;
+      const elTop = el.getBoundingClientRect().top;
+      if (elTop <= containerTop + 55) {
+        setTurnoAtivo('TARDE');
+      } else {
+        setTurnoAtivo('MANHA');
+      }
+    }
+  };
 
   // Colunas da Agenda Mensal:
   // - ESP2: As 4 duplas na ordem estrita + Atendimento Extra por último (sempre visível, mesmo vazia)
@@ -105,14 +142,16 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     return obterColunasTurma(turmaNome, alunos, agendaMensal);
   }, [turmaNome, alunos, agendaMensal]);
 
+  // Exibe sempre todos os horários do dia (manhã e tarde) em rolagem contínua na Agenda Mensal,
+  // com proteção contra sumiço para qualquer horário fora da grade padrão.
   const horarios = useMemo(() => {
     return obterHorariosCompletos({
       turmaNome,
-      periodo,
+      periodo: 'TODOS',
       itens: agendaMensal,
       diaSelecionado
     });
-  }, [turmaNome, periodo, agendaMensal, diaSelecionado]);
+  }, [turmaNome, agendaMensal, diaSelecionado]);
 
   const divisorTarde = useMemo(() => {
     return horarios.find((h) => h >= '12:00') || HORARIO_DIVISOR_TURNO;
@@ -518,8 +557,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       <AgendaFiltrosHeader
         diaSelecionado={diaSelecionado as DiaSemana}
         onDiaChange={handleDiaChange}
-        periodo={periodo}
-        onPeriodoChange={handlePeriodoChange}
+        periodo={turnoAtivo}
+        onPeriodoChange={handleTurnoClick}
       >
         <div className="flex flex-wrap items-center justify-between gap-4 w-full">
           {/* Seletor de Mês e Botões de Ação */}
@@ -641,7 +680,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto max-h-[750px] relative">
+          <div ref={scrollContainerRef} onScroll={handleScroll} className="overflow-x-auto max-h-[750px] relative scroll-smooth">
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
                 <tr>
@@ -692,11 +731,15 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {horarios.map((h) => {
-                  const isTurnoDivisor = h === divisorTarde && periodo === 'TODOS';
+                  const isTurnoDivisor = h === divisorTarde;
                   return (
                     <React.Fragment key={h}>
                       {isTurnoDivisor && (
-                        <tr className="bg-slate-100/80 font-bold text-slate-500 text-[11px]">
+                        <tr
+                          ref={tardeDivisorRef}
+                          id="turno-tarde-mensal"
+                          className="bg-slate-100/80 font-bold text-slate-500 text-[11px]"
+                        >
                           <td colSpan={alunosOrdenados.length + 1} className="py-1 px-3 border-y border-slate-200">
                             --- Turno da Tarde ---
                           </td>

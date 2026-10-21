@@ -108,6 +108,20 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     }
   };
 
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const el = tardeDivisorRef.current || document.getElementById('turno-tarde-fixa');
+    if (el) {
+      const containerTop = scrollContainerRef.current.getBoundingClientRect().top;
+      const elTop = el.getBoundingClientRect().top;
+      if (elTop <= containerTop + 55) {
+        setTurnoAtivo('TARDE');
+      } else {
+        setTurnoAtivo('MANHA');
+      }
+    }
+  };
+
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [criandoAluno, setCriandoAluno] = useState<boolean>(false);
 
@@ -534,7 +548,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div ref={scrollContainerRef} className="overflow-x-auto max-h-[750px] relative scroll-smooth">
+          <div ref={scrollContainerRef} onScroll={handleScroll} className="overflow-x-auto max-h-[750px] relative scroll-smooth">
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
                 <tr>
