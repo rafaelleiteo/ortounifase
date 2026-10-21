@@ -72,14 +72,18 @@
 
   /* Wrapper com auto-escala dinâmica via variável CSS */
   .agenda-print-wrapper {
+    position: static !important;
+    visibility: visible !important;
     zoom: var(--agenda-print-scale, 1);
     width: 100% !important;
     max-width: 100% !important;
+    min-width: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
     page-break-after: avoid !important;
     page-break-inside: avoid !important;
+    z-index: auto !important;
   }
 
   /* Scroll container desativado para exibir tabela completa */
@@ -272,8 +276,32 @@
 
 /* =========================================================================
    ESTILOS TEMPORÁRIOS DE MEDIÇÃO REAL DO DOM (Evento beforeprint)
-   Garante que scrollHeight e getBoundingClientRect reflitam a geometria exata de impressão
+   Força largura útil exata do papel A4 paisagem (287mm = ~1085px) e isolamento
+   fora do fluxo visual (position: fixed; visibility: hidden) sem piscadas na tela.
    ========================================================================= */
+html.agenda-modo-impressao aside,
+html.agenda-modo-impressao header,
+html.agenda-modo-impressao nav,
+html.agenda-modo-impressao .no-print,
+html.agenda-modo-impressao .print\:hidden,
+html.agenda-modo-impressao .agenda-card-actions {
+  display: none !important;
+}
+
+html.agenda-modo-impressao .agenda-print-wrapper {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 287mm !important;
+  max-width: 287mm !important;
+  min-width: 287mm !important;
+  visibility: hidden !important;
+  z-index: -9999 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
 html.agenda-modo-impressao .agenda-print-header {
   display: flex !important;
 }
