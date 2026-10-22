@@ -4,6 +4,7 @@ import {
   AlinhadorPaciente,
   AlinhadorPedido,
   PedidoComPaciente,
+  ResultadoSolicitacao,
   StatusPedido,
   calcularStatusPedido
 } from './alinhadoresTypes';
@@ -272,26 +273,50 @@ export async function excluirPedido(id: string): Promise<void> {
 
 /**
  * Marca uma lista de pedidos como solicitados:
- * Grava solicitado_em = agora e o MESMO lote_id (uuid novo) em todos.
- * Retorna os pedidos atualizados com o nome do paciente.
+ * - Garante que pedidos que já têm solicitado_em NÃO sejam sobrescritos (atualiza apenas com solicitado_em nulo).
+ * - Grava solicitado_em = agora e o MESMO lote_id (uuid novo) em todos os pedidos pendentes.
+ * - Retorna os pedidos atualizados com o nome do paciente e a quantidade de ignorados.
  */
 export async function marcarComoSolicitados(
   ids: string[]
-): Promise<Array<AlinhadorPedido & { paciente_nome: string }>> {
+): Promise<ResultadoSolicitacao> {
   if (!ids || ids.length === 0) {
-    return [];
+    return { pedidos: [], ignorados: 0 };
+  }
+
+  // 1. Identifica quais pedidos dos IDs informados ainda não foram solicitados (solicitado_em IS NULL)
+  const { data: pedidosExistentes, error: queryError } = await supabase
+    .from('alinhadores_pedidos')
+    .select('id, solicitado_em')
+    .in('id', ids);
+
+  if (queryError) {
+    console.error('Erro ao verificar pedidos para solicitação:', queryError);
+    throw new Error(`Erro ao verificar pedidos: ${queryError.message}`);
+  }
+
+  const idsParaAtualizar = (pedidosExistentes || [])
+    .filter((p) => p.solicitado_em === null)
+    .map((p) => p.id);
+
+  const ignorados = ids.length - idsParaAtualizar.length;
+
+  if (idsParaAtualizar.length === 0) {
+    return { pedidos: [], ignorados };
   }
 
   const loteId = gerarUUID();
   const solicitadoEm = new Date().toISOString();
 
+  // 2. Atualiza estritamente os pedidos com solicitado_em nulo
   const { data, error } = await supabase
     .from('alinhadores_pedidos')
     .update({
       solicitado_em: solicitadoEm,
       lote_id: loteId
     })
-    .in('id', ids)
+    .in('id', idsParaAtualizar)
+    .is('solicitado_em', null)
     .select(`
       *,
       paciente:alinhadores_pacientes (
@@ -308,7 +333,7 @@ export async function marcarComoSolicitados(
     paciente?: { nome: string } | null;
   }
 
-  return ((data || []) as RowWithPaciente[]).map((row) => ({
+  const pedidos = ((data || []) as RowWithPaciente[]).map((row) => ({
     id: row.id,
     paciente_id: row.paciente_id,
     data_retorno: row.data_retorno,
@@ -319,6 +344,11 @@ export async function marcarComoSolicitados(
     created_at: row.created_at,
     paciente_nome: row.paciente?.nome || 'Paciente Desconhecido'
   }));
+
+  return {
+    pedidos,
+    ignorados
+  };
 }
 
 /**

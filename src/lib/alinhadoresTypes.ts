@@ -55,6 +55,11 @@ export interface PedidoParaMensagem {
   alinhador_ate?: number | null;
 }
 
+export interface ResultadoSolicitacao {
+  pedidos: Array<AlinhadorPedido & { paciente_nome: string }>;
+  ignorados: number;
+}
+
 // ------------------------------------------------------------------------------
 // FUNÇÕES PURAS DE DATAS E CÁLCULOS
 // ------------------------------------------------------------------------------
