@@ -18,7 +18,9 @@ import {
   AlinhadorPaciente,
   AlinhadorCalendario,
   formatarDataBR,
-  formatarDataISO
+  formatarDataISO,
+  agruparBlocos,
+  BlocoClinica
 } from '@/lib/alinhadoresTypes';
 import {
   listarPacientes,
@@ -45,6 +47,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
 }) => {
   const [pacientes, setPacientes] = useState<AlinhadorPaciente[]>([]);
   const [pacientesComRetornoFuturo, setPacientesComRetornoFuturo] = useState<Set<string>>(new Set());
+  const [turmasComBlocosFuturos, setTurmasComBlocosFuturos] = useState<Set<string>>(new Set());
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
@@ -64,7 +67,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
 
   // Modal Adicionar Retornos
   const [pacienteParaRetornos, setPacienteParaRetornos] = useState<AlinhadorPaciente | null>(null);
-  const [datasCalendario, setDatasCalendario] = useState<AlinhadorCalendario[]>([]);
+  const [blocosFuturosCalendario, setBlocosFuturosCalendario] = useState<BlocoClinica[]>([]);
   const [carregandoCalendario, setCarregandoCalendario] = useState(false);
   const [datasSelecionadas, setDatasSelecionadas] = useState<string[]>([]);
   const [retornoAlinhadorDe, setRetornoAlinhadorDe] = useState<string>('');
@@ -81,24 +84,38 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     }
   }, [sucesso]);
 
-  // Carregar pacientes e pedidos para saber retornos futuros
+  // Carregar pacientes, pedidos e checar blocos futuros por turma
   const carregarDados = async () => {
     if (!turmaSelecionadaId) return;
     try {
       setCarregando(true);
       setErro(null);
 
-      const [listaPacientes, listaPedidos] = await Promise.all([
+      const [listaPacientes, listaPedidos, datasTurma] = await Promise.all([
         listarPacientes(turmaSelecionadaId, !mostrarInativos),
-        listarPedidos({ turmaId: turmaSelecionadaId })
+        listarPedidos({ turmaId: turmaSelecionadaId }),
+        listarDatasCalendario(turmaSelecionadaId)
       ]);
 
       setPacientes(listaPacientes);
 
-      // Mapear pacientes que têm ao menos um retorno futuro (data_retorno >= hoje)
+      // Checa se a turma tem blocos futuros
+      const blocosTurma = agruparBlocos(datasTurma.map((d) => d.data));
+      const temBlocoFuturo = blocosTurma.some((b) => b.base > hojeISO);
+      setTurmasComBlocosFuturos((prev) => {
+        const next = new Set(prev);
+        if (temBlocoFuturo) {
+          next.add(turmaSelecionadaId);
+        } else {
+          next.delete(turmaSelecionadaId);
+        }
+        return next;
+      });
+
+      // Mapear pacientes que têm ao menos um retorno futuro (data_retorno > hoje)
       const comFuturo = new Set<string>();
       for (const p of listaPedidos) {
-        if (p.data_retorno >= hojeISO) {
+        if (p.data_retorno > hojeISO) {
           comFuturo.add(p.paciente_id);
         }
       }
@@ -231,7 +248,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     }
   };
 
-  // Abrir modal Adicionar Retornos
+  // Abrir modal Adicionar Retornos (agora listando BLOCOS futuros por base)
   const handleAbrirAdicionarRetornos = async (paciente: AlinhadorPaciente) => {
     setPacienteParaRetornos(paciente);
     setDatasSelecionadas([]);
@@ -240,9 +257,10 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     try {
       setCarregandoCalendario(true);
       const lista = await listarDatasCalendario(paciente.turma_id);
-      // Filtrar apenas datas futuras ou de hoje
-      const futuras = lista.filter((c) => c.data >= hojeISO);
-      setDatasCalendario(futuras);
+      const blocos = agruparBlocos(lista.map((c) => c.data));
+      // Filtrar apenas blocos futuros cuja base > hoje
+      const futuros = blocos.filter((b) => b.base > hojeISO);
+      setBlocosFuturosCalendario(futuros);
     } catch (err: any) {
       console.error(err);
       setErro(err.message || 'Erro ao carregar datas do calendário.');
@@ -251,18 +269,18 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     }
   };
 
-  // Toggle seleção de data no modal de retornos
-  const handleToggleDataSelecionada = (dataStr: string) => {
+  // Toggle seleção de base de bloco no modal de retornos
+  const handleToggleDataSelecionada = (dataBase: string) => {
     setDatasSelecionadas((prev) =>
-      prev.includes(dataStr) ? prev.filter((d) => d !== dataStr) : [...prev, dataStr]
+      prev.includes(dataBase) ? prev.filter((d) => d !== dataBase) : [...prev, dataBase]
     );
   };
 
   const handleSelecionarTodasDatas = () => {
-    if (datasSelecionadas.length === datasCalendario.length) {
+    if (datasSelecionadas.length === blocosFuturosCalendario.length) {
       setDatasSelecionadas([]);
     } else {
-      setDatasSelecionadas(datasCalendario.map((d) => d.data));
+      setDatasSelecionadas(blocosFuturosCalendario.map((b) => b.base));
     }
   };
 
@@ -466,7 +484,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                         {precisaAlertaSemRetorno ? (
                           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
                             <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                            <span>Sem retorno cadastrado: não haverá lembrete</span>
+                            <span>Turma sem blocos futuros</span>
                           </div>
                         ) : (
                           <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium">
@@ -659,14 +677,14 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                 <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
                 <span>Buscando datas do calendário...</span>
               </div>
-            ) : datasCalendario.length === 0 ? (
+            ) : blocosFuturosCalendario.length === 0 ? (
               <div className="p-6 bg-amber-50 border border-amber-200 rounded-xl space-y-3 text-xs text-amber-900">
                 <div className="flex items-center gap-2 font-bold text-amber-800">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>Nenhuma data futura encontrada</span>
+                  <span>Nenhum bloco futuro encontrado</span>
                 </div>
                 <p>
-                  Não há datas de atendimento futuro cadastradas no calendário desta turma.
+                  Não há blocos de clínica futuros cadastrados no calendário desta turma.
                 </p>
                 <button
                   type="button"
@@ -682,27 +700,31 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Seleção de Datas */}
+                {/* Seleção de Blocos (pela Data Base) */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Selecione as Datas de Retorno:
+                      Selecione os Blocos Clínicos (por data base):
                     </label>
                     <button
                       type="button"
                       onClick={handleSelecionarTodasDatas}
                       className="text-[11px] font-semibold text-brand-600 hover:text-brand-800 cursor-pointer"
                     >
-                      {datasSelecionadas.length === datasCalendario.length ? 'Desmarcar Todas' : 'Selecionar Todas'}
+                      {datasSelecionadas.length === blocosFuturosCalendario.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
                     </button>
                   </div>
 
-                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 p-1 bg-slate-50/50">
-                    {datasCalendario.map((item) => {
-                      const selecionado = datasSelecionadas.includes(item.data);
+                  <div className="max-h-52 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 p-1 bg-slate-50/50">
+                    {blocosFuturosCalendario.map((bloco) => {
+                      const selecionado = datasSelecionadas.includes(bloco.base);
+                      const labelBloco = bloco.dias.length === 1
+                        ? `Bloco ${formatarDataBR(bloco.base)} (base ${formatarDataBR(bloco.base)})`
+                        : `Bloco ${formatarDataBR(bloco.base)} a ${formatarDataBR(bloco.fim)} (base ${formatarDataBR(bloco.base)})`;
+
                       return (
                         <label
-                          key={item.id}
+                          key={bloco.base}
                           className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${
                             selecionado ? 'bg-brand-50/70 text-brand-900' : 'hover:bg-slate-100/70 text-slate-700'
                           }`}
@@ -711,15 +733,20 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                             <input
                               type="checkbox"
                               checked={selecionado}
-                              onChange={() => handleToggleDataSelecionada(item.data)}
+                              onChange={() => handleToggleDataSelecionada(bloco.base)}
                               className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                             />
-                            <span className="text-xs font-semibold">
-                              {formatarDataBR(item.data)}
-                            </span>
+                            <div>
+                              <span className="text-xs font-semibold">
+                                {labelBloco}
+                              </span>
+                              <span className="block text-[10px] text-slate-400">
+                                {bloco.dias.length} {bloco.dias.length === 1 ? 'dia de atendimento' : 'dias consecutivos de atendimento'}
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-[11px] text-slate-400 font-mono">
-                            {item.data}
+                          <span className="text-[11px] text-brand-700 font-mono font-bold bg-brand-100/60 px-2 py-0.5 rounded">
+                            {formatarDataBR(bloco.base)}
                           </span>
                         </label>
                       );
