@@ -1,13 +1,16 @@
 import { supabase } from './supabase';
 import {
   AlinhadorCalendario,
+  AlinhadorConfig,
   AlinhadorPaciente,
   AlinhadorPedido,
   PedidoComPaciente,
   ResultadoSolicitacao,
   StatusPedido,
   Turma,
-  calcularStatusPedido
+  TEMPLATE_MENSAGEM_PADRAO,
+  calcularStatusPedido,
+  formatarDataISO
 } from './alinhadoresTypes';
 
 /**
@@ -360,7 +363,8 @@ export async function desfazerSolicitacao(id: string): Promise<AlinhadorPedido> 
     .from('alinhadores_pedidos')
     .update({
       solicitado_em: null,
-      lote_id: null
+      lote_id: null,
+      mensagem_enviada_em: null
     })
     .eq('id', id)
     .select()
@@ -553,4 +557,249 @@ export async function criarPedidosEmLote(
 
   return { criados: novasDatas.length, ignorados };
 }
+
+// ==============================================================================
+// 5. CONFIGURAÇÃO DO MÓDULO E MENSAGENS (PARTE 3)
+// ==============================================================================
+
+/**
+ * Obtém a configuração do módulo de alinhadores (linha única garantida).
+ * Se a linha ou tabela ainda não existirem, retorna os valores padrão com segurança.
+ */
+export async function obterConfig(): Promise<AlinhadorConfig> {
+  try {
+    const { data, error } = await supabase
+      .from('alinhadores_config')
+      .select('*')
+      .eq('id', true)
+      .maybeSingle();
+
+    if (error || !data) {
+      return {
+        id: true,
+        antecedencia_dias: 20,
+        quantidade_por_pedido: 2,
+        template_mensagem: TEMPLATE_MENSAGEM_PADRAO
+      };
+    }
+
+    return data as AlinhadorConfig;
+  } catch {
+    return {
+      id: true,
+      antecedencia_dias: 20,
+      quantidade_por_pedido: 2,
+      template_mensagem: TEMPLATE_MENSAGEM_PADRAO
+    };
+  }
+}
+
+/**
+ * Salva ou atualiza a configuração do módulo com validação de limites.
+ */
+export async function salvarConfig(
+  dados: Partial<Omit<AlinhadorConfig, 'id' | 'updated_at'>>
+): Promise<AlinhadorConfig> {
+  if (dados.antecedencia_dias !== undefined) {
+    const d = Number(dados.antecedencia_dias);
+    if (isNaN(d) || d < 1 || d > 90) {
+      throw new Error('A antecedência deve ser um número inteiro entre 1 e 90 dias.');
+    }
+  }
+
+  if (dados.quantidade_por_pedido !== undefined) {
+    const q = Number(dados.quantidade_por_pedido);
+    if (isNaN(q) || q < 1) {
+      throw new Error('A quantidade padrão por pedido deve ser um número maior ou igual a 1.');
+    }
+  }
+
+  if (dados.template_mensagem !== undefined) {
+    if (!dados.template_mensagem || !dados.template_mensagem.trim()) {
+      throw new Error('O modelo de mensagem não pode ser vazio.');
+    }
+  }
+
+  const payload = {
+    id: true,
+    ...dados,
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabase
+    .from('alinhadores_config')
+    .upsert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Erro ao salvar configurações de alinhadores:', error);
+    throw new Error(`Erro ao salvar configurações: ${error.message}`);
+  }
+
+  return data as AlinhadorConfig;
+}
+
+/**
+ * Sincroniza os próximos pedidos de todos os pacientes ativos:
+ * Para cada paciente ativo, garante que exista um pedido para a menor data do calendário da sua turma
+ * estritamente maior que hoje (data > hoje), de forma idempotente sem criar duplicatas nem datas passadas.
+ */
+export async function sincronizarProximosPedidos(): Promise<{ criados: number }> {
+  try {
+    // 1. Obter todos os pacientes ativos
+    const { data: pacientes, error: pacientesError } = await supabase
+      .from('alinhadores_pacientes')
+      .select('id, turma_id')
+      .eq('ativo', true);
+
+    if (pacientesError) {
+      console.error('Erro ao buscar pacientes para sincronização de retornos:', pacientesError);
+      return { criados: 0 };
+    }
+
+    if (!pacientes || pacientes.length === 0) {
+      return { criados: 0 };
+    }
+
+    // 2. Coletar turmas únicas dos pacientes ativos
+    const turmasIds = Array.from(new Set(pacientes.map((p) => p.turma_id)));
+    const hojeISO = formatarDataISO(new Date());
+
+    // 3. Obter datas futuras do calendário para essas turmas (data > hoje)
+    const { data: datasCalendario, error: calError } = await supabase
+      .from('alinhadores_calendario')
+      .select('turma_id, data')
+      .in('turma_id', turmasIds)
+      .gt('data', hojeISO)
+      .order('data', { ascending: true });
+
+    if (calError) {
+      console.error('Erro ao buscar calendário para sincronização de retornos:', calError);
+      return { criados: 0 };
+    }
+
+    // 4. Mapear o menor retorno futuro de cada turma
+    const proximoRetornoPorTurma: Record<string, string> = {};
+    for (const item of datasCalendario || []) {
+      if (!proximoRetornoPorTurma[item.turma_id]) {
+        proximoRetornoPorTurma[item.turma_id] = item.data;
+      }
+    }
+
+    // 5. Determinar quais pares (paciente_id, data_retorno) devem existir
+    const paresEsperados: Array<{ paciente_id: string; data_retorno: string }> = [];
+    for (const paciente of pacientes) {
+      const proxData = proximoRetornoPorTurma[paciente.turma_id];
+      if (proxData) {
+        paresEsperados.push({
+          paciente_id: paciente.id,
+          data_retorno: proxData
+        });
+      }
+    }
+
+    if (paresEsperados.length === 0) {
+      return { criados: 0 };
+    }
+
+    // 6. Verificar quais desses pedidos já existem no banco
+    const pacientesIds = paresEsperados.map((p) => p.paciente_id);
+    const datasEsperadas = Array.from(new Set(paresEsperados.map((p) => p.data_retorno)));
+
+    const { data: pedidosExistentes, error: pedError } = await supabase
+      .from('alinhadores_pedidos')
+      .select('paciente_id, data_retorno')
+      .in('paciente_id', pacientesIds)
+      .in('data_retorno', datasEsperadas);
+
+    if (pedError) {
+      console.error('Erro ao verificar pedidos existentes para sincronização:', pedError);
+      return { criados: 0 };
+    }
+
+    const setExistentes = new Set(
+      (pedidosExistentes || []).map((p) => `${p.paciente_id}:${p.data_retorno}`)
+    );
+
+    const novosRegistros = paresEsperados
+      .filter((p) => !setExistentes.has(`${p.paciente_id}:${p.data_retorno}`))
+      .map((p) => ({
+        paciente_id: p.paciente_id,
+        data_retorno: p.data_retorno,
+        alinhador_de: null,
+        alinhador_ate: null
+      }));
+
+    if (novosRegistros.length === 0) {
+      return { criados: 0 };
+    }
+
+    // 7. Inserir novos pedidos idempotentemente
+    const { error: insertError } = await supabase
+      .from('alinhadores_pedidos')
+      .insert(novosRegistros);
+
+    if (insertError) {
+      console.error('Erro ao inserir próximos pedidos sincronizados:', insertError);
+      return { criados: 0 };
+    }
+
+    return { criados: novosRegistros.length };
+  } catch (err: any) {
+    console.error('Erro inesperado na sincronização de próximos pedidos:', err);
+    return { criados: 0 };
+  }
+}
+
+/**
+ * Marca pedidos solicitados como comunicados à empresa fornecedora (mensagem_enviada_em = agora).
+ */
+export async function marcarComunicadosEmpresa(ids: string[]): Promise<number> {
+  if (!ids || ids.length === 0) return 0;
+
+  const agora = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('alinhadores_pedidos')
+    .update({ mensagem_enviada_em: agora })
+    .in('id', ids)
+    .not('solicitado_em', 'is', null)
+    .is('mensagem_enviada_em', null)
+    .select('id');
+
+  if (error) {
+    console.error('Erro ao marcar pedidos como comunicados à empresa:', error);
+    throw new Error(`Erro ao registrar comunicação: ${error.message}`);
+  }
+
+  return data ? data.length : 0;
+}
+
+/**
+ * Sugere a numeração de alinhadores de um paciente com base no histórico:
+ * "de" = último "ate" solicitado + 1 e "ate" = de + quantidade_por_pedido - 1.
+ */
+export function sugerirNumeracaoAlinhadores(
+  pedidosPaciente: AlinhadorPedido[],
+  quantidadePorPedido: number = 2
+): { de: number; ate: number } {
+  const qtd = Math.max(1, quantidadePorPedido);
+
+  // Filtrar pedidos que possuem alinhador_ate preenchido
+  const comAte = (pedidosPaciente || []).filter(
+    (p) => p.alinhador_ate !== null && p.alinhador_ate !== undefined && !isNaN(Number(p.alinhador_ate))
+  );
+
+  if (comAte.length === 0) {
+    return { de: 1, ate: qtd };
+  }
+
+  // Maior alinhador_ate registrado
+  const maiorAte = Math.max(...comAte.map((p) => Number(p.alinhador_ate)));
+  const de = maiorAte + 1;
+  const ate = de + qtd - 1;
+
+  return { de, ate };
+}
+
 
