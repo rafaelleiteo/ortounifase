@@ -14,13 +14,20 @@ import {
   Search,
   Check,
   FileText,
-  X
+  X,
+  Send,
+  Sparkles,
+  CalendarDays,
+  ListFilter
 } from 'lucide-react';
 import {
   Turma,
+  AlinhadorConfig,
   PedidoComPaciente,
   StatusPedido,
   formatarDataBR,
+  formatarDataISO,
+  parseDataLocal,
   calcularPrazoLimite,
   calcularStatusPedido,
   gerarMensagemEmpresa,
@@ -32,26 +39,38 @@ import {
   excluirPedido,
   marcarComoSolicitados,
   desfazerSolicitacao,
-  buscarPedidosPorLote
+  buscarPedidosPorLote,
+  sincronizarProximosPedidos,
+  marcarComunicadosEmpresa,
+  sugerirNumeracaoAlinhadores,
+  listarDatasCalendario
 } from '@/lib/alinhadoresService';
 
 interface AlinhadoresPedidosTabProps {
+  config: AlinhadorConfig;
   turmas: Turma[];
   turmaSelecionadaId: string;
   onSelecionarTurma: (turmaId: string) => void;
+  onIrParaCalendario: () => void;
 }
 
-type FiltroStatus = 'nao_solicitados' | 'todos' | 'atrasado' | 'vencendo' | 'pendente' | 'solicitado';
+type FiltroStatus = 'nao_solicitados' | 'todos' | 'atrasado' | 'vencendo' | 'pendente' | 'solicitado' | 'expirado';
+type ModoVisao = 'proximo' | 'todos';
 
 export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
+  config,
   turmas,
   turmaSelecionadaId,
-  onSelecionarTurma
+  onSelecionarTurma,
+  onIrParaCalendario
 }) => {
   const [pedidos, setPedidos] = useState<PedidoComPaciente[]>([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
+
+  // Visão padrão: Próximo retorno de cada paciente
+  const [modoVisao, setModoVisao] = useState<ModoVisao>('proximo');
 
   // Filtros
   const [filtroTurma, setFiltroTurma] = useState<string>(turmaSelecionadaId || 'todas');
@@ -59,15 +78,17 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
   const [filtroMes, setFiltroMes] = useState<string>('todos');
   const [buscaPaciente, setBuscaPaciente] = useState<string>('');
 
-  // Seleção para lote
+  // Seleção para lote de solicitação
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [processandoLote, setProcessandoLote] = useState(false);
 
-  // Modal Mensagem Gerada (após marcar como solicitados)
-  const [modalMensagemAberta, setModalMensagemAberta] = useState(false);
-  const [textoMensagem, setTextoMensagem] = useState('');
+  // Modal de Comunicação à Empresa (gerar mensagem a partir do template)
+  const [modalComunicacaoAberta, setModalComunicacaoAberta] = useState(false);
+  const [textoComunicacao, setTextoComunicacao] = useState('');
+  const [idsParaComunicar, setIdsParaComunicar] = useState<string[]>([]);
+  const [marcandoComunicados, setMarcandoComunicados] = useState(false);
   const [copiadoFeedback, setCopiadoFeedback] = useState(false);
-  const [qtdIgnoradosLote, setQtdIgnoradosLote] = useState<number>(0);
+  const [qtdIgnoradosSolicitacao, setQtdIgnoradosSolicitacao] = useState<number>(0);
 
   // Modal Ver Mensagem do Lote existente
   const [modalLoteExistenteAberto, setModalLoteExistenteAberto] = useState(false);
@@ -80,6 +101,13 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     Record<string, { de: string; ate: string; salvando?: boolean; salvo?: boolean }>
   >({});
 
+  // Turmas sem datas futuras no calendário
+  const [turmasSemDatasFuturas, setTurmasSemDatasFuturas] = useState<Set<string>>(new Set());
+
+  const hojeISO = formatarDataISO(new Date());
+  const hojeDate = parseDataLocal(hojeISO);
+  const antecedenciaDias = config?.antecedencia_dias || 20;
+
   // Sincronizar filtroTurma caso a prop mude
   useEffect(() => {
     if (turmaSelecionadaId) {
@@ -87,15 +115,20 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     }
   }, [turmaSelecionadaId]);
 
-  // Carregar todos os pedidos
-  const carregarPedidos = async () => {
+  // Carregar e sincronizar pedidos
+  const carregarDadosCompletos = async () => {
     try {
       setCarregando(true);
       setErro(null);
+
+      // 1. Sincroniza os próximos pedidos de todos os pacientes ativos
+      await sincronizarProximosPedidos();
+
+      // 2. Carrega todos os pedidos
       const lista = await listarPedidos();
       setPedidos(lista);
 
-      // Inicializa valores de edição inline
+      // 3. Inicializa valores de edição inline
       const edicaoMap: Record<string, { de: string; ate: string }> = {};
       for (const p of lista) {
         edicaoMap[p.id] = {
@@ -104,17 +137,28 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
         };
       }
       setValoresEdicao(edicaoMap);
+
+      // 4. Verifica quais turmas não possuem nenhuma data futura no calendário
+      const semFuturo = new Set<string>();
+      for (const t of turmas) {
+        const datasCal = await listarDatasCalendario(t.id);
+        const temFuturo = datasCal.some((d) => d.data > hojeISO);
+        if (!temFuturo) {
+          semFuturo.add(t.id);
+        }
+      }
+      setTurmasSemDatasFuturas(semFuturo);
     } catch (err: any) {
       console.error(err);
-      setErro(err.message || 'Erro ao carregar lista de pedidos.');
+      setErro(err.message || 'Erro ao sincronizar e carregar pedidos.');
     } finally {
       setCarregando(false);
     }
   };
 
   useEffect(() => {
-    carregarPedidos();
-  }, []);
+    carregarDadosCompletos();
+  }, [turmas]);
 
   // Limpa notificações após 5s
   useEffect(() => {
@@ -124,27 +168,53 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     }
   }, [sucesso]);
 
-  // Contadores globais (ou filtrados pela turma se selecionada)
-  const contadores = useMemo(() => {
-    const escopo = filtroTurma === 'todas'
-      ? pedidos
-      : pedidos.filter((p) => p.paciente?.turma_id === filtroTurma);
+  // Pedidos no escopo atual (filtrados por turma)
+  const pedidosNoEscopoTurma = useMemo(() => {
+    if (filtroTurma === 'todas') return pedidos;
+    return pedidos.filter((p) => p.paciente?.turma_id === filtroTurma);
+  }, [pedidos, filtroTurma]);
 
+  // Identificar pedidos do PRÓXIMO RETORNO de cada paciente ativo
+  const pedidosProximoRetornoIds = useMemo(() => {
+    // Para cada paciente ativo, encontrar o pedido com a menor data_retorno > hojeISO
+    const proximoPorPaciente: Record<string, { id: string; data: string }> = {};
+
+    for (const p of pedidosNoEscopoTurma) {
+      if (!p.paciente?.ativo) continue;
+      if (p.data_retorno > hojeISO) {
+        const atual = proximoPorPaciente[p.paciente_id];
+        if (!atual || p.data_retorno < atual.data) {
+          proximoPorPaciente[p.paciente_id] = { id: p.id, data: p.data_retorno };
+        }
+      }
+    }
+
+    return new Set(Object.values(proximoPorPaciente).map((item) => item.id));
+  }, [pedidosNoEscopoTurma, hojeISO]);
+
+  // Contadores no topo: IGNORAM OS EXPIRADOS
+  const contadores = useMemo(() => {
     let atrasados = 0;
     let vencendo = 0;
     let pendentes = 0;
     let solicitados = 0;
 
-    for (const p of escopo) {
-      const st = calcularStatusPedido(p);
+    for (const p of pedidosNoEscopoTurma) {
+      const st = calcularStatusPedido(p, hojeDate, antecedenciaDias);
       if (st === 'atrasado') atrasados++;
       else if (st === 'vencendo') vencendo++;
       else if (st === 'pendente') pendentes++;
       else if (st === 'solicitado') solicitados++;
+      // Expirados são ignorados nos contadores principais
     }
 
     return { atrasados, vencendo, pendentes, solicitados };
-  }, [pedidos, filtroTurma]);
+  }, [pedidosNoEscopoTurma, hojeDate, antecedenciaDias]);
+
+  // Pedidos aguardando comunicação à empresa (solicitados com mensagem_enviada_em null)
+  const pedidosAguardandoComunicacao = useMemo(() => {
+    return pedidosNoEscopoTurma.filter((p) => p.solicitado_em && !p.mensagem_enviada_em);
+  }, [pedidosNoEscopoTurma]);
 
   // Lista única de meses disponíveis para o filtro (YYYY-MM)
   const mesesDisponiveis = useMemo(() => {
@@ -165,20 +235,22 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     return `${nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1)}/${ano}`;
   };
 
-  // Filtragem e ordenação padrão (prazo limite ascendente)
+  // Filtragem e ordenação padrão
   const pedidosFiltrados = useMemo(() => {
-    let res = [...pedidos];
+    let res = [...pedidosNoEscopoTurma];
 
-    // Filtro por turma
-    if (filtroTurma !== 'todas') {
-      res = res.filter((p) => p.paciente?.turma_id === filtroTurma);
+    // Se estiver no modo "Próximo retorno de cada paciente", filtrar apenas os próximos retornos
+    if (modoVisao === 'proximo') {
+      res = res.filter((p) => pedidosProximoRetornoIds.has(p.id));
     }
 
     // Filtro por status
     if (filtroStatus === 'nao_solicitados') {
-      res = res.filter((p) => !p.solicitado_em);
+      res = res.filter((p) => !p.solicitado_em && calcularStatusPedido(p, hojeDate, antecedenciaDias) !== 'expirado');
+    } else if (filtroStatus === 'expirado') {
+      res = res.filter((p) => calcularStatusPedido(p, hojeDate, antecedenciaDias) === 'expirado');
     } else if (filtroStatus !== 'todos') {
-      res = res.filter((p) => calcularStatusPedido(p) === filtroStatus);
+      res = res.filter((p) => calcularStatusPedido(p, hojeDate, antecedenciaDias) === filtroStatus);
     }
 
     // Filtro por mês
@@ -192,10 +264,10 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
       res = res.filter((p) => p.paciente?.nome.toLowerCase().includes(q));
     }
 
-    // Ordenação padrão: Prazo limite ascendente (mais atrasados primeiro)
+    // Ordenação padrão: Prazo limite ascendente (mais urgentes primeiro)
     res.sort((a, b) => {
-      const prazoA = calcularPrazoLimite(a.data_retorno).getTime();
-      const prazoB = calcularPrazoLimite(b.data_retorno).getTime();
+      const prazoA = calcularPrazoLimite(a.data_retorno, antecedenciaDias).getTime();
+      const prazoB = calcularPrazoLimite(b.data_retorno, antecedenciaDias).getTime();
       if (prazoA !== prazoB) {
         return prazoA - prazoB;
       }
@@ -203,17 +275,29 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     });
 
     return res;
-  }, [pedidos, filtroTurma, filtroStatus, filtroMes, buscaPaciente]);
+  }, [
+    pedidosNoEscopoTurma,
+    modoVisao,
+    pedidosProximoRetornoIds,
+    filtroStatus,
+    filtroMes,
+    buscaPaciente,
+    hojeDate,
+    antecedenciaDias
+  ]);
 
-  // Apenas pedidos não solicitados podem ser selecionados para envio
+  // Apenas pedidos não solicitados (e não expirados) podem ser selecionados para solicitação
   const pedidosElegiveisParaSelecao = useMemo(() => {
-    return pedidosFiltrados.filter((p) => !p.solicitado_em);
-  }, [pedidosFiltrados]);
+    return pedidosFiltrados.filter(
+      (p) => !p.solicitado_em && calcularStatusPedido(p, hojeDate, antecedenciaDias) !== 'expirado'
+    );
+  }, [pedidosFiltrados, hojeDate, antecedenciaDias]);
 
   // Toggle selecionar todos os elegíveis
   const handleToggleSelecionarTodos = () => {
     const elegiveisIds = pedidosElegiveisParaSelecao.map((p) => p.id);
-    const todosJaSelecionados = elegiveisIds.length > 0 && elegiveisIds.every((id) => selecionados.includes(id));
+    const todosJaSelecionados =
+      elegiveisIds.length > 0 && elegiveisIds.every((id) => selecionados.includes(id));
 
     if (todosJaSelecionados) {
       setSelecionados((prev) => prev.filter((id) => !elegiveisIds.includes(id)));
@@ -257,7 +341,6 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
       return;
     }
 
-    // Atualiza estado de salvando
     setValoresEdicao((prev) => ({
       ...prev,
       [pedidoId]: { ...prev[pedidoId], salvando: true }
@@ -269,12 +352,12 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
         alinhador_ate: ateNum
       });
 
-      // Atualiza o pedido na lista local
       setPedidos((prev) =>
-        prev.map((p) => (p.id === pedidoId ? { ...p, alinhador_de: deNum, alinhador_ate: ateNum } : p))
+        prev.map((p) =>
+          p.id === pedidoId ? { ...p, alinhador_de: deNum, alinhador_ate: ateNum } : p
+        )
       );
 
-      // Feedback de salvo com check verde temporário
       setValoresEdicao((prev) => ({
         ...prev,
         [pedidoId]: { ...prev[pedidoId], salvando: false, salvo: true }
@@ -295,12 +378,68 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     }
   };
 
+  // Sugerir numeração de alinhadores para uma linha
+  const handleSugerirNumeracao = async (pedido: PedidoComPaciente) => {
+    const pedidosDoPaciente = pedidos.filter((p) => p.paciente_id === pedido.paciente_id);
+    const sugestao = sugerirNumeracaoAlinhadores(
+      pedidosDoPaciente,
+      config?.quantidade_por_pedido || 2
+    );
+
+    setValoresEdicao((prev) => ({
+      ...prev,
+      [pedido.id]: {
+        de: String(sugestao.de),
+        ate: String(sugestao.ate),
+        salvando: true
+      }
+    }));
+
+    try {
+      await editarPedido(pedido.id, {
+        alinhador_de: sugestao.de,
+        alinhador_ate: sugestao.ate
+      });
+
+      setPedidos((prev) =>
+        prev.map((p) =>
+          p.id === pedido.id
+            ? { ...p, alinhador_de: sugestao.de, alinhador_ate: sugestao.ate }
+            : p
+        )
+      );
+
+      setValoresEdicao((prev) => ({
+        ...prev,
+        [pedido.id]: {
+          de: String(sugestao.de),
+          ate: String(sugestao.ate),
+          salvando: false,
+          salvo: true
+        }
+      }));
+      setTimeout(() => {
+        setValoresEdicao((prev) => ({
+          ...prev,
+          [pedido.id]: { ...prev[pedido.id], salvo: false }
+        }));
+      }, 2000);
+    } catch (err: any) {
+      console.error(err);
+      setErro(err.message || 'Erro ao aplicar numeração sugerida.');
+      setValoresEdicao((prev) => ({
+        ...prev,
+        [pedido.id]: { ...prev[pedido.id], salvando: false }
+      }));
+    }
+  };
+
   // Ação em Lote: Marcar selecionados como solicitados
   const handleMarcarComoSolicitados = async () => {
     if (selecionados.length === 0) return;
 
     const confirmou = window.confirm(
-      `Deseja marcar ${selecionados.length} pedido(s) selecionado(s) como solicitado(s)?\n\nIsso registrará a solicitação e gerará a mensagem para a empresa fornecedora.`
+      `Deseja marcar ${selecionados.length} pedido(s) selecionado(s) como solicitado(s)?\n\nIsso registrará a solicitação e abrirá a mensagem para a empresa fornecedora.`
     );
     if (!confirmou) return;
 
@@ -309,22 +448,19 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
       setErro(null);
 
       const resultado = await marcarComoSolicitados(selecionados);
-
-      // Gera mensagem pronta com os pedidos atualizados
-      const pedidosParaMsg: PedidoParaMensagem[] = resultado.pedidos.map((p) => ({
-        paciente_nome: p.paciente_nome,
-        data_retorno: p.data_retorno,
-        alinhador_de: p.alinhador_de,
-        alinhador_ate: p.alinhador_ate
-      }));
-
-      const textoGerado = gerarMensagemEmpresa(pedidosParaMsg);
-      setTextoMensagem(textoGerado);
-      setQtdIgnoradosLote(resultado.ignorados);
-      setModalMensagemAberta(true);
+      setQtdIgnoradosSolicitacao(resultado.ignorados);
       setSelecionados([]);
 
-      await carregarPedidos();
+      // Recarrega os pedidos atualizados
+      const listaAtualizada = await listarPedidos();
+      setPedidos(listaAtualizada);
+
+      // Abrir modal com TODOS os pedidos que estão pendentes de comunicação à empresa
+      const todosPendentesComunicacao = listaAtualizada.filter(
+        (p) => p.solicitado_em && !p.mensagem_enviada_em
+      );
+
+      abrirModalComunicacao(todosPendentesComunicacao);
     } catch (err: any) {
       console.error(err);
       setErro(err.message || 'Erro ao marcar pedidos como solicitados.');
@@ -333,18 +469,64 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     }
   };
 
-  // Desfazer solicitação de um pedido
-  const handleDesfazerSolicitacao = async (pedido: PedidoComPaciente) => {
+  // Abrir modal para gerar mensagem à empresa
+  const abrirModalComunicacao = (lista: PedidoComPaciente[]) => {
+    if (lista.length === 0) return;
+
+    const pedidosParaMsg: PedidoParaMensagem[] = lista.map((p) => ({
+      paciente_nome: p.paciente?.nome || 'Paciente Desconhecido',
+      data_retorno: p.data_retorno,
+      alinhador_de: p.alinhador_de,
+      alinhador_ate: p.alinhador_ate
+    }));
+
+    const textoGerado = gerarMensagemEmpresa(pedidosParaMsg, config?.template_mensagem);
+    setTextoComunicacao(textoGerado);
+    setIdsParaComunicar(lista.map((p) => p.id));
+    setCopiadoFeedback(false);
+    setModalComunicacaoAberta(true);
+  };
+
+  // Marcar como enviada à empresa
+  const handleConfirmarComunicacaoEmpresa = async () => {
+    if (idsParaComunicar.length === 0) return;
+
     const confirmou = window.confirm(
-      `Deseja desfazer a marcação de solicitação do pedido de "${pedido.paciente?.nome}" para ${formatarDataBR(pedido.data_retorno)}?\n\nO pedido voltará para o status pendente.`
+      `Confirma que a mensagem foi enviada à empresa fornecedora?\n\nOs ${idsParaComunicar.length} pedido(s) serão marcados como comunicados.`
     );
+    if (!confirmou) return;
+
+    try {
+      setMarcandoComunicados(true);
+      setErro(null);
+      await marcarComunicadosEmpresa(idsParaComunicar);
+      setModalComunicacaoAberta(false);
+      setSucesso(`${idsParaComunicar.length} pedido(s) marcado(s) como comunicados à empresa.`);
+      await carregarDadosCompletos();
+    } catch (err: any) {
+      console.error(err);
+      setErro(err.message || 'Erro ao registrar comunicação à empresa.');
+    } finally {
+      setMarcandoComunicados(false);
+    }
+  };
+
+  // Desfazer solicitação de um pedido com proteção de aviso se já comunicado
+  const handleDesfazerSolicitacao = async (pedido: PedidoComPaciente) => {
+    let mensagemConfirmacao = `Deseja desfazer a marcação de solicitação do pedido de "${pedido.paciente?.nome}" para ${formatarDataBR(pedido.data_retorno)}?\n\nO pedido voltará para o status pendente.`;
+
+    if (pedido.mensagem_enviada_em) {
+      mensagemConfirmacao = `ATENÇÃO: A empresa fornecedora já foi informada sobre esta solicitação em ${formatarDataBR(pedido.mensagem_enviada_em)}!\n\nDeseja realmente desfazer a solicitação deste pedido mesmo assim?`;
+    }
+
+    const confirmou = window.confirm(mensagemConfirmacao);
     if (!confirmou) return;
 
     try {
       setErro(null);
       await desfazerSolicitacao(pedido.id);
       setSucesso(`Solicitação do pedido de ${pedido.paciente?.nome} desfeita com sucesso.`);
-      await carregarPedidos();
+      await carregarDadosCompletos();
     } catch (err: any) {
       console.error(err);
       setErro(err.message || 'Erro ao desfazer solicitação.');
@@ -367,7 +549,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
         alinhador_ate: p.alinhador_ate
       }));
 
-      const texto = gerarMensagemEmpresa(paraMsg);
+      const texto = gerarMensagemEmpresa(paraMsg, config?.template_mensagem);
       setTextoLoteExistente(texto);
     } catch (err: any) {
       console.error(err);
@@ -388,7 +570,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
       setErro(null);
       await excluirPedido(pedido.id);
       setSucesso('Pedido de retorno removido com sucesso.');
-      await carregarPedidos();
+      await carregarDadosCompletos();
     } catch (err: any) {
       console.error(err);
       setErro(err.message || 'Erro ao excluir pedido.');
@@ -406,22 +588,40 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     }
   };
 
-  // Formatar data/hora ISO em formato amigável
-  const formatarDataHora = (iso: string | null | undefined) => {
-    if (!iso) return '-';
-    try {
-      const d = new Date(iso);
-      const dataStr = formatarDataBR(d);
-      const horaStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      return `${dataStr} às ${horaStr}`;
-    } catch {
-      return iso;
-    }
-  };
+  // Identifica se a turma atualmente selecionada está sem datas futuras
+  const turmaSelecionadaObj = turmas.find((t) => t.id === filtroTurma);
+  const turmaAtualSemDatas = filtroTurma !== 'todas' && turmasSemDatasFuturas.has(filtroTurma);
 
   return (
     <div className="space-y-6">
-      {/* 1. Faixa de Resumo com Contadores */}
+      {/* Aviso Vermelho: Turma sem datas futuras no calendário */}
+      {turmaAtualSemDatas && (
+        <div className="p-4 bg-rose-50 border border-rose-300 rounded-xl flex items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-rose-100 text-rose-700 shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-rose-900">
+                Turma {turmaSelecionadaObj?.nome} sem datas futuras no calendário
+              </h4>
+              <p className="text-xs text-rose-700 mt-0.5">
+                Não há consultas clínicas futuras agendadas para esta turma. Cadastre novas datas para habilitar o acompanhamento dos retornos.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onIrParaCalendario}
+            className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer shadow-xs"
+          >
+            <CalendarDays className="w-4 h-4" />
+            <span>Cadastrar em Calendário</span>
+          </button>
+        </div>
+      )}
+
+      {/* 1. Faixa de Resumo com Contadores (IGNORAM EXPIRADOS) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Atrasados */}
         <button
@@ -440,7 +640,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
           <div className="text-2xl font-black text-rose-700 mt-2 font-mono">
             {contadores.atrasados}
           </div>
-          <p className="text-[11px] text-rose-600/80 mt-1">Prazo limite expirado</p>
+          <p className="text-[11px] text-rose-600/80 mt-1">Prazo de {antecedenciaDias}d expirado</p>
         </button>
 
         {/* Vencendo */}
@@ -500,11 +700,11 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
           <div className="text-2xl font-black text-emerald-700 mt-2 font-mono">
             {contadores.solicitados}
           </div>
-          <p className="text-[11px] text-emerald-600/80 mt-1">Encaminhados à empresa</p>
+          <p className="text-[11px] text-emerald-600/80 mt-1">Já registrados</p>
         </button>
       </div>
 
-      {/* 2. Banner de Alerta se houver atrasados ou vencendo */}
+      {/* 2. Banner de Alerta (IGNORA EXPIRADOS) */}
       {(contadores.atrasados > 0 || contadores.vencendo > 0) && (
         <div className="p-4 bg-rose-50/90 border border-rose-300 rounded-xl flex items-start sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-3">
@@ -528,7 +728,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                     {contadores.vencendo} pedido(s) vencendo nos próximos dias
                   </strong>
                 )}
-                . Solicite os alinhadores com antecedência mínima de 20 dias da consulta de retorno.
+                . Solicite os alinhadores com antecedência de {antecedenciaDias} dias da consulta de retorno.
               </p>
             </div>
           </div>
@@ -539,6 +739,34 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
             className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shrink-0 cursor-pointer transition-colors"
           >
             Ver Não Solicitados
+          </button>
+        </div>
+      )}
+
+      {/* 3. Bloco: Aguardando Comunicação à Empresa */}
+      {pedidosAguardandoComunicacao.length > 0 && (
+        <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-100 text-emerald-700 shrink-0">
+              <Send className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-emerald-950">
+                Aguardando comunicação à empresa ({pedidosAguardandoComunicacao.length})
+              </h4>
+              <p className="text-xs text-emerald-800 mt-0.5">
+                Existem pedidos marcados como solicitados que ainda não foram encaminhados à fornecedora.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => abrirModalComunicacao(pedidosAguardandoComunicacao)}
+            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 transition-colors shrink-0 cursor-pointer shadow-xs"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>Gerar mensagem para a empresa</span>
           </button>
         </div>
       )}
@@ -558,109 +786,149 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
         </div>
       )}
 
-      {/* 3. Barra de Filtros e Ações em Lote */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        {/* Controles de Filtro */}
-        <div className="flex items-center gap-3 flex-wrap flex-1">
-          {/* Turma */}
+      {/* 4. Barra de Modos de Visão e Filtros */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-4">
+        {/* Alternância de Visão */}
+        <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-600">Turma:</span>
-            <select
-              value={filtroTurma}
-              onChange={(e) => {
-                setFiltroTurma(e.target.value);
-                if (e.target.value !== 'todas') {
-                  onSelecionarTurma(e.target.value);
-                }
-              }}
-              className="text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              <option value="todas">Todas as Turmas</option>
-              {turmas.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nome}
-                </option>
-              ))}
-            </select>
+            <ListFilter className="w-4 h-4 text-brand-600" />
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Modo de Exibição:
+            </span>
           </div>
 
-          {/* Status */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-600">Status:</span>
-            <select
-              value={filtroStatus}
-              onChange={(e) => setFiltroStatus(e.target.value as FiltroStatus)}
-              className="text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          <div className="inline-flex rounded-lg border border-slate-200 p-1 bg-slate-50 gap-1">
+            <button
+              type="button"
+              onClick={() => setModoVisao('proximo')}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                modoVisao === 'proximo'
+                  ? 'bg-white text-brand-700 shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <option value="nao_solicitados">Não solicitados (Padrão)</option>
-              <option value="todos">Todos os Pedidos</option>
-              <option value="atrasado">Apenas Atrasados</option>
-              <option value="vencendo">Apenas Vencendo</option>
-              <option value="pendente">Apenas Pendentes</option>
-              <option value="solicitado">Apenas Solicitados</option>
-            </select>
-          </div>
-
-          {/* Mês de Retorno */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-600">Mês de Retorno:</span>
-            <select
-              value={filtroMes}
-              onChange={(e) => setFiltroMes(e.target.value)}
-              className="text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              Próximo retorno de cada paciente
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoVisao('todos')}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                modoVisao === 'todos'
+                  ? 'bg-white text-brand-700 shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <option value="todos">Todos os Meses</option>
-              {mesesDisponiveis.map((m) => (
-                <option key={m} value={m}>
-                  {formatarMesLabel(m)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Busca por Nome do Paciente */}
-          <div className="relative min-w-[180px]">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={buscaPaciente}
-              onChange={(e) => setBuscaPaciente(e.target.value)}
-              placeholder="Buscar paciente..."
-              className="w-full text-xs pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
+              Todos os pedidos
+            </button>
           </div>
         </div>
 
-        {/* Botão de Ação em Lote */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={handleMarcarComoSolicitados}
-            disabled={processandoLote || selecionados.length === 0}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors shadow-xs cursor-pointer"
-          >
-            {processandoLote ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <PackageCheck className="w-4 h-4" />
-            )}
-            <span>
-              Marcar selecionados como solicitados
-              {selecionados.length > 0 ? ` (${selecionados.length})` : ''}
-            </span>
-          </button>
+        {/* Linha de Filtros e Ação em Lote */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-3 flex-wrap flex-1">
+            {/* Turma */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-600">Turma:</span>
+              <select
+                value={filtroTurma}
+                onChange={(e) => {
+                  setFiltroTurma(e.target.value);
+                  if (e.target.value !== 'todas') {
+                    onSelecionarTurma(e.target.value);
+                  }
+                }}
+                className="text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="todas">Todas as Turmas</option>
+                {turmas.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-600">Status:</span>
+              <select
+                value={filtroStatus}
+                onChange={(e) => setFiltroStatus(e.target.value as FiltroStatus)}
+                className="text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="nao_solicitados">Não solicitados (Padrão)</option>
+                <option value="todos">Todos os Pedidos</option>
+                <option value="atrasado">Apenas Atrasados</option>
+                <option value="vencendo">Apenas Vencendo</option>
+                <option value="pendente">Apenas Pendentes</option>
+                <option value="solicitado">Apenas Solicitados</option>
+                <option value="expirado">Expirados (Auditoria)</option>
+              </select>
+            </div>
+
+            {/* Mês de Retorno */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-600">Mês de Retorno:</span>
+              <select
+                value={filtroMes}
+                onChange={(e) => setFiltroMes(e.target.value)}
+                className="text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="todos">Todos os Meses</option>
+                {mesesDisponiveis.map((m) => (
+                  <option key={m} value={m}>
+                    {formatarMesLabel(m)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Busca por Nome do Paciente */}
+            <div className="relative min-w-[180px]">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={buscaPaciente}
+                onChange={(e) => setBuscaPaciente(e.target.value)}
+                placeholder="Buscar paciente..."
+                className="w-full text-xs pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+          </div>
+
+          {/* Botão de Ação em Lote */}
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={handleMarcarComoSolicitados}
+              disabled={processandoLote || selecionados.length === 0}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors shadow-xs cursor-pointer"
+            >
+              {processandoLote ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <PackageCheck className="w-4 h-4" />
+              )}
+              <span>
+                Marcar selecionados como solicitados
+                {selecionados.length > 0 ? ` (${selecionados.length})` : ''}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* 4. Tabela de Pedidos */}
+      {/* 5. Tabela de Pedidos */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Pedidos de Alinhadores ({pedidosFiltrados.length})
+              {modoVisao === 'proximo'
+                ? `Próximo Retorno dos Pacientes Ativos (${pedidosFiltrados.length})`
+                : `Todos os Pedidos (${pedidosFiltrados.length})`}
             </h4>
             <p className="text-[11px] text-slate-500">
-              Ordenação padrão por prazo limite de solicitação ascendente (mais urgentes primeiro)
+              Ordenados por prazo limite de solicitação ascendente (antecedência configurada: {antecedenciaDias} dias)
             </p>
           </div>
           {carregando && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
@@ -676,7 +944,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
             <PackageCheck className="w-8 h-8 text-slate-300 mx-auto" />
             <p className="font-semibold text-slate-700">Nenhum pedido encontrado para os filtros selecionados.</p>
             <p className="text-[11px] text-slate-400">
-              Selecione outro status ou cadastre novos retornos na aba "Pacientes".
+              Selecione outro status ou alterne o modo de visualização.
             </p>
           </div>
         ) : (
@@ -693,13 +961,13 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                       }
                       onChange={handleToggleSelecionarTodos}
                       className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
-                      title="Selecionar todos os não solicitados visíveis"
+                      title="Selecionar todos os não solicitados elegíveis visíveis"
                     />
                   </th>
                   <th className="py-3 px-4">Paciente</th>
                   <th className="py-3 px-3">Turma</th>
                   <th className="py-3 px-3">Data do Retorno</th>
-                  <th className="py-3 px-3">Prazo Limite</th>
+                  <th className="py-3 px-3">Situação do Prazo</th>
                   <th className="py-3 px-4 text-center">Alinhadores (De - Até)</th>
                   <th className="py-3 px-3 text-center">Status</th>
                   <th className="py-3 px-4 text-right">Ações / Detalhes</th>
@@ -707,11 +975,37 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {pedidosFiltrados.map((pedido) => {
-                  const status = calcularStatusPedido(pedido);
-                  const prazoLimite = calcularPrazoLimite(pedido.data_retorno);
+                  const status = calcularStatusPedido(pedido, hojeDate, antecedenciaDias);
+                  const prazoLimite = calcularPrazoLimite(pedido.data_retorno, antecedenciaDias);
                   const isSelecionado = selecionados.includes(pedido.id);
                   const edicao = valoresEdicao[pedido.id] || { de: '', ate: '' };
                   const jaSolicitado = !!pedido.solicitado_em;
+                  const ehExpirado = status === 'expirado';
+
+                  // Resposta clara sobre a situação do prazo
+                  let textoSituacaoPrazo = '';
+                  let corSituacao = 'text-slate-700';
+
+                  if (jaSolicitado) {
+                    textoSituacaoPrazo = `Solicitado em ${formatarDataBR(pedido.solicitado_em!)}`;
+                    corSituacao = 'text-emerald-700 font-semibold';
+                  } else if (ehExpirado) {
+                    textoSituacaoPrazo = `Expirado em ${formatarDataBR(pedido.data_retorno)}`;
+                    corSituacao = 'text-slate-500 italic';
+                  } else {
+                    const diffDiasPrazo = Math.round(
+                      (prazoLimite.getTime() - hojeDate.getTime()) / (1000 * 60 * 60 * 24)
+                    );
+
+                    if (diffDiasPrazo < 0) {
+                      const diasAtraso = Math.abs(diffDiasPrazo);
+                      textoSituacaoPrazo = `Atrasado há ${diasAtraso} ${diasAtraso === 1 ? 'dia' : 'dias'}`;
+                      corSituacao = 'text-rose-700 font-bold';
+                    } else {
+                      textoSituacaoPrazo = `Pedir até ${formatarDataBR(prazoLimite)} (faltam ${diffDiasPrazo} ${diffDiasPrazo === 1 ? 'dia' : 'dias'})`;
+                      corSituacao = diffDiasPrazo <= 5 ? 'text-amber-700 font-semibold' : 'text-slate-700';
+                    }
+                  }
 
                   let statusBadgeClass = '';
                   let statusLabel = '';
@@ -733,6 +1027,10 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                       statusBadgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
                       statusLabel = 'Solicitado';
                       break;
+                    case 'expirado':
+                      statusBadgeClass = 'bg-slate-200/80 text-slate-600 border-slate-300';
+                      statusLabel = 'Expirado';
+                      break;
                   }
 
                   return (
@@ -740,14 +1038,14 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                       key={pedido.id}
                       className={`hover:bg-slate-50/80 transition-colors ${
                         isSelecionado ? 'bg-brand-50/40' : ''
-                      } ${jaSolicitado ? 'bg-slate-50/30' : ''}`}
+                      } ${jaSolicitado ? 'bg-slate-50/30' : ''} ${ehExpirado ? 'opacity-65' : ''}`}
                     >
                       {/* Checkbox */}
                       <td className="py-3 px-3 text-center">
                         <input
                           type="checkbox"
                           checked={isSelecionado}
-                          disabled={jaSolicitado}
+                          disabled={jaSolicitado || ehExpirado}
                           onChange={() => handleToggleLinha(pedido.id)}
                           className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                         />
@@ -770,21 +1068,21 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                         {formatarDataBR(pedido.data_retorno)}
                       </td>
 
-                      {/* Prazo Limite (Retorno - 20 dias) */}
+                      {/* Situação do Prazo com Resposta Clara */}
                       <td className="py-3 px-3">
-                        <span className="font-semibold text-slate-700">
-                          {formatarDataBR(prazoLimite)}
+                        <span className={`text-[11px] ${corSituacao}`}>
+                          {textoSituacaoPrazo}
                         </span>
                       </td>
 
-                      {/* Alinhadores (De e Até) com Edição Inline */}
+                      {/* Alinhadores com Edição Inline e Botão Sugerir */}
                       <td className="py-3 px-4 text-center">
                         <div className="inline-flex items-center justify-center gap-1.5">
                           <input
                             type="number"
                             min="1"
                             value={edicao.de}
-                            disabled={jaSolicitado}
+                            disabled={jaSolicitado || ehExpirado}
                             onChange={(e) =>
                               setValoresEdicao((prev) => ({
                                 ...prev,
@@ -802,7 +1100,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                             type="number"
                             min="1"
                             value={edicao.ate}
-                            disabled={jaSolicitado}
+                            disabled={jaSolicitado || ehExpirado}
                             onChange={(e) =>
                               setValoresEdicao((prev) => ({
                                 ...prev,
@@ -815,6 +1113,18 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                             className="w-14 text-center text-xs py-1 px-1 bg-slate-50 border border-slate-300 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-500"
                             title="Alinhador final"
                           />
+
+                          {/* Botão Sugerir Numeração */}
+                          {!jaSolicitado && !ehExpirado && (
+                            <button
+                              type="button"
+                              onClick={() => handleSugerirNumeracao(pedido)}
+                              className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                              title="Sugerir numeração a partir do histórico"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </button>
+                          )}
 
                           {/* Indicador de Salvamento Inline */}
                           {edicao.salvando && (
@@ -839,10 +1149,17 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                       <td className="py-3 px-4 text-right">
                         {jaSolicitado ? (
                           <div className="flex flex-col items-end gap-1">
-                            <span className="text-[10px] text-slate-500 font-medium">
-                              Solicitado em {formatarDataHora(pedido.solicitado_em)}
-                            </span>
                             <div className="flex items-center gap-1.5">
+                              {pedido.mensagem_enviada_em ? (
+                                <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">
+                                  Enviada à empresa
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-medium">
+                                  Aguardando envio
+                                </span>
+                              )}
+
                               {pedido.lote_id && (
                                 <button
                                   type="button"
@@ -851,7 +1168,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                                   title="Visualizar mensagem gerada para este lote"
                                 >
                                   <Eye className="w-3 h-3" />
-                                  <span>Ver mensagem do lote</span>
+                                  <span>Mensagem</span>
                                 </button>
                               )}
 
@@ -886,71 +1203,79 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
         )}
       </div>
 
-      {/* 5. Modal: Mensagem Gerada ao Marcar como Solicitados */}
-      {modalMensagemAberta && (
+      {/* 6. Modal: Gerar Mensagem para a Empresa e Marcar como Enviada */}
+      {modalComunicacaoAberta && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <Send className="w-5 h-5 text-brand-600" />
                 <h3 className="text-base font-bold text-slate-800">
-                  Pedidos Marcados como Solicitados!
+                  Mensagem para a Empresa Fornecedora
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setModalMensagemAberta(false)}
+                onClick={() => setModalComunicacaoAberta(false)}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {qtdIgnoradosLote > 0 && (
+            {qtdIgnoradosSolicitacao > 0 && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>
-                  Nota: <strong>{qtdIgnoradosLote}</strong> pedido(s) selecionado(s) já estavam marcados como solicitados e foram preservados sem alteração.
+                  Nota: <strong>{qtdIgnoradosSolicitacao}</strong> pedido(s) já estavam marcados como solicitados e foram preservados.
                 </span>
               </div>
             )}
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Mensagem Pronta para Encaminhar à Empresa:
+                Texto Renderizado a partir do Modelo Configurado:
               </label>
               <p className="text-[11px] text-slate-500 mb-2">
-                Você pode revisar ou ajustar o texto abaixo antes de copiar para o seu aplicativo de mensagens.
+                Você pode revisar ou ajustar o texto abaixo antes de copiar e encaminhar à empresa.
               </p>
               <textarea
-                rows={8}
-                value={textoMensagem}
-                onChange={(e) => setTextoMensagem(e.target.value)}
+                rows={9}
+                value={textoComunicacao}
+                onChange={(e) => setTextoComunicacao(e.target.value)}
                 className="w-full text-xs font-sans p-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-              <span className="text-[11px] text-slate-500">
-                {copiadoFeedback ? 'Copiado com sucesso para a área de transferência!' : 'Clique no botão ao lado para copiar'}
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopiarMensagem(textoComunicacao, setCopiadoFeedback)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {copiadoFeedback ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiadoFeedback ? 'Copiado!' : 'Copiar Mensagem'}</span>
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setModalMensagemAberta(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  onClick={() => setModalComunicacaoAberta(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                 >
                   Fechar
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleCopiarMensagem(textoMensagem, setCopiadoFeedback)}
-                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
+                  onClick={handleConfirmarComunicacaoEmpresa}
+                  disabled={marcandoComunicados || idsParaComunicar.length === 0}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
                 >
-                  {copiadoFeedback ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiadoFeedback ? 'Copiado!' : 'Copiar Mensagem'}</span>
+                  {marcandoComunicados ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  <span>Marcar como enviada à empresa</span>
                 </button>
               </div>
             </div>
@@ -958,7 +1283,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
         </div>
       )}
 
-      {/* 6. Modal: Visualizar Mensagem do Lote Existente */}
+      {/* 7. Modal: Visualizar Mensagem de Lote Existente */}
       {modalLoteExistenteAberto && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl border border-slate-200 space-y-4">

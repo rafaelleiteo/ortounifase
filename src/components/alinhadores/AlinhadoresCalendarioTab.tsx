@@ -21,7 +21,8 @@ import {
   adicionarDataCalendario,
   adicionarDatasCalendarioEmLote,
   removerDataCalendario,
-  verificarPedidosVinculadosData
+  verificarPedidosVinculadosData,
+  sincronizarProximosPedidos
 } from '@/lib/alinhadoresService';
 
 interface AlinhadoresCalendarioTabProps {
@@ -100,6 +101,7 @@ export const AlinhadoresCalendarioTab: React.FC<AlinhadoresCalendarioTabProps> =
       }
 
       await adicionarDataCalendario(turmaSelecionadaId, dataIndividual);
+      await sincronizarProximosPedidos();
       setDataIndividual('');
       setSucesso(`Data ${formatarDataBR(dataIndividual)} cadastrada com sucesso!`);
       await carregarDatas();
@@ -155,6 +157,7 @@ export const AlinhadoresCalendarioTab: React.FC<AlinhadoresCalendarioTabProps> =
       }
 
       const resultado = await adicionarDatasCalendarioEmLote(turmaSelecionadaId, datasNormalizadas);
+      await sincronizarProximosPedidos();
       setTextoLote('');
       setMostrarLote(false);
       setSucesso(
@@ -194,6 +197,7 @@ export const AlinhadoresCalendarioTab: React.FC<AlinhadoresCalendarioTabProps> =
       setExcluindo(true);
       setErro(null);
       await removerDataCalendario(itemParaExcluir.id);
+      await sincronizarProximosPedidos();
       setSucesso(`Data ${formatarDataBR(itemParaExcluir.data)} removida do calendário.`);
       setItemParaExcluir(null);
       setPedidosVinculadosCount(null);

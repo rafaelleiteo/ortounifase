@@ -26,7 +26,8 @@ import {
   editarPaciente,
   listarDatasCalendario,
   listarPedidos,
-  criarPedidosEmLote
+  criarPedidosEmLote,
+  sincronizarProximosPedidos
 } from '@/lib/alinhadoresService';
 
 interface AlinhadoresPacientesTabProps {
@@ -199,6 +200,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
           observacao: formObservacao.trim() || null,
           ativo: true
         });
+        await sincronizarProximosPedidos();
         setSucesso(`Paciente "${nomeLimpo}" cadastrado com sucesso!`);
       }
 

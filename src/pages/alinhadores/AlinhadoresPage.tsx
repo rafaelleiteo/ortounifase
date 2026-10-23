@@ -4,44 +4,64 @@ import {
   PackageCheck,
   Users,
   CalendarDays,
+  Settings,
   Loader2,
   AlertTriangle
 } from 'lucide-react';
-import { Turma } from '@/lib/alinhadoresTypes';
-import { listarTurmas } from '@/lib/alinhadoresService';
+import { Turma, AlinhadorConfig, TEMPLATE_MENSAGEM_PADRAO } from '@/lib/alinhadoresTypes';
+import { listarTurmas, obterConfig, salvarConfig } from '@/lib/alinhadoresService';
 import { AlinhadoresPedidosTab } from '@/components/alinhadores/AlinhadoresPedidosTab';
 import { AlinhadoresPacientesTab } from '@/components/alinhadores/AlinhadoresPacientesTab';
 import { AlinhadoresCalendarioTab } from '@/components/alinhadores/AlinhadoresCalendarioTab';
+import { AlinhadoresConfiguracaoTab } from '@/components/alinhadores/AlinhadoresConfiguracaoTab';
 
-type AbaAlinhadores = 'pedidos' | 'pacientes' | 'calendario';
+type AbaAlinhadores = 'pedidos' | 'pacientes' | 'calendario' | 'configuracoes';
 
 export const AlinhadoresPage: React.FC = () => {
   const [abaAtiva, setAbaAtiva] = useState<AbaAlinhadores>('pedidos');
   const [turmas, setTurmas] = useState<Turma[]>([]);
   const [turmaSelecionadaId, setTurmaSelecionadaId] = useState<string>('');
+  const [config, setConfig] = useState<AlinhadorConfig>({
+    id: true,
+    antecedencia_dias: 20,
+    quantidade_por_pedido: 2,
+    template_mensagem: TEMPLATE_MENSAGEM_PADRAO
+  });
   const [carregando, setCarregando] = useState<boolean>(true);
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
-    const carregarTurmasIniciais = async () => {
+    const carregarDadosIniciais = async () => {
       try {
         setCarregando(true);
         setErro(null);
-        const lista = await listarTurmas();
-        setTurmas(lista);
-        if (lista.length > 0) {
-          setTurmaSelecionadaId(lista[0].id);
+
+        const [listaTurmas, configCarregada] = await Promise.all([
+          listarTurmas(),
+          obterConfig()
+        ]);
+
+        setTurmas(listaTurmas);
+        setConfig(configCarregada);
+
+        if (listaTurmas.length > 0) {
+          setTurmaSelecionadaId(listaTurmas[0].id);
         }
       } catch (err: any) {
-        console.error('Erro ao carregar turmas:', err);
-        setErro(err.message || 'Erro ao carregar lista de turmas.');
+        console.error('Erro ao carregar dados iniciais de alinhadores:', err);
+        setErro(err.message || 'Erro ao carregar dados de alinhadores.');
       } finally {
         setCarregando(false);
       }
     };
 
-    carregarTurmasIniciais();
+    carregarDadosIniciais();
   }, []);
+
+  const handleSalvarConfig = async (novosDados: Partial<AlinhadorConfig>) => {
+    const atualizada = await salvarConfig(novosDados);
+    setConfig(atualizada);
+  };
 
   return (
     <DashboardLayout
@@ -62,7 +82,7 @@ export const AlinhadoresPage: React.FC = () => {
             }`}
           >
             <PackageCheck className="w-4 h-4" />
-            <span>Pedidos de Alinhadores</span>
+            <span>Pedidos</span>
           </button>
 
           {/* Aba 2: Pacientes */}
@@ -92,9 +112,23 @@ export const AlinhadoresPage: React.FC = () => {
             <CalendarDays className="w-4 h-4" />
             <span>Calendário Clínico</span>
           </button>
+
+          {/* Aba 4: Configurações */}
+          <button
+            type="button"
+            onClick={() => setAbaAtiva('configuracoes')}
+            className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              abaAtiva === 'configuracoes'
+                ? 'bg-brand-50 text-brand-700 shadow-xs border border-brand-200'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>Configurações</span>
+          </button>
         </div>
 
-        {/* Estado de Carregamento Global das Turmas */}
+        {/* Estado de Carregamento Global */}
         {carregando ? (
           <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-xs text-slate-500 flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
@@ -113,9 +147,11 @@ export const AlinhadoresPage: React.FC = () => {
             {/* Seção A: PEDIDOS (Principal) */}
             {abaAtiva === 'pedidos' && (
               <AlinhadoresPedidosTab
+                config={config}
                 turmas={turmas}
                 turmaSelecionadaId={turmaSelecionadaId}
                 onSelecionarTurma={setTurmaSelecionadaId}
+                onIrParaCalendario={() => setAbaAtiva('calendario')}
               />
             )}
 
@@ -135,6 +171,14 @@ export const AlinhadoresPage: React.FC = () => {
                 turmas={turmas}
                 turmaSelecionadaId={turmaSelecionadaId}
                 onSelecionarTurma={setTurmaSelecionadaId}
+              />
+            )}
+
+            {/* Seção D: CONFIGURAÇÕES */}
+            {abaAtiva === 'configuracoes' && (
+              <AlinhadoresConfiguracaoTab
+                config={config}
+                onSalvarConfig={handleSalvarConfig}
               />
             )}
           </div>
