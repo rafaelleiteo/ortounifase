@@ -1,11 +1,13 @@
 import {
   ANTECEDENCIA_PEDIDO_DIAS,
+  TEMPLATE_MENSAGEM_PADRAO,
   parseDataLocal,
   formatarDataISO,
   formatarDataBR,
   calcularPrazoLimite,
   calcularStatusPedido,
   gerarMensagemEmpresa,
+  formatarListaNomes,
   PedidoParaMensagem
 } from '../src/lib/alinhadoresTypes';
 
@@ -48,7 +50,7 @@ it('formatarDataBR deve formatar string e Date em dd/mm/aaaa', () => {
 });
 
 // ------------------------------------------------------------------------------
-// 2. TESTES DE CALCULO DE PRAZO LIMITE (ANTECEDENCIA_PEDIDO_DIAS = 20)
+// 2. TESTES DE CALCULO DE PRAZO LIMITE (PADRÃO 20 E ANTECEDÊNCIA 21 DIAS)
 // ------------------------------------------------------------------------------
 it('calcularPrazoLimite cruzando virada de mês (maio -> abril)', () => {
   // Retorno em 10/05/2026: 10 dias de maio + 10 dias de abril (abril tem 30 dias) -> 20/04/2026
@@ -73,8 +75,6 @@ it('calcularPrazoLimite cruzando virada de ano (janeiro -> dezembro)', () => {
 });
 
 it('calcularPrazoLimite com retorno em 29/02 de ano bissexto (2028)', () => {
-  // 2028 é ano bissexto (fevereiro tem 29 dias). Retorno em 29/02/2028:
-  // 29 - 20 = 09/02/2028
   const prazo = calcularPrazoLimite('2028-02-29');
   expectEqual(formatarDataISO(prazo), '2028-02-09');
   expectEqual(formatarDataBR(prazo), '09/02/2028');
@@ -86,8 +86,15 @@ it('calcularPrazoLimite com retorno em 29/02 de ano bissexto (2024)', () => {
   expectEqual(formatarDataBR(prazo), '09/02/2024');
 });
 
+it('calcularPrazoLimite com antecedência customizada de 21 dias', () => {
+  // Retorno em 10/05/2026 com 21 dias: 10 dias de maio + 11 dias de abril (30 - 11 = 19/04/2026)
+  const prazo = calcularPrazoLimite('2026-05-10', 21);
+  expectEqual(formatarDataISO(prazo), '2026-04-19');
+  expectEqual(formatarDataBR(prazo), '19/04/2026');
+});
+
 // ------------------------------------------------------------------------------
-// 3. TESTES DE STATUS DO PEDIDO
+// 3. TESTES DE STATUS DO PEDIDO (INCLUINDO EXPIRADO E ANTECEDÊNCIA 21)
 // ------------------------------------------------------------------------------
 it('calcularStatusPedido: deve retornar "solicitado" se solicitado_em existe', () => {
   const status = calcularStatusPedido(
@@ -98,6 +105,28 @@ it('calcularStatusPedido: deve retornar "solicitado" se solicitado_em existe', (
     '2026-05-01'
   );
   expectEqual(status, 'solicitado');
+});
+
+it('calcularStatusPedido: status "expirado" quando hoje é IGUAL à data de retorno (e não solicitado)', () => {
+  const status = calcularStatusPedido(
+    { data_retorno: '2026-05-10', solicitado_em: null },
+    '2026-05-10'
+  );
+  expectEqual(status, 'expirado');
+});
+
+it('calcularStatusPedido: status "expirado" quando hoje é DEPOIS da data de retorno (e não solicitado)', () => {
+  const status = calcularStatusPedido(
+    { data_retorno: '2026-05-10', solicitado_em: null },
+    '2026-05-11'
+  );
+  expectEqual(status, 'expirado');
+
+  const statusPassado = calcularStatusPedido(
+    { data_retorno: '2026-05-10', solicitado_em: null },
+    '2026-06-01'
+  );
+  expectEqual(statusPassado, 'expirado');
 });
 
 it('calcularStatusPedido: hoje IGUAL ao prazo limite (diff = 0) -> "vencendo"', () => {
@@ -112,7 +141,7 @@ it('calcularStatusPedido: hoje IGUAL ao prazo limite (diff = 0) -> "vencendo"', 
 
 it('calcularStatusPedido: hoje UM DIA DEPOIS do prazo limite -> "atrasado"', () => {
   // Retorno em 10/05/2026 -> Prazo limite = 20/04/2026
-  // Hoje = 21/04/2026 (prazo expirou ontem)
+  // Hoje = 21/04/2026 (prazo expirou ontem, mas consulta ainda não aconteceu)
   const status = calcularStatusPedido(
     { data_retorno: '2026-05-10', solicitado_em: null },
     '2026-04-21'
@@ -120,7 +149,7 @@ it('calcularStatusPedido: hoje UM DIA DEPOIS do prazo limite -> "atrasado"', () 
   expectEqual(status, 'atrasado');
 });
 
-it('calcularStatusPedido: hoje 10 dias depois do prazo limite -> "atrasado"', () => {
+it('calcularStatusPedido: hoje 10 dias depois do prazo limite mas antes do retorno -> "atrasado"', () => {
   const status = calcularStatusPedido(
     { data_retorno: '2026-05-10', solicitado_em: null },
     '2026-04-30'
@@ -156,10 +185,41 @@ it('calcularStatusPedido: faltam 6 dias ou mais para o prazo -> "pendente"', () 
   );
 });
 
+it('calcularStatusPedido com antecedência configurada em 21 dias', () => {
+  // Retorno em 10/05/2026 com 21 dias -> prazo = 19/04/2026
+  // Hoje = 19/04/2026 -> vencendo
+  expectEqual(
+    calcularStatusPedido({ data_retorno: '2026-05-10', solicitado_em: null }, '2026-04-19', 21),
+    'vencendo'
+  );
+  // Hoje = 20/04/2026 -> atrasado (passou de 19/04)
+  expectEqual(
+    calcularStatusPedido({ data_retorno: '2026-05-10', solicitado_em: null }, '2026-04-20', 21),
+    'atrasado'
+  );
+  // Hoje = 13/04/2026 -> faltam 6 dias para 19/04 -> pendente
+  expectEqual(
+    calcularStatusPedido({ data_retorno: '2026-05-10', solicitado_em: null }, '2026-04-13', 21),
+    'pendente'
+  );
+});
+
 // ------------------------------------------------------------------------------
-// 4. TESTES DE GERAÇÃO DE MENSAGEM PARA A EMPRESA
+// 4. TESTES DE FORMATAÇÃO DE NOMES
 // ------------------------------------------------------------------------------
-it('gerarMensagemEmpresa com 1 paciente com numeração (intervalo de 3 a 4)', () => {
+it('formatarListaNomes com 1, 2 e 3 pacientes', () => {
+  expectEqual(formatarListaNomes(['Ana Silva']), 'Ana Silva');
+  expectEqual(formatarListaNomes(['Ana Silva', 'Bruno Costa']), 'Ana Silva e Bruno Costa');
+  expectEqual(
+    formatarListaNomes(['Ana Silva', 'Bruno Costa', 'Carlos Dias']),
+    'Ana Silva, Bruno Costa e Carlos Dias'
+  );
+});
+
+// ------------------------------------------------------------------------------
+// 5. TESTES DE GERAÇÃO DE MENSAGEM COM TEMPLATES, {lista} E {pacientes}
+// ------------------------------------------------------------------------------
+it('gerarMensagemEmpresa com template padrão (1 paciente com numeração)', () => {
   const pedidos: PedidoParaMensagem[] = [
     {
       paciente_nome: 'Carlos Eduardo Silva',
@@ -171,7 +231,7 @@ it('gerarMensagemEmpresa com 1 paciente com numeração (intervalo de 3 a 4)', (
 
   const msg = gerarMensagemEmpresa(pedidos);
   const esperado = [
-    'Prezados, solicitamos alinhadores para os pacientes abaixo:\n',
+    'Olá, passando para informar que solicitamos alinhadores para os pacientes abaixo:\n',
     '- Carlos Eduardo Silva: alinhadores 3 a 4, retorno previsto em 15/11/2026',
     '\nAgradecemos a confirmação do recebimento do pedido.'
   ].join('\n');
@@ -190,7 +250,7 @@ it('gerarMensagemEmpresa com 1 paciente com um só alinhador (de = 3, ate = 3 ou
   ];
   const msg1 = gerarMensagemEmpresa(p1);
   const esperado1 = [
-    'Prezados, solicitamos alinhadores para os pacientes abaixo:\n',
+    'Olá, passando para informar que solicitamos alinhadores para os pacientes abaixo:\n',
     '- Mariana Souza: alinhador 3, retorno previsto em 20/11/2026',
     '\nAgradecemos a confirmação do recebimento do pedido.'
   ].join('\n');
@@ -206,7 +266,7 @@ it('gerarMensagemEmpresa com 1 paciente com um só alinhador (de = 3, ate = 3 ou
   ];
   const msg2 = gerarMensagemEmpresa(p2);
   const esperado2 = [
-    'Prezados, solicitamos alinhadores para os pacientes abaixo:\n',
+    'Olá, passando para informar que solicitamos alinhadores para os pacientes abaixo:\n',
     '- Mariana Souza: alinhador 5, retorno previsto em 20/11/2026',
     '\nAgradecemos a confirmação do recebimento do pedido.'
   ].join('\n');
@@ -225,7 +285,7 @@ it('gerarMensagemEmpresa com 1 paciente SEM numeração de alinhadores', () => {
 
   const msg = gerarMensagemEmpresa(pedidos);
   const esperado = [
-    'Prezados, solicitamos alinhadores para os pacientes abaixo:\n',
+    'Olá, passando para informar que solicitamos alinhadores para os pacientes abaixo:\n',
     '- Fernanda Lima: retorno previsto em 25/11/2026',
     '\nAgradecemos a confirmação do recebimento do pedido.'
   ].join('\n');
@@ -233,8 +293,38 @@ it('gerarMensagemEmpresa com 1 paciente SEM numeração de alinhadores', () => {
   expectEqual(msg, esperado);
 });
 
-it('gerarMensagemEmpresa com 3 pacientes: ordenação ascendente por data de retorno e sem travessão', () => {
-  // Passa fora de ordem cronológica para testar ordenação
+it('gerarMensagemEmpresa com template customizado contendo apenas {lista}', () => {
+  const pedidos: PedidoParaMensagem[] = [
+    {
+      paciente_nome: 'Ana Silva',
+      data_retorno: '2026-11-10',
+      alinhador_de: 1,
+      alinhador_ate: 2
+    }
+  ];
+
+  const template = 'Prezados,\n\n{lista}\n\nFavor confirmar recebimento.';
+  const msg = gerarMensagemEmpresa(pedidos, template);
+  const esperado = 'Prezados,\n\n- Ana Silva: alinhadores 1 a 2, retorno previsto em 10/11/2026\n\nFavor confirmar recebimento.';
+  expectEqual(msg, esperado);
+});
+
+it('gerarMensagemEmpresa com template customizado contendo apenas {pacientes} (1 paciente)', () => {
+  const pedidos: PedidoParaMensagem[] = [
+    {
+      paciente_nome: 'Ana Silva',
+      data_retorno: '2026-11-10',
+      alinhador_de: 1,
+      alinhador_ate: 2
+    }
+  ];
+
+  const template = 'Solicitamos alinhadores para {pacientes}.';
+  const msg = gerarMensagemEmpresa(pedidos, template);
+  expectEqual(msg, 'Solicitamos alinhadores para Ana Silva.');
+});
+
+it('gerarMensagemEmpresa com template customizado contendo {pacientes} (3 pacientes)', () => {
   const pedidos: PedidoParaMensagem[] = [
     {
       paciente_nome: 'Paciente Tres',
@@ -256,29 +346,48 @@ it('gerarMensagemEmpresa com 3 pacientes: ordenação ascendente por data de ret
     }
   ];
 
-  const msg = gerarMensagemEmpresa(pedidos);
+  const template = 'Solicitamos alinhadores para {pacientes}.\n{lista}';
+  const msg = gerarMensagemEmpresa(pedidos, template);
 
   const esperado = [
-    'Prezados, solicitamos alinhadores para os pacientes abaixo:\n',
+    'Solicitamos alinhadores para Paciente Um, Paciente Dois e Paciente Tres.',
     '- Paciente Um: alinhadores 1 a 2, retorno previsto em 10/11/2026',
     '- Paciente Dois: alinhador 7, retorno previsto em 20/11/2026',
-    '- Paciente Tres: retorno previsto em 05/12/2026',
-    '\nAgradecemos a confirmação do recebimento do pedido.'
+    '- Paciente Tres: retorno previsto em 05/12/2026'
   ].join('\n');
 
   expectEqual(msg, esperado);
+  expectEqual(msg.includes('—'), false, 'Sem em-dash');
+  expectEqual(msg.includes('–'), false, 'Sem en-dash');
+});
 
-  // Confirmação explícita de ausência de travessão
-  expectEqual(msg.includes('—'), false, 'Não deve conter travessão em-dash');
-  expectEqual(msg.includes('–'), false, 'Não deve conter travessão en-dash');
+it('gerarMensagemEmpresa com template SEM marcador: deve anexar {lista} ao final', () => {
+  const pedidos: PedidoParaMensagem[] = [
+    {
+      paciente_nome: 'Lucas Silva',
+      data_retorno: '2026-11-12',
+      alinhador_de: 1,
+      alinhador_ate: 2
+    }
+  ];
+
+  const template = 'Prezados, segue o novo lote de alinhadores desta semana:';
+  const msg = gerarMensagemEmpresa(pedidos, template);
+
+  const esperado = [
+    'Prezados, segue o novo lote de alinhadores desta semana:\n',
+    '- Lucas Silva: alinhadores 1 a 2, retorno previsto em 12/11/2026'
+  ].join('\n');
+
+  expectEqual(msg, esperado);
 });
 
 // ------------------------------------------------------------------------------
 // EXECUÇÃO DO RUNNER
 // ------------------------------------------------------------------------------
 console.log('================================================================');
-console.log('EXECUTANDO TESTES AUTOMATIZADOS: FUNÇÕES PURAS DE ALINHADORES');
-console.log(`ANTECEDENCIA_PEDIDO_DIAS = ${ANTECEDENCIA_PEDIDO_DIAS} dias`);
+console.log('EXECUTANDO TESTES AUTOMATIZADOS: FUNÇÕES PURAS DE ALINHADORES (PARTE 3)');
+console.log(`Fuso do ambiente: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 console.log('================================================================\n');
 
 for (const t of testes) {

@@ -2,13 +2,16 @@
  * Tipos e Funções Puras do Módulo de Alinhadores
  * 
  * Regras de Negócio:
- * - ANTECEDENCIA_PEDIDO_DIAS = 20 dias antes da consulta de retorno
+ * - ANTECEDENCIA_PEDIDO_DIAS = 20 dias (padrão configurável)
  * - Datas manipuladas exclusivamente no fuso local (sem new Date('AAAA-MM-DD') em UTC)
- * - Status do pedido: solicitado, atrasado, vencendo (0 a 5 dias antes do prazo) ou pendente
- * - Geração de mensagem formatada para a empresa sem travessão
+ * - Status do pedido: solicitado, expirado, atrasado, vencendo ou pendente
+ * - Geração de mensagem formatada para a empresa com template editável ({lista} e {pacientes}) sem travessão
  */
 
 export const ANTECEDENCIA_PEDIDO_DIAS = 20;
+
+export const TEMPLATE_MENSAGEM_PADRAO =
+  'Olá, passando para informar que solicitamos alinhadores para os pacientes abaixo:\n\n{lista}\n\nAgradecemos a confirmação do recebimento do pedido.';
 
 // ------------------------------------------------------------------------------
 // INTERFACES E TIPOS DE DADOS
@@ -17,6 +20,14 @@ export const ANTECEDENCIA_PEDIDO_DIAS = 20;
 export interface Turma {
   id: string;
   nome: string;
+}
+
+export interface AlinhadorConfig {
+  id: boolean;
+  antecedencia_dias: number;
+  quantidade_por_pedido: number;
+  template_mensagem: string;
+  updated_at?: string;
 }
 
 export interface AlinhadorCalendario {
@@ -44,10 +55,11 @@ export interface AlinhadorPedido {
   alinhador_ate: number | null;
   solicitado_em: string | null; // ISO timestamptz
   lote_id: string | null;
+  mensagem_enviada_em?: string | null; // ISO timestamptz
   created_at?: string;
 }
 
-export type StatusPedido = 'solicitado' | 'atrasado' | 'vencendo' | 'pendente';
+export type StatusPedido = 'solicitado' | 'expirado' | 'atrasado' | 'vencendo' | 'pendente';
 
 export interface PedidoComPaciente extends AlinhadorPedido {
   paciente?: Pick<AlinhadorPaciente, 'id' | 'nome' | 'turma_id' | 'total_alinhadores' | 'ativo'> | null;
@@ -110,36 +122,51 @@ export function formatarDataBR(data: string | Date): string {
 
 /**
  * Calcula o prazo limite para solicitar os alinhadores:
- * Data do retorno menos ANTECEDENCIA_PEDIDO_DIAS (20 dias).
+ * Data do retorno menos antecedenciaDias (padrão 20 dias).
  */
-export function calcularPrazoLimite(dataRetorno: string | Date): Date {
+export function calcularPrazoLimite(
+  dataRetorno: string | Date,
+  antecedenciaDias: number = ANTECEDENCIA_PEDIDO_DIAS
+): Date {
   const d = typeof dataRetorno === 'string'
     ? parseDataLocal(dataRetorno)
     : new Date(dataRetorno.getFullYear(), dataRetorno.getMonth(), dataRetorno.getDate(), 0, 0, 0, 0);
 
-  d.setDate(d.getDate() - ANTECEDENCIA_PEDIDO_DIAS);
+  d.setDate(d.getDate() - antecedenciaDias);
   return d;
 }
 
 /**
- * Determina o status de um pedido com base na data do retorno e se já foi solicitado:
- * - 'solicitado' se solicitado_em existe;
- * - 'atrasado' se hoje > prazo;
- * - 'vencendo' se faltam de 0 a 5 dias para o prazo (inclusive hoje == prazo);
- * - 'pendente' se faltam mais de 5 dias para o prazo.
+ * Determina o status de um pedido com base na data do retorno, se já foi solicitado e antecedência:
+ * - 'solicitado': se solicitado_em existe;
+ * - 'expirado': se NÃO solicitado e data_retorno <= hoje;
+ * - 'atrasado': se hoje > prazo limite (diff < 0);
+ * - 'vencendo': se faltam de 0 a 5 dias para o prazo limite (inclusive hoje == prazo);
+ * - 'pendente': se faltam mais de 5 dias para o prazo limite.
  */
 export function calcularStatusPedido(
   pedido: { solicitado_em?: string | null; data_retorno: string | Date },
-  hoje: string | Date = new Date()
+  hoje: string | Date = new Date(),
+  antecedenciaDias: number = ANTECEDENCIA_PEDIDO_DIAS
 ): StatusPedido {
   if (pedido.solicitado_em) {
     return 'solicitado';
   }
 
-  const prazo = calcularPrazoLimite(pedido.data_retorno);
   const h = typeof hoje === 'string'
     ? parseDataLocal(hoje)
     : new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 0, 0, 0, 0);
+
+  const retornoDate = typeof pedido.data_retorno === 'string'
+    ? parseDataLocal(pedido.data_retorno)
+    : new Date(pedido.data_retorno.getFullYear(), pedido.data_retorno.getMonth(), pedido.data_retorno.getDate(), 0, 0, 0, 0);
+
+  // Se a data de retorno já passou ou é hoje e não foi solicitado, o pedido está expirado
+  if (retornoDate.getTime() <= h.getTime()) {
+    return 'expirado';
+  }
+
+  const prazo = calcularPrazoLimite(pedido.data_retorno, antecedenciaDias);
 
   // Diferença em dias: prazo - hoje
   const diffMs = prazo.getTime() - h.getTime();
@@ -157,18 +184,33 @@ export function calcularStatusPedido(
 }
 
 /**
+ * Formata lista de nomes para uso em mensagens:
+ * - 1 paciente: "Ana Silva"
+ * - 2 pacientes: "Ana Silva e Bruno Costa"
+ * - 3+ pacientes: "Ana Silva, Bruno Costa e Carlos Dias"
+ */
+export function formatarListaNomes(nomes: string[]): string {
+  if (!nomes || nomes.length === 0) return '';
+  if (nomes.length === 1) return nomes[0];
+  if (nomes.length === 2) return `${nomes[0]} e ${nomes[1]}`;
+  return `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+}
+
+/**
  * Gera mensagem formatada pronta para enviar à empresa fornecedora de alinhadores.
- * - Formato: "Prezados, solicitamos alinhadores para os pacientes abaixo:"
- * - Linhas: "- Nome do paciente: alinhadores 3 a 4, retorno previsto em dd/mm/aaaa"
- * - Se alinhador_de e alinhador_ate forem nulos: "- Nome: retorno previsto em dd/mm/aaaa"
- * - Se for um só: "- Nome: alinhador 3, retorno previsto em dd/mm/aaaa"
- * - Encerramento: "Agradecemos a confirmação do recebimento do pedido."
- * - Ordenação: por data de retorno.
+ * - Suporta marcadores no template:
+ *   - {lista}: uma linha por paciente ("- Nome: alinhadores 3 a 4, retorno previsto em dd/mm/aaaa")
+ *   - {pacientes}: apenas os nomes ("Ana Silva, Bruno Costa e Carlos Dias")
+ * - Se o template não contiver nenhum marcador, anexa a {lista} ao final.
+ * - Ordenação: por data de retorno ascendente.
  * - Sem travessão.
  */
-export function gerarMensagemEmpresa(pedidos: PedidoParaMensagem[]): string {
+export function gerarMensagemEmpresa(
+  pedidos: PedidoParaMensagem[],
+  template?: string
+): string {
   if (!pedidos || pedidos.length === 0) {
-    return 'Prezados, não há pedidos de alinhadores para solicitar no momento.\n\nAgradecemos a confirmação do recebimento do pedido.';
+    return 'Olá, não há pedidos de alinhadores para solicitar no momento.\n\nAgradecemos a confirmação do recebimento do pedido.';
   }
 
   // Ordenar por data de retorno ascendente
@@ -201,9 +243,26 @@ export function gerarMensagemEmpresa(pedidos: PedidoParaMensagem[]): string {
     return `- ${p.paciente_nome}: ${trechoAlinhador}retorno previsto em ${dataBR}`;
   });
 
-  return [
-    'Prezados, solicitamos alinhadores para os pacientes abaixo:\n',
-    linhas.join('\n'),
-    '\nAgradecemos a confirmação do recebimento do pedido.'
-  ].join('\n');
+  const textoLista = linhas.join('\n');
+  const nomes = ordenados.map((p) => p.paciente_nome);
+  const textoPacientes = formatarListaNomes(nomes);
+
+  const tmpl = template && template.trim() ? template : TEMPLATE_MENSAGEM_PADRAO;
+  const temLista = tmpl.includes('{lista}');
+  const temPacientes = tmpl.includes('{pacientes}');
+
+  let resultado = tmpl;
+
+  if (temLista) {
+    resultado = resultado.split('{lista}').join(textoLista);
+  }
+  if (temPacientes) {
+    resultado = resultado.split('{pacientes}').join(textoPacientes);
+  }
+
+  if (!temLista && !temPacientes) {
+    resultado = `${resultado.trim()}\n\n${textoLista}`;
+  }
+
+  return resultado;
 }
