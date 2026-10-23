@@ -31,6 +31,8 @@ import {
   calcularPrazoLimite,
   calcularStatusPedido,
   gerarMensagemEmpresa,
+  agruparBlocos,
+  proximoBloco,
   PedidoParaMensagem
 } from '@/lib/alinhadoresTypes';
 import {
@@ -101,7 +103,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     Record<string, { de: string; ate: string; salvando?: boolean; salvo?: boolean }>
   >({});
 
-  // Turmas sem datas futuras no calendário
+  // Turmas sem blocos futuros no calendário
   const [turmasSemDatasFuturas, setTurmasSemDatasFuturas] = useState<Set<string>>(new Set());
 
   const hojeISO = formatarDataISO(new Date());
@@ -138,12 +140,13 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
       }
       setValoresEdicao(edicaoMap);
 
-      // 4. Verifica quais turmas não possuem nenhuma data futura no calendário
+      // 4. Verifica quais turmas não possuem nenhum bloco futuro no calendário
       const semFuturo = new Set<string>();
       for (const t of turmas) {
         const datasCal = await listarDatasCalendario(t.id);
-        const temFuturo = datasCal.some((d) => d.data > hojeISO);
-        if (!temFuturo) {
+        const blocos = agruparBlocos(datasCal.map((d) => d.data));
+        const temBlocoFuturo = blocos.some((b) => b.base > hojeISO);
+        if (!temBlocoFuturo) {
           semFuturo.add(t.id);
         }
       }
@@ -175,8 +178,8 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
   }, [pedidos, filtroTurma]);
 
   // Identificar pedidos do PRÓXIMO RETORNO de cada paciente ativo
+  // O próximo retorno é o pedido com a menor data_retorno estritamente maior que hoje
   const pedidosProximoRetornoIds = useMemo(() => {
-    // Para cada paciente ativo, encontrar o pedido com a menor data_retorno > hojeISO
     const proximoPorPaciente: Record<string, { id: string; data: string }> = {};
 
     for (const p of pedidosNoEscopoTurma) {
@@ -603,10 +606,10 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
             </div>
             <div>
               <h4 className="text-xs font-bold text-rose-900">
-                Turma {turmaSelecionadaObj?.nome} sem datas futuras no calendário
+                Turma {turmaSelecionadaObj?.nome} sem blocos futuros no calendário
               </h4>
               <p className="text-xs text-rose-700 mt-0.5">
-                Não há consultas clínicas futuras agendadas para esta turma. Cadastre novas datas para habilitar o acompanhamento dos retornos.
+                Não há blocos de clínica futuros agendados para esta turma. Cadastre novas datas para habilitar o acompanhamento dos retornos.
               </p>
             </div>
           </div>

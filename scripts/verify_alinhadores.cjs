@@ -49,12 +49,13 @@ async function main() {
   const tabelas = [
     'alinhadores_calendario',
     'alinhadores_pacientes',
-    'alinhadores_pedidos'
+    'alinhadores_pedidos',
+    'alinhadores_config'
   ];
 
   for (const t of tabelas) {
     try {
-      const res = await fetch(`${url}/rest/v1/${t}?select=id&limit=1`, {
+      const res = await fetch(`${url}/rest/v1/${t}?select=*&limit=1`, {
         headers: {
           'apikey': serviceKey,
           'Authorization': `Bearer ${serviceKey}`
@@ -88,7 +89,11 @@ async function main() {
     },
     {
       tabela: 'alinhadores_pedidos',
-      colunas: 'id,paciente_id,data_retorno,alinhador_de,alinhador_ate,solicitado_em,lote_id,created_at'
+      colunas: 'id,paciente_id,data_retorno,alinhador_de,alinhador_ate,solicitado_em,lote_id,mensagem_enviada_em,created_at'
+    },
+    {
+      tabela: 'alinhadores_config',
+      colunas: 'id,antecedencia_dias,quantidade_por_pedido,template_mensagem,updated_at'
     }
   ];
 
