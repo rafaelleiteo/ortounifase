@@ -12,7 +12,8 @@ import {
   Link2,
   Calculator,
   Users,
-  Calendar
+  Calendar,
+  Smile
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
@@ -60,6 +61,14 @@ const navItems: NavItem[] = [
     label: 'Agenda',
     path: '/agenda',
     icon: Calendar,
+    moduloKey: 'coordenador',
+    section: 'main',
+    roleRequired: ['coordenador', 'admin_master'],
+  },
+  {
+    label: 'Alinhadores',
+    path: '/alinhadores',
+    icon: Smile,
     moduloKey: 'coordenador',
     section: 'main',
     roleRequired: ['coordenador', 'admin_master'],

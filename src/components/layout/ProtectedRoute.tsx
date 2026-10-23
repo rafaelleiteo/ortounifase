@@ -5,10 +5,11 @@ import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  allowedRoles?: Array<'coordenador' | 'admin_master' | 'professor' | 'aluno'>;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, profile, loading } = useAuth();
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
+  const { user, profile, loading, effectiveRole } = useAuth();
   const location = useLocation();
 
   // 1. Enquanto loading === true: exibir spinner de carregamento de tela inteira
@@ -57,6 +58,14 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
         </div>
       </div>
     );
+  }
+
+  // 4. Verificação de papéis permitidos (se especificado)
+  if (allowedRoles && allowedRoles.length > 0) {
+    const papelAtivo = effectiveRole || profile.papel;
+    if (!allowedRoles.includes(papelAtivo as any)) {
+      return <Navigate to="/links-uteis" replace />;
+    }
   }
 
   return <>{children}</>;

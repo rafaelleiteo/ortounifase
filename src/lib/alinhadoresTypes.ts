@@ -14,6 +14,11 @@ export const ANTECEDENCIA_PEDIDO_DIAS = 20;
 // INTERFACES E TIPOS DE DADOS
 // ------------------------------------------------------------------------------
 
+export interface Turma {
+  id: string;
+  nome: string;
+}
+
 export interface AlinhadorCalendario {
   id: string;
   turma_id: string;

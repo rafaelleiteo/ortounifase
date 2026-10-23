@@ -6,6 +6,7 @@ import {
   PedidoComPaciente,
   ResultadoSolicitacao,
   StatusPedido,
+  Turma,
   calcularStatusPedido
 } from './alinhadoresTypes';
 
@@ -372,3 +373,184 @@ export async function desfazerSolicitacao(id: string): Promise<AlinhadorPedido> 
 
   return data as AlinhadorPedido;
 }
+
+// ==============================================================================
+// 4. FUNÇÕES AUXILIARES DA INTERFACE
+// ==============================================================================
+
+/**
+ * Lista as turmas cadastradas no sistema ordenadas por nome.
+ */
+export async function listarTurmas(): Promise<Turma[]> {
+  const { data, error } = await supabase
+    .from('turmas')
+    .select('id, nome')
+    .order('nome', { ascending: true });
+
+  if (error) {
+    console.error('Erro ao listar turmas:', error);
+    throw new Error(`Erro ao listar turmas: ${error.message}`);
+  }
+
+  return (data || []) as Turma[];
+}
+
+/**
+ * Busca todos os pedidos pertencentes a um lote de solicitação.
+ */
+export async function buscarPedidosPorLote(
+  loteId: string
+): Promise<Array<AlinhadorPedido & { paciente_nome: string }>> {
+  const { data, error } = await supabase
+    .from('alinhadores_pedidos')
+    .select(`
+      *,
+      paciente:alinhadores_pacientes (
+        nome
+      )
+    `)
+    .eq('lote_id', loteId)
+    .order('data_retorno', { ascending: true });
+
+  if (error) {
+    console.error(`Erro ao buscar pedidos do lote ${loteId}:`, error);
+    throw new Error(`Erro ao buscar pedidos do lote: ${error.message}`);
+  }
+
+  interface RowWithPaciente extends AlinhadorPedido {
+    paciente?: { nome: string } | null;
+  }
+
+  return ((data || []) as RowWithPaciente[]).map((row) => ({
+    id: row.id,
+    paciente_id: row.paciente_id,
+    data_retorno: row.data_retorno,
+    alinhador_de: row.alinhador_de,
+    alinhador_ate: row.alinhador_ate,
+    solicitado_em: row.solicitado_em,
+    lote_id: row.lote_id,
+    created_at: row.created_at,
+    paciente_nome: row.paciente?.nome || 'Paciente Desconhecido'
+  }));
+}
+
+/**
+ * Adiciona múltiplas datas no calendário de uma turma em lote, ignorando duplicatas existentes.
+ */
+export async function adicionarDatasCalendarioEmLote(
+  turmaId: string,
+  datas: string[]
+): Promise<{ adicionadas: number; ignoradas: number }> {
+  if (!datas || datas.length === 0) {
+    return { adicionadas: 0, ignoradas: 0 };
+  }
+
+  // 1. Obter datas existentes da turma
+  const { data: existentes, error: queryError } = await supabase
+    .from('alinhadores_calendario')
+    .select('data')
+    .eq('turma_id', turmaId);
+
+  if (queryError) {
+    console.error(`Erro ao verificar calendário da turma ${turmaId}:`, queryError);
+    throw new Error(`Erro ao verificar calendário: ${queryError.message}`);
+  }
+
+  const setExistentes = new Set((existentes || []).map((e) => e.data));
+  const unicasNovas = Array.from(new Set(datas)).filter((d) => !setExistentes.has(d));
+  const ignoradas = datas.length - unicasNovas.length;
+
+  if (unicasNovas.length === 0) {
+    return { adicionadas: 0, ignoradas };
+  }
+
+  const registros = unicasNovas.map((data) => ({ turma_id: turmaId, data }));
+  const { error: insertError } = await supabase
+    .from('alinhadores_calendario')
+    .insert(registros);
+
+  if (insertError) {
+    console.error('Erro ao inserir datas no calendário em lote:', insertError);
+    throw new Error(`Erro ao adicionar datas no calendário: ${insertError.message}`);
+  }
+
+  return { adicionadas: unicasNovas.length, ignoradas };
+}
+
+/**
+ * Conta quantos pedidos de pacientes da turma estão vinculados a uma determinada data de retorno.
+ */
+export async function verificarPedidosVinculadosData(
+  turmaId: string,
+  dataStr: string
+): Promise<number> {
+  const { data, error } = await supabase
+    .from('alinhadores_pedidos')
+    .select(`
+      id,
+      paciente:alinhadores_pacientes!inner (
+        turma_id
+      )
+    `)
+    .eq('data_retorno', dataStr)
+    .eq('paciente.turma_id', turmaId);
+
+  if (error) {
+    console.error('Erro ao verificar pedidos vinculados à data:', error);
+    return 0;
+  }
+
+  return data ? data.length : 0;
+}
+
+/**
+ * Cria múltiplos pedidos de retorno para um paciente em lote, ignorando datas já cadastradas.
+ */
+export async function criarPedidosEmLote(
+  pacienteId: string,
+  datas: string[],
+  alinhadorDe?: number | null,
+  alinhadorAte?: number | null
+): Promise<{ criados: number; ignorados: number }> {
+  if (!datas || datas.length === 0) {
+    return { criados: 0, ignorados: 0 };
+  }
+
+  // 1. Obter retornos existentes deste paciente
+  const { data: existentes, error: queryError } = await supabase
+    .from('alinhadores_pedidos')
+    .select('data_retorno')
+    .eq('paciente_id', pacienteId);
+
+  if (queryError) {
+    console.error(`Erro ao verificar retornos existentes do paciente ${pacienteId}:`, queryError);
+    throw new Error(`Erro ao verificar retornos existentes: ${queryError.message}`);
+  }
+
+  const setExistentes = new Set((existentes || []).map((e) => e.data_retorno));
+  const novasDatas = Array.from(new Set(datas)).filter((d) => !setExistentes.has(d));
+  const ignorados = datas.length - novasDatas.length;
+
+  if (novasDatas.length === 0) {
+    return { criados: 0, ignorados };
+  }
+
+  const registros = novasDatas.map((dataRetorno) => ({
+    paciente_id: pacienteId,
+    data_retorno: dataRetorno,
+    alinhador_de: alinhadorDe !== undefined ? alinhadorDe : null,
+    alinhador_ate: alinhadorAte !== undefined ? alinhadorAte : null
+  }));
+
+  const { error: insertError } = await supabase
+    .from('alinhadores_pedidos')
+    .insert(registros);
+
+  if (insertError) {
+    console.error('Erro ao inserir pedidos em lote:', insertError);
+    throw new Error(`Erro ao cadastrar retornos: ${insertError.message}`);
+  }
+
+  return { criados: novasDatas.length, ignorados };
+}
+

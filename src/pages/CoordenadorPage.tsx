@@ -1,6 +1,6 @@
 import React from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { ShieldAlert, Settings, FileSpreadsheet, Lock, SlidersHorizontal, Link2 } from 'lucide-react';
+import { ShieldAlert, Settings, FileSpreadsheet, Lock, SlidersHorizontal, Link2, Smile } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const CoordenadorPage: React.FC = () => {
@@ -23,6 +23,14 @@ export const CoordenadorPage: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <Link
+                to="/alinhadores"
+                className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
+              >
+                <Smile className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Alinhadores</span>
+              </Link>
+
               <Link
                 to="/coordenador/links-uteis"
                 className="px-3.5 py-2 bg-brand-50 hover:bg-brand-100 text-brand-900 border border-brand-200 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
@@ -49,7 +57,18 @@ export const CoordenadorPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+            <Link
+              to="/alinhadores"
+              className="p-4 bg-slate-50 hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-200 rounded-lg flex items-start gap-3 transition-all group"
+            >
+              <Smile className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Módulo de Alinhadores</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">Gestão de pedidos, datas de atendimento e controle de alinhadores dos pacientes.</p>
+              </div>
+            </Link>
+
             <Link
               to="/coordenador/links-uteis"
               className="p-4 bg-slate-50 hover:bg-brand-50/40 border border-slate-200 hover:border-brand-200 rounded-lg flex items-start gap-3 transition-all group"
