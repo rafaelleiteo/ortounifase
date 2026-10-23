@@ -8,7 +8,10 @@ import {
   calcularStatusPedido,
   gerarMensagemEmpresa,
   formatarListaNomes,
-  PedidoParaMensagem
+  agruparBlocos,
+  proximoBloco,
+  PedidoParaMensagem,
+  BlocoClinica
 } from '../src/lib/alinhadoresTypes';
 
 interface TestCase {
@@ -380,6 +383,126 @@ it('gerarMensagemEmpresa com template SEM marcador: deve anexar {lista} ao final
   ].join('\n');
 
   expectEqual(msg, esperado);
+});
+
+// ------------------------------------------------------------------------------
+// 6. TESTES DE agruparBlocos
+// ------------------------------------------------------------------------------
+it('agruparBlocos: bloco simples de 3 dias consecutivos', () => {
+  const blocos = agruparBlocos(['2026-11-03', '2026-11-04', '2026-11-05']);
+  expectEqual(blocos.length, 1, 'Deve haver 1 bloco');
+  expectEqual(blocos[0].base, '2026-11-03', 'Base do bloco');
+  expectEqual(blocos[0].fim, '2026-11-05', 'Fim do bloco');
+  expectEqual(blocos[0].dias.length, 3, 'Dias do bloco');
+});
+
+it('agruparBlocos: virada de mes (30/11, 01/12, 02/12)', () => {
+  const blocos = agruparBlocos(['2026-11-30', '2026-12-01', '2026-12-02']);
+  expectEqual(blocos.length, 1, 'Deve ser 1 bloco cruzando o mes');
+  expectEqual(blocos[0].base, '2026-11-30');
+  expectEqual(blocos[0].fim, '2026-12-02');
+  expectEqual(blocos[0].dias.length, 3);
+});
+
+it('agruparBlocos: virada de ano (30/12, 31/12, 01/01)', () => {
+  const blocos = agruparBlocos(['2026-12-30', '2026-12-31', '2027-01-01']);
+  expectEqual(blocos.length, 1, 'Deve ser 1 bloco cruzando o ano');
+  expectEqual(blocos[0].base, '2026-12-30');
+  expectEqual(blocos[0].fim, '2027-01-01');
+  expectEqual(blocos[0].dias.length, 3);
+});
+
+it('agruparBlocos: 29/02 em ano bissexto (2028-02-27, 28, 29)', () => {
+  const blocos = agruparBlocos(['2028-02-27', '2028-02-28', '2028-02-29']);
+  expectEqual(blocos.length, 1, 'Deve ser 1 bloco incluindo 29/02 bissexto');
+  expectEqual(blocos[0].base, '2028-02-27');
+  expectEqual(blocos[0].fim, '2028-02-29');
+  expectEqual(blocos[0].dias.length, 3);
+});
+
+it('agruparBlocos: data isolada resulta em bloco de 1 dia', () => {
+  const blocos = agruparBlocos(['2026-11-10']);
+  expectEqual(blocos.length, 1, 'Deve ser 1 bloco');
+  expectEqual(blocos[0].base, '2026-11-10');
+  expectEqual(blocos[0].fim, '2026-11-10');
+  expectEqual(blocos[0].dias.length, 1);
+});
+
+it('agruparBlocos: dois blocos separados', () => {
+  const blocos = agruparBlocos([
+    '2026-11-03', '2026-11-04', '2026-11-05',
+    '2026-12-02', '2026-12-03', '2026-12-04',
+  ]);
+  expectEqual(blocos.length, 2, 'Deve haver 2 blocos');
+  expectEqual(blocos[0].base, '2026-11-03');
+  expectEqual(blocos[0].fim, '2026-11-05');
+  expectEqual(blocos[1].base, '2026-12-02');
+  expectEqual(blocos[1].fim, '2026-12-04');
+});
+
+it('agruparBlocos: datas desordenadas e com duplicatas', () => {
+  const blocos = agruparBlocos([
+    '2026-11-05', '2026-11-03', '2026-11-04',
+    '2026-11-03', '2026-11-05',  // duplicatas
+  ]);
+  expectEqual(blocos.length, 1, 'Deve haver 1 bloco apos remover duplicatas e ordenar');
+  expectEqual(blocos[0].base, '2026-11-03');
+  expectEqual(blocos[0].fim, '2026-11-05');
+  expectEqual(blocos[0].dias.length, 3);
+});
+
+it('agruparBlocos: array vazio retorna array vazio', () => {
+  const blocos = agruparBlocos([]);
+  expectEqual(blocos.length, 0, 'Deve retornar array vazio');
+});
+
+// ------------------------------------------------------------------------------
+// 7. TESTES DE proximoBloco
+// ------------------------------------------------------------------------------
+it('proximoBloco: hoje antes do primeiro bloco retorna o primeiro', () => {
+  const blocos = agruparBlocos([
+    '2026-11-03', '2026-11-04', '2026-11-05',
+    '2026-12-02', '2026-12-03', '2026-12-04',
+  ]);
+  const prox = proximoBloco(blocos, '2026-10-01');
+  if (!prox) throw new Error('Deveria retornar um bloco, mas retornou null');
+  expectEqual(prox.base, '2026-11-03', 'Proximo bloco deve ser o de novembro');
+});
+
+it('proximoBloco: hoje igual a base do primeiro bloco retorna o SEGUNDO bloco', () => {
+  const blocos = agruparBlocos([
+    '2026-11-03', '2026-11-04', '2026-11-05',
+    '2026-12-02', '2026-12-03', '2026-12-04',
+  ]);
+  // Hoje = base do primeiro bloco: deve retornar o segundo
+  const prox = proximoBloco(blocos, '2026-11-03');
+  if (!prox) throw new Error('Deveria retornar o segundo bloco, mas retornou null');
+  expectEqual(prox.base, '2026-12-02', 'Com hoje = base do primeiro, retorna o segundo');
+});
+
+it('proximoBloco: hoje dentro de um bloco (nao na base) retorna o bloco seguinte', () => {
+  const blocos = agruparBlocos([
+    '2026-11-03', '2026-11-04', '2026-11-05',
+    '2026-12-02', '2026-12-03', '2026-12-04',
+  ]);
+  // Hoje = 2026-11-04 (dentro do primeiro bloco, nao na base)
+  // O proximo bloco com base > 2026-11-04 e o de dezembro
+  const prox = proximoBloco(blocos, '2026-11-04');
+  if (!prox) throw new Error('Deveria retornar o bloco de dezembro, mas retornou null');
+  expectEqual(prox.base, '2026-12-02', 'Com hoje dentro do primeiro bloco, retorna o segundo');
+});
+
+it('proximoBloco: hoje apos todos os blocos retorna null', () => {
+  const blocos = agruparBlocos([
+    '2026-11-03', '2026-11-04', '2026-11-05',
+  ]);
+  const prox = proximoBloco(blocos, '2026-12-01');
+  expectEqual(prox, null, 'Deve retornar null quando nao ha bloco futuro');
+});
+
+it('proximoBloco: lista vazia retorna null', () => {
+  const prox = proximoBloco([], '2026-11-03');
+  expectEqual(prox, null, 'Deve retornar null para lista vazia');
 });
 
 // ------------------------------------------------------------------------------

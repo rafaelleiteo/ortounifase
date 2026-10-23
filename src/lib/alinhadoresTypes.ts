@@ -266,3 +266,87 @@ export function gerarMensagemEmpresa(
 
   return resultado;
 }
+
+/**
+ * Representa um bloco de dias consecutivos de clinica de uma turma.
+ * - base: primeira data do bloco ('AAAA-MM-DD')
+ * - fim: ultima data do bloco ('AAAA-MM-DD')
+ * - dias: lista de todas as datas do bloco em ordem crescente
+ */
+export interface BlocoClinica {
+  base: string;
+  fim: string;
+  dias: string[];
+}
+
+/**
+ * Agrupa as datas de uma turma em blocos de dias consecutivos (diferenca de exatamente 1 dia).
+ * - Ignora duplicatas.
+ * - Ordena as datas antes de agrupar.
+ * - Retorna array de BlocoClinica, cada um com base = primeira data do bloco.
+ * - NUNCA usa new Date('AAAA-MM-DD') nem toISOString para evitar deslocamento de fuso.
+ */
+export function agruparBlocos(datas: string[]): BlocoClinica[] {
+  if (!datas || datas.length === 0) return [];
+
+  // Remover duplicatas e ordenar
+  const unicas = Array.from(new Set(datas.map((d) => d.substring(0, 10))));
+  unicas.sort();
+
+  const blocos: BlocoClinica[] = [];
+  let blocoAtual: string[] = [unicas[0]];
+
+  for (let i = 1; i < unicas.length; i++) {
+    const anterior = parseDataLocal(unicas[i - 1]);
+    const atual = parseDataLocal(unicas[i]);
+    // Diferenca em dias
+    const diffMs = atual.getTime() - anterior.getTime();
+    const diffDias = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDias === 1) {
+      // Dia consecutivo: continua o bloco atual
+      blocoAtual.push(unicas[i]);
+    } else {
+      // Nao consecutivo: fecha o bloco atual e abre um novo
+      blocos.push({
+        base: blocoAtual[0],
+        fim: blocoAtual[blocoAtual.length - 1],
+        dias: [...blocoAtual],
+      });
+      blocoAtual = [unicas[i]];
+    }
+  }
+
+  // Fechar o ultimo bloco
+  blocos.push({
+    base: blocoAtual[0],
+    fim: blocoAtual[blocoAtual.length - 1],
+    dias: [...blocoAtual],
+  });
+
+  return blocos;
+}
+
+/**
+ * Retorna o primeiro bloco cuja base seja estritamente maior que hoje.
+ * - hoje: string 'AAAA-MM-DD' ou Date.
+ * - Retorna null se nao houver bloco futuro.
+ * - Se hoje coincidir com a base de um bloco, esse bloco NAO e retornado (deve ser o seguinte).
+ * - Se hoje estiver dentro de um bloco (nao na base), o proximo bloco e o seguinte.
+ */
+export function proximoBloco(blocos: BlocoClinica[], hoje: string | Date): BlocoClinica | null {
+  if (!blocos || blocos.length === 0) return null;
+
+  const h = typeof hoje === 'string'
+    ? parseDataLocal(hoje)
+    : new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 0, 0, 0, 0);
+
+  for (const bloco of blocos) {
+    const base = parseDataLocal(bloco.base);
+    if (base.getTime() > h.getTime()) {
+      return bloco;
+    }
+  }
+
+  return null;
+}
