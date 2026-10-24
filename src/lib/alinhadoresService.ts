@@ -605,15 +605,15 @@ export async function salvarConfig(
 ): Promise<AlinhadorConfig> {
   if (dados.antecedencia_dias !== undefined) {
     const d = Number(dados.antecedencia_dias);
-    if (isNaN(d) || d < 1 || d > 90) {
+    if (!Number.isInteger(d) || d < 1 || d > 90) {
       throw new Error('A antecedência deve ser um número inteiro entre 1 e 90 dias.');
     }
   }
 
   if (dados.quantidade_por_pedido !== undefined) {
     const q = Number(dados.quantidade_por_pedido);
-    if (isNaN(q) || q < 1) {
-      throw new Error('A quantidade padrão por pedido deve ser um número maior ou igual a 1.');
+    if (!Number.isInteger(q) || q < 1) {
+      throw new Error('A quantidade padrão por pedido deve ser um número inteiro maior ou igual a 1.');
     }
   }
 
@@ -722,7 +722,7 @@ export async function sincronizarProximosPedidos(): Promise<{ criados: number; r
   let criadosCount = 0;
   let removidosCount = 0;
 
-  // 6. Executar inserções planejadas
+  // 6. Executar inserções planejadas com upsert seguro
   if (plano.inserir.length > 0) {
     const novosRegistros = plano.inserir.map((item) => ({
       paciente_id: item.paciente_id,
@@ -731,31 +731,38 @@ export async function sincronizarProximosPedidos(): Promise<{ criados: number; r
       alinhador_ate: null
     }));
 
-    const { error: insertError } = await supabase
+    const { data: insertedData, error: insertError } = await supabase
       .from('alinhadores_pedidos')
-      .insert(novosRegistros);
+      .upsert(novosRegistros, {
+        onConflict: 'paciente_id,data_retorno',
+        ignoreDuplicates: true
+      })
+      .select('id');
 
     if (insertError) {
       console.error('Erro ao inserir pedidos planejados na sincronização:', insertError);
       throw new Error(`Erro ao inserir pedidos na sincronização: ${insertError.message}`);
     }
 
-    criadosCount = novosRegistros.length;
+    criadosCount = (insertedData || []).length;
   }
 
-  // 7. Executar exclusões planejadas
+  // 7. Executar exclusões planejadas com blindagem atômica no banco
   if (plano.apagarIds.length > 0) {
-    const { error: deleteError } = await supabase
+    const { data: deletedData, error: deleteError } = await supabase
       .from('alinhadores_pedidos')
       .delete()
-      .in('id', plano.apagarIds);
+      .in('id', plano.apagarIds)
+      .is('solicitado_em', null)
+      .gt('data_retorno', hojeISO)
+      .select('id');
 
     if (deleteError) {
       console.error('Erro ao excluir pedidos obsoletos na sincronização:', deleteError);
       throw new Error(`Erro ao excluir pedidos obsoletos na sincronização: ${deleteError.message}`);
     }
 
-    removidosCount = plano.apagarIds.length;
+    removidosCount = (deletedData || []).length;
   }
 
   return { criados: criadosCount, removidos: removidosCount };

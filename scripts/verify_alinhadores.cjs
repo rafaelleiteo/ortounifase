@@ -2,11 +2,11 @@
  * Script de Verificação Pós-Aplicação da Migração de Alinhadores
  * Arquivo: scripts/verify_alinhadores.cjs
  * 
- * Executa somente leituras e verificações de segurança/integridade:
- * 1. Existência das 3 tabelas: alinhadores_calendario, alinhadores_pacientes, alinhadores_pedidos
- * 2. Existência de todas as colunas esperadas
- * 3. Validação de RLS ativo e bloqueio total de leitura para chave anon (401/403 ou array vazio)
- * 4. Validação de integridade referencial com turmas
+ * Executa estritamente LEITURAS (somente leitura, sem escrita):
+ * 1. Existência e leitura das 4 tabelas via chave service_role (com aviso de que service_role ignora RLS)
+ * 2. Leitura da linha de configuração alinhadores_config e comparação com TEMPLATE_MENSAGEM_PADRAO
+ * 3. Validação de colunas de todas as 4 tabelas
+ * 4. Validação de bloqueio com chave anon (404 é tratado estritamente como FALHA)
  */
 
 const fs = require('fs');
@@ -35,6 +35,10 @@ if (!url || !anon || !serviceKey) {
   process.exit(1);
 }
 
+// Template padrão definido no código (src/lib/alinhadoresTypes.ts)
+const TEMPLATE_MENSAGEM_PADRAO =
+  'Olá, passando para informar que solicitamos alinhadores para os pacientes abaixo:\n\n{lista}\n\nAgradecemos a confirmação do recebimento do pedido.';
+
 async function main() {
   console.log('================================================================');
   console.log('VERIFICAÇÃO PÓS-MIGRAÇÃO: MÓDULO ALINHADORES (SOMENTE LEITURA)');
@@ -43,9 +47,12 @@ async function main() {
   let totalFalhas = 0;
 
   // ------------------------------------------------------------------
-  // TESTE 1: EXISTÊNCIA DAS TABELAS (via service_role)
+  // TESTE 1: EXISTÊNCIA DAS TABELAS VIA SERVICE_ROLE
   // ------------------------------------------------------------------
-  console.log('--- TESTE 1: Existência das Tabelas ---');
+  console.log('--- TESTE 1: Existência das Tabelas e Leitura via service_role ---');
+  console.log('  [AVISO] A chave service_role possui privilégios administrativos e ignora o RLS.');
+  console.log('  Este teste comprova a existência física e schema, mas NÃO comprova a proteção por RLS.\n');
+
   const tabelas = [
     'alinhadores_calendario',
     'alinhadores_pacientes',
@@ -62,7 +69,7 @@ async function main() {
         }
       });
       if (res.status === 200) {
-        console.log(`  [OK] Tabela "${t}" existe e responde via service_role.`);
+        console.log(`  [OK] Tabela "${t}" existe e responde via service_role (status 200).`);
       } else {
         const text = await res.text();
         console.error(`  [FALHA] Tabela "${t}" retornou status ${res.status}: ${text}`);
@@ -75,9 +82,54 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // TESTE 2: EXISTÊNCIA DE TODAS AS COLUNAS ESPERADAS
+  // TESTE 2: LEITURA DA LINHA ÚNICA DE alinhadores_config
   // ------------------------------------------------------------------
-  console.log('\n--- TESTE 2: Existência das Colunas do Schema ---');
+  console.log('\n--- TESTE 2: Leitura da Linha de alinhadores_config e Comparação de Template ---');
+  try {
+    const res = await fetch(`${url}/rest/v1/alinhadores_config?select=*&limit=1`, {
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`
+      }
+    });
+
+    if (res.status === 200) {
+      const rows = await res.json();
+      if (rows && rows.length > 0) {
+        const cfg = rows[0];
+        console.log('  [OK] Linha de configuração lida do banco com sucesso:');
+        console.log(`    - id: ${cfg.id}`);
+        console.log(`    - antecedencia_dias: ${cfg.antecedencia_dias}`);
+        console.log(`    - quantidade_por_pedido: ${cfg.quantidade_por_pedido}`);
+        console.log(`    - updated_at: ${cfg.updated_at}`);
+        console.log(`    - template_mensagem (completo):\n"""\n${cfg.template_mensagem}\n"""`);
+
+        // Comparação com o template do código
+        const saoIguais = cfg.template_mensagem === TEMPLATE_MENSAGEM_PADRAO;
+        if (saoIguais) {
+          console.log('  [OK] O template lido do banco é EXATAMENTE IGUAL ao TEMPLATE_MENSAGEM_PADRAO do código TypeScript.');
+        } else {
+          console.log('  [AVISO] O template lido difere do TEMPLATE_MENSAGEM_PADRAO do código TypeScript.');
+          console.log(`    Template do código:\n"""\n${TEMPLATE_MENSAGEM_PADRAO}\n"""`);
+        }
+      } else {
+        console.error('  [FALHA] Tabela alinhadores_config retornou 0 linhas. A linha padrão não foi inserida!');
+        totalFalhas++;
+      }
+    } else {
+      const text = await res.text();
+      console.error(`  [FALHA] Erro ao consultar alinhadores_config (status ${res.status}): ${text}`);
+      totalFalhas++;
+    }
+  } catch (err) {
+    console.error(`  [FALHA] Erro ao ler alinhadores_config: ${err.message}`);
+    totalFalhas++;
+  }
+
+  // ------------------------------------------------------------------
+  // TESTE 3: EXISTÊNCIA DE TODAS AS COLUNAS ESPERADAS
+  // ------------------------------------------------------------------
+  console.log('\n--- TESTE 3: Existência das Colunas do Schema ---');
   const colunasPorTabela = [
     {
       tabela: 'alinhadores_calendario',
@@ -119,9 +171,11 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // TESTE 3: BLOQUEIO DE ACESSO PARA CHAVE ANON (RLS + REVOKE)
+  // TESTE 4: BLOQUEIO DE ACESSO PARA CHAVE ANON (RLS + REVOKE)
   // ------------------------------------------------------------------
-  console.log('\n--- TESTE 3: Bloqueio de Acesso para Usuário Anônimo (anon) ---');
+  console.log('\n--- TESTE 4: Bloqueio de Acesso para Usuário Anônimo (anon) ---');
+  console.log('  Regra: status 401/403 ou 200 com array vazio [] comprovam bloqueio.');
+  console.log('  Regra estrita: status 404 NUNCA é aceito como bloqueio (indica tabela inexistente).\n');
 
   for (const t of tabelas) {
     try {
@@ -132,9 +186,11 @@ async function main() {
         }
       });
 
-      // Com REVOKE de anon e RLS ativo, o PostgREST deve responder com 401/403 ou array vazio []
-      if (res.status === 401 || res.status === 403) {
-        console.log(`  [OK] Tabela "${t}" bloqueada para anon com status ${res.status} (${res.statusText}).`);
+      if (res.status === 404) {
+        console.error(`  [FALHA] Tabela "${t}" retornou status 404 (Not Found). 404 indica tabela inexistente ou ausente no cache do PostgREST, NÃO bloqueio seguro!`);
+        totalFalhas++;
+      } else if (res.status === 401 || res.status === 403) {
+        console.log(`  [OK] Tabela "${t}" bloqueada com segurança para anon (status ${res.status} ${res.statusText}).`);
       } else if (res.status === 200) {
         const data = await res.json();
         if (Array.isArray(data) && data.length === 0) {
@@ -144,10 +200,12 @@ async function main() {
           totalFalhas++;
         }
       } else {
-        console.log(`  [OK] Tabela "${t}" acesso negado para anon (status ${res.status}).`);
+        console.error(`  [FALHA] Tabela "${t}" retornou status inesperado para anon: ${res.status}`);
+        totalFalhas++;
       }
     } catch (err) {
-      console.log(`  [OK] Tabela "${t}" bloqueada com exceção de rede: ${err.message}`);
+      console.error(`  [FALHA] Erro de rede ao testar chave anon para "${t}": ${err.message}`);
+      totalFalhas++;
     }
   }
 
