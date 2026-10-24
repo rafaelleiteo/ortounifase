@@ -10,6 +10,7 @@ import {
   formatarListaNomes,
   agruparBlocos,
   proximoBloco,
+  planejarSincronizacao,
   PedidoParaMensagem,
   BlocoClinica
 } from '../src/lib/alinhadoresTypes';
@@ -503,6 +504,140 @@ it('proximoBloco: hoje apos todos os blocos retorna null', () => {
 it('proximoBloco: lista vazia retorna null', () => {
   const prox = proximoBloco([], '2026-11-03');
   expectEqual(prox, null, 'Deve retornar null para lista vazia');
+});
+
+// ------------------------------------------------------------------------------
+// 8. TESTES DE planejarSincronizacao (FUNÇÃO PURA DE DECISÃO)
+// ------------------------------------------------------------------------------
+it('planejarSincronizacao: calendario vazio nao insere e nao apaga nada', () => {
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p1', turma_id: 't1', ativo: true }],
+    datasPorTurma: { t1: [] },
+    pedidosExistentes: [
+      { id: 'ped1', paciente_id: 'p1', data_retorno: '2026-12-10', solicitado_em: null }
+    ],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 0, 'Nao deve inserir');
+  expectEqual(plano.apagarIds.length, 0, 'Nao deve apagar nada pois calendario esta vazio');
+});
+
+it('planejarSincronizacao: turma sem bloco futuro nao apaga nenhum pedido', () => {
+  // Bloco no passado: 2026-10-10 a 2026-10-12 com hoje = 2026-11-01
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p1', turma_id: 't1', ativo: true }],
+    datasPorTurma: { t1: ['2026-10-10', '2026-10-11', '2026-10-12'] },
+    pedidosExistentes: [
+      { id: 'ped1', paciente_id: 'p1', data_retorno: '2026-12-05', solicitado_em: null }
+    ],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 0, 'Nao ha bloco futuro, nao insere');
+  expectEqual(plano.apagarIds.length, 0, 'Turma sem bloco futuro nao pode ter pedidos apagados');
+});
+
+it('planejarSincronizacao: pedido solicitado nunca e apagado mesmo se obsoleto', () => {
+  // Bloco futuro: 2026-11-20 a 22. Existe pedido antigo para 2026-11-10 ja solicitado
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p1', turma_id: 't1', ativo: true }],
+    datasPorTurma: { t1: ['2026-11-20', '2026-11-21', '2026-11-22'] },
+    pedidosExistentes: [
+      { id: 'ped_solicitado', paciente_id: 'p1', data_retorno: '2026-11-10', solicitado_em: '2026-10-25T10:00:00Z' }
+    ],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 1, 'Insere novo para base 2026-11-20');
+  expectEqual(plano.inserir[0].data_retorno, '2026-11-20');
+  expectEqual(plano.apagarIds.length, 0, 'Pedido solicitado JAMAIS pode ser apagado');
+});
+
+it('planejarSincronizacao: pedido passado nunca e apagado mesmo se nao solicitado', () => {
+  // Bloco futuro: 2026-11-20 a 22. Existe pedido passado de 2026-10-15 nao solicitado
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p1', turma_id: 't1', ativo: true }],
+    datasPorTurma: { t1: ['2026-11-20', '2026-11-21', '2026-11-22'] },
+    pedidosExistentes: [
+      { id: 'ped_passado', paciente_id: 'p1', data_retorno: '2026-10-15', solicitado_em: null }
+    ],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 1, 'Insere pedido para o proximo bloco futuro');
+  expectEqual(plano.apagarIds.length, 0, 'Pedido passado nunca e apagado');
+});
+
+it('planejarSincronizacao: primeira data de um bloco removida (apaga pedido da base antiga e insere na nova)', () => {
+  // Antes o bloco era 2026-11-20, 21, 22 (base 20).
+  // A data 20 foi removida, agora o bloco e 2026-11-21, 22 (base 21).
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p1', turma_id: 't1', ativo: true }],
+    datasPorTurma: { t1: ['2026-11-21', '2026-11-22'] },
+    pedidosExistentes: [
+      { id: 'ped_antigo', paciente_id: 'p1', data_retorno: '2026-11-20', solicitado_em: null }
+    ],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 1, 'Insere pedido para a nova base');
+  expectEqual(plano.inserir[0].data_retorno, '2026-11-21', 'Nova base e 2026-11-21');
+  expectEqual(plano.apagarIds.length, 1, 'Apaga pedido com base antiga');
+  expectEqual(plano.apagarIds[0], 'ped_antigo');
+});
+
+it('planejarSincronizacao: paciente novo recebe pedido com base do proximo bloco', () => {
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p_novo', turma_id: 't1', ativo: true }],
+    datasPorTurma: { t1: ['2026-11-20', '2026-11-21', '2026-11-22'] },
+    pedidosExistentes: [],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 1, 'Deve inserir pedido para paciente novo');
+  expectEqual(plano.inserir[0].paciente_id, 'p_novo');
+  expectEqual(plano.inserir[0].data_retorno, '2026-11-20');
+  expectEqual(plano.apagarIds.length, 0);
+});
+
+it('planejarSincronizacao: execucao repetida sobre o mesmo estado gera plano vazio (idempotente)', () => {
+  // O paciente ja possui o pedido com a base do proximo bloco (2026-11-20)
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p1', turma_id: 't1', ativo: true }],
+    datasPorTurma: { t1: ['2026-11-20', '2026-11-21', '2026-11-22'] },
+    pedidosExistentes: [
+      { id: 'ped1', paciente_id: 'p1', data_retorno: '2026-11-20', solicitado_em: null }
+    ],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 0, 'Execucao repetida nao deve inserir nada');
+  expectEqual(plano.apagarIds.length, 0, 'Execucao repetida nao deve apagar nada');
+});
+
+it('planejarSincronizacao: paciente inativo nao recebe novo pedido', () => {
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p_inativo', turma_id: 't1', ativo: false }],
+    datasPorTurma: { t1: ['2026-11-20', '2026-11-21', '2026-11-22'] },
+    pedidosExistentes: [],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 0, 'Paciente inativo nao recebe novo pedido');
+  expectEqual(plano.apagarIds.length, 0);
+});
+
+it('planejarSincronizacao: paciente de turma sem calendario nao gera nada', () => {
+  const plano = planejarSincronizacao({
+    pacientes: [{ id: 'p1', turma_id: 'turma_sem_cal', ativo: true }],
+    datasPorTurma: {},
+    pedidosExistentes: [],
+    hoje: '2026-11-01'
+  });
+
+  expectEqual(plano.inserir.length, 0, 'Nao ha calendario para a turma');
+  expectEqual(plano.apagarIds.length, 0);
 });
 
 // ------------------------------------------------------------------------------

@@ -12,7 +12,8 @@ import {
   calcularStatusPedido,
   formatarDataISO,
   agruparBlocos,
-  proximoBloco
+  proximoBloco,
+  planejarSincronizacao
 } from './alinhadoresTypes';
 
 /**
@@ -644,173 +645,120 @@ export async function salvarConfig(
 
 /**
  * Sincroniza os próximos pedidos de todos os pacientes ativos usando blocos de clínica:
- * 1. Por turma, busca as datas do calendário, aplica agruparBlocos e proximoBloco(blocos, hoje local).
- * 2. Garante (insert idempotente que ignora duplicatas) um pedido para cada paciente ativo com data_retorno = base do proximo bloco.
- * 3. Apaga SOMENTE pedidos com solicitado_em NULL, data_retorno estritamente maior que hoje e data_retorno que NÃO seja a base de nenhum bloco atual da turma do paciente.
- * Nunca apaga pedidos solicitados nem pedidos passados.
+ * - Delega o cálculo estritamente à função pura planejarSincronizacao.
+ * - Propaga qualquer erro das consultas sem inserir nem apagar nada.
+ * - Se a turma não tiver nenhuma data no calendário ou não tiver bloco futuro, não apaga pedidos.
+ * - Nunca apaga pedidos solicitados nem pedidos com data_retorno <= hoje.
  */
 export async function sincronizarProximosPedidos(): Promise<{ criados: number; removidos: number }> {
-  try {
-    // 1. Obter todos os pacientes ativos
-    const { data: pacientes, error: pacientesError } = await supabase
-      .from('alinhadores_pacientes')
-      .select('id, turma_id')
-      .eq('ativo', true);
+  // 1. Obter todos os pacientes cadastrados
+  const { data: pacientes, error: pacientesError } = await supabase
+    .from('alinhadores_pacientes')
+    .select('id, turma_id, ativo');
 
-    if (pacientesError) {
-      console.error('Erro ao buscar pacientes para sincronização de retornos:', pacientesError);
-      return { criados: 0, removidos: 0 };
-    }
+  if (pacientesError) {
+    console.error('Erro ao buscar pacientes para sincronização de retornos:', pacientesError);
+    throw new Error(`Erro ao buscar pacientes para sincronização: ${pacientesError.message}`);
+  }
 
-    if (!pacientes || pacientes.length === 0) {
-      return { criados: 0, removidos: 0 };
-    }
-
-    // 2. Coletar turmas únicas dos pacientes ativos
-    const turmasIds = Array.from(new Set(pacientes.map((p) => p.turma_id)));
-    const hojeISO = formatarDataISO(new Date());
-
-    // 3. Obter todas as datas do calendário dessas turmas
-    const { data: datasCalendario, error: calError } = await supabase
-      .from('alinhadores_calendario')
-      .select('turma_id, data')
-      .in('turma_id', turmasIds)
-      .order('data', { ascending: true });
-
-    if (calError) {
-      console.error('Erro ao buscar calendário para sincronização de retornos:', calError);
-      return { criados: 0, removidos: 0 };
-    }
-
-    // 4. Agrupar datas por turma e calcular blocos e próximo bloco
-    const datasPorTurma: Record<string, string[]> = {};
-    for (const item of datasCalendario || []) {
-      if (!datasPorTurma[item.turma_id]) {
-        datasPorTurma[item.turma_id] = [];
-      }
-      datasPorTurma[item.turma_id].push(item.data);
-    }
-
-    const proximaBasePorTurma: Record<string, string> = {};
-    const basesValidasPorTurma: Record<string, Set<string>> = {};
-
-    for (const tId of turmasIds) {
-      const datas = datasPorTurma[tId] || [];
-      const blocos = agruparBlocos(datas);
-      basesValidasPorTurma[tId] = new Set(blocos.map((b) => b.base));
-
-      const prox = proximoBloco(blocos, hojeISO);
-      if (prox) {
-        proximaBasePorTurma[tId] = prox.base;
-      }
-    }
-
-    // 5. Determinar quais pares (paciente_id, data_retorno) devem existir para o próximo bloco
-    const paresEsperados: Array<{ paciente_id: string; data_retorno: string }> = [];
-    for (const paciente of pacientes) {
-      const proxBase = proximaBasePorTurma[paciente.turma_id];
-      if (proxBase) {
-        paresEsperados.push({
-          paciente_id: paciente.id,
-          data_retorno: proxBase
-        });
-      }
-    }
-
-    let criadosCount = 0;
-
-    // 6. Verificar quais desses pedidos já existem no banco
-    if (paresEsperados.length > 0) {
-      const pacientesIds = paresEsperados.map((p) => p.paciente_id);
-      const datasEsperadas = Array.from(new Set(paresEsperados.map((p) => p.data_retorno)));
-
-      const { data: pedidosExistentes, error: pedError } = await supabase
-        .from('alinhadores_pedidos')
-        .select('paciente_id, data_retorno')
-        .in('paciente_id', pacientesIds)
-        .in('data_retorno', datasEsperadas);
-
-      if (pedError) {
-        console.error('Erro ao verificar pedidos existentes para sincronização:', pedError);
-      } else {
-        const setExistentes = new Set(
-          (pedidosExistentes || []).map((p) => `${p.paciente_id}:${p.data_retorno}`)
-        );
-
-        const novosRegistros = paresEsperados
-          .filter((p) => !setExistentes.has(`${p.paciente_id}:${p.data_retorno}`))
-          .map((p) => ({
-            paciente_id: p.paciente_id,
-            data_retorno: p.data_retorno,
-            alinhador_de: null,
-            alinhador_ate: null
-          }));
-
-        if (novosRegistros.length > 0) {
-          const { error: insertError } = await supabase
-            .from('alinhadores_pedidos')
-            .insert(novosRegistros);
-
-          if (insertError) {
-            console.error('Erro ao inserir próximos pedidos sincronizados:', insertError);
-          } else {
-            criadosCount = novosRegistros.length;
-          }
-        }
-      }
-    }
-
-    // 7. Limpeza segura: apagar SOMENTE pedidos com:
-    // - solicitado_em IS NULL
-    // - data_retorno > hojeISO (futuros)
-    // - data_retorno NÃO seja a base de nenhum bloco atual da turma do paciente
-    // (Nunca apaga pedidos solicitados nem pedidos passados)
-    let removidosCount = 0;
-    const pacientesIds = pacientes.map((p) => p.id);
-    const turmaDoPacienteMap: Record<string, string> = {};
-    for (const p of pacientes) {
-      turmaDoPacienteMap[p.id] = p.turma_id;
-    }
-
-    const { data: pedidosNaoSolicitadosFuturos, error: buscaNaoSolError } = await supabase
-      .from('alinhadores_pedidos')
-      .select('id, paciente_id, data_retorno')
-      .in('paciente_id', pacientesIds)
-      .is('solicitado_em', null)
-      .gt('data_retorno', hojeISO);
-
-    if (buscaNaoSolError) {
-      console.error('Erro ao buscar pedidos para limpeza de retornos obsoletos:', buscaNaoSolError);
-    } else if (pedidosNaoSolicitadosFuturos && pedidosNaoSolicitadosFuturos.length > 0) {
-      const idsParaApagar: string[] = [];
-      for (const ped of pedidosNaoSolicitadosFuturos) {
-        const tId = turmaDoPacienteMap[ped.paciente_id];
-        const basesValidas = basesValidasPorTurma[tId] || new Set();
-        // Se a data_retorno do pedido NÃO for a base de nenhum bloco atual da turma, ele é obsoleto
-        if (!basesValidas.has(ped.data_retorno)) {
-          idsParaApagar.push(ped.id);
-        }
-      }
-
-      if (idsParaApagar.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('alinhadores_pedidos')
-          .delete()
-          .in('id', idsParaApagar);
-
-        if (deleteError) {
-          console.error('Erro ao excluir pedidos com datas obsoletas:', deleteError);
-        } else {
-          removidosCount = idsParaApagar.length;
-        }
-      }
-    }
-
-    return { criados: criadosCount, removidos: removidosCount };
-  } catch (err: any) {
-    console.error('Erro inesperado na sincronização de próximos pedidos:', err);
+  if (!pacientes || pacientes.length === 0) {
     return { criados: 0, removidos: 0 };
   }
+
+  // 2. Coletar turmas únicas dos pacientes
+  const turmasIds = Array.from(new Set(pacientes.map((p) => p.turma_id)));
+  const hojeISO = formatarDataISO(new Date());
+
+  // 3. Obter todas as datas do calendário dessas turmas
+  const { data: datasCalendario, error: calError } = await supabase
+    .from('alinhadores_calendario')
+    .select('turma_id, data')
+    .in('turma_id', turmasIds)
+    .order('data', { ascending: true });
+
+  if (calError) {
+    console.error('Erro ao buscar calendário para sincronização de retornos:', calError);
+    throw new Error(`Erro ao buscar calendário para sincronização: ${calError.message}`);
+  }
+
+  // 4. Obter todos os pedidos existentes dos pacientes
+  const pacientesIds = pacientes.map((p) => p.id);
+  const { data: pedidosExistentes, error: pedError } = await supabase
+    .from('alinhadores_pedidos')
+    .select('id, paciente_id, data_retorno, solicitado_em')
+    .in('paciente_id', pacientesIds);
+
+  if (pedError) {
+    console.error('Erro ao consultar pedidos existentes para sincronização:', pedError);
+    throw new Error(`Erro ao consultar pedidos existentes para sincronização: ${pedError.message}`);
+  }
+
+  // Agrupar datas por turma
+  const datasPorTurma: Record<string, string[]> = {};
+  for (const item of datasCalendario || []) {
+    if (!datasPorTurma[item.turma_id]) {
+      datasPorTurma[item.turma_id] = [];
+    }
+    datasPorTurma[item.turma_id].push(item.data);
+  }
+
+  // 5. Planejar sincronização através da FUNÇÃO PURA
+  const plano = planejarSincronizacao({
+    pacientes: (pacientes || []).map((p) => ({
+      id: p.id,
+      turma_id: p.turma_id,
+      ativo: !!p.ativo
+    })),
+    datasPorTurma,
+    pedidosExistentes: (pedidosExistentes || []).map((p) => ({
+      id: p.id,
+      paciente_id: p.paciente_id,
+      data_retorno: p.data_retorno,
+      solicitado_em: p.solicitado_em
+    })),
+    hoje: hojeISO
+  });
+
+  let criadosCount = 0;
+  let removidosCount = 0;
+
+  // 6. Executar inserções planejadas
+  if (plano.inserir.length > 0) {
+    const novosRegistros = plano.inserir.map((item) => ({
+      paciente_id: item.paciente_id,
+      data_retorno: item.data_retorno,
+      alinhador_de: null,
+      alinhador_ate: null
+    }));
+
+    const { error: insertError } = await supabase
+      .from('alinhadores_pedidos')
+      .insert(novosRegistros);
+
+    if (insertError) {
+      console.error('Erro ao inserir pedidos planejados na sincronização:', insertError);
+      throw new Error(`Erro ao inserir pedidos na sincronização: ${insertError.message}`);
+    }
+
+    criadosCount = novosRegistros.length;
+  }
+
+  // 7. Executar exclusões planejadas
+  if (plano.apagarIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from('alinhadores_pedidos')
+      .delete()
+      .in('id', plano.apagarIds);
+
+    if (deleteError) {
+      console.error('Erro ao excluir pedidos obsoletos na sincronização:', deleteError);
+      throw new Error(`Erro ao excluir pedidos obsoletos na sincronização: ${deleteError.message}`);
+    }
+
+    removidosCount = plano.apagarIds.length;
+  }
+
+  return { criados: criadosCount, removidos: removidosCount };
 }
 
 /**

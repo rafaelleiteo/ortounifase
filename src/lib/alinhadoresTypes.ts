@@ -350,3 +350,124 @@ export function proximoBloco(blocos: BlocoClinica[], hoje: string | Date): Bloco
 
   return null;
 }
+
+/**
+ * Interface de entrada para o plano de sincronização (função pura).
+ */
+export interface ParametrosPlanoSincronizacao {
+  pacientes: Array<{ id: string; turma_id: string; ativo: boolean }>;
+  datasPorTurma: Record<string, string[]>;
+  pedidosExistentes: Array<{
+    id: string;
+    paciente_id: string;
+    data_retorno: string;
+    solicitado_em: string | null;
+  }>;
+  hoje: string | Date;
+}
+
+/**
+ * Resultado do plano puro de sincronização:
+ * - inserir: lista de novos pedidos a serem criados
+ * - apagarIds: IDs de pedidos obsoletos a serem excluídos
+ */
+export interface PlanoSincronizacao {
+  inserir: Array<{ paciente_id: string; data_retorno: string }>;
+  apagarIds: string[];
+}
+
+/**
+ * Função PURA que decide as inserções e remoções de sincronização de próximos retornos.
+ * Regras estritas:
+ * 1. Para cada paciente ATIVO cuja turma tenha um próximo bloco clínico (base > hoje),
+ *    garante um pedido com data_retorno = base do próximo bloco, caso ainda não exista.
+ * 2. Se a turma não tiver nenhuma data no calendário ou não tiver bloco futuro,
+ *    NÃO apaga nenhum pedido dessa turma e NÃO gera inserções.
+ * 3. Apaga SOMENTE pedidos que atendem a TODAS as condições:
+ *    - Pertencem a uma turma que POSSUI pelo menos um bloco futuro cadastrado
+ *    - solicitado_em é NULL (nunca apaga pedidos solicitados)
+ *    - data_retorno é estritamente maior que hoje (data_retorno > hoje, nunca apaga pedidos passados/hoje)
+ *    - data_retorno NÃO é a base de nenhum bloco atual daquela turma
+ * 4. Idempotência: rodar duas vezes sobre o mesmo estado gera plano vazio { inserir: [], apagarIds: [] }.
+ */
+export function planejarSincronizacao(
+  params: ParametrosPlanoSincronizacao
+): PlanoSincronizacao {
+  const { pacientes, datasPorTurma, pedidosExistentes, hoje } = params;
+
+  const hojeISO = typeof hoje === 'string' ? hoje.substring(0, 10) : formatarDataISO(hoje);
+
+  // Mapear turmas de cada paciente
+  const turmaPorPaciente: Record<string, string> = {};
+  for (const p of pacientes) {
+    turmaPorPaciente[p.id] = p.turma_id;
+  }
+
+  // Identificar blocos por turma e determinar turmas com bloco futuro
+  const proximaBasePorTurma: Record<string, string> = {};
+  const basesValidasPorTurma: Record<string, Set<string>> = {};
+  const turmasComBlocoFuturo = new Set<string>();
+
+  for (const [turmaId, datas] of Object.entries(datasPorTurma)) {
+    if (!datas || datas.length === 0) continue;
+    const blocos = agruparBlocos(datas);
+    basesValidasPorTurma[turmaId] = new Set(blocos.map((b) => b.base));
+
+    const prox = proximoBloco(blocos, hojeISO);
+    if (prox) {
+      proximaBasePorTurma[turmaId] = prox.base;
+      turmasComBlocoFuturo.add(turmaId);
+    }
+  }
+
+  // 1. Determinar pedidos a inserir (apenas pacientes ativos cuja turma tenha próximo bloco)
+  const pedidosExistentesSet = new Set(
+    pedidosExistentes.map((p) => `${p.paciente_id}:${p.data_retorno}`)
+  );
+
+  const inserir: Array<{ paciente_id: string; data_retorno: string }> = [];
+
+  for (const paciente of pacientes) {
+    if (!paciente.ativo) continue;
+    const proxBase = proximaBasePorTurma[paciente.turma_id];
+    if (!proxBase) continue;
+
+    const chave = `${paciente.id}:${proxBase}`;
+    if (!pedidosExistentesSet.has(chave)) {
+      inserir.push({
+        paciente_id: paciente.id,
+        data_retorno: proxBase
+      });
+      pedidosExistentesSet.add(chave); // Evita duplicata se houver paciente repetido na lista
+    }
+  }
+
+  // 2. Determinar pedidos a apagar
+  const apagarIds: string[] = [];
+
+  for (const ped of pedidosExistentes) {
+    // Regra: nunca apagar pedidos solicitados
+    if (ped.solicitado_em !== null && ped.solicitado_em !== undefined) {
+      continue;
+    }
+
+    // Regra: nunca apagar pedidos com data_retorno <= hoje
+    if (ped.data_retorno <= hojeISO) {
+      continue;
+    }
+
+    const turmaId = turmaPorPaciente[ped.paciente_id];
+    // Se paciente desconhecido ou turma sem bloco futuro cadastrado, NÃO apagar
+    if (!turmaId || !turmasComBlocoFuturo.has(turmaId)) {
+      continue;
+    }
+
+    const basesValidas = basesValidasPorTurma[turmaId] || new Set();
+    // Apaga apenas se a data de retorno NÃO for a base de nenhum bloco atual da turma
+    if (!basesValidas.has(ped.data_retorno)) {
+      apagarIds.push(ped.id);
+    }
+  }
+
+  return { inserir, apagarIds };
+}
