@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Tipos e Interfaces do Módulo de Arquivos da Administração
  */
 
@@ -25,6 +25,11 @@ export interface EditarArquivoParams {
   id: string;
   nome: string;
   descricao?: string | null;
+}
+
+export interface ResultadoSubstituicao {
+  arquivo: ArquivoAdmin;
+  avisoRemocaoAntigo?: string | null;
 }
 
 export interface ProgressoUploadItem {

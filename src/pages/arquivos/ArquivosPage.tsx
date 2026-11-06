@@ -39,7 +39,11 @@ export const ArquivosPage: React.FC = () => {
   const [arquivos, setArquivos] = useState<ArquivoAdmin[]>([]);
   const [carregando, setCarregando] = useState<boolean>(true);
   const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
   const [busca, setBusca] = useState<string>('');
+
+  // Sequência de requisições para evitar race conditions em respostas fora de ordem
+  const requestSeqRef = useRef<number>(0);
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [filaUpload, setFilaUpload] = useState<ProgressoUploadItem[]>([]);
@@ -65,21 +69,33 @@ export const ArquivosPage: React.FC = () => {
   const [baixandoId, setBaixandoId] = useState<string | null>(null);
 
   const carregarDados = async (termoBusca?: string) => {
+    const currentSeq = ++requestSeqRef.current;
     try {
       setCarregando(true);
       setErro(null);
       const lista = await listarArquivos(termoBusca);
-      setArquivos(lista);
+      if (currentSeq === requestSeqRef.current) {
+        setArquivos(lista);
+      }
     } catch (err: any) {
-      console.error('Erro ao listar arquivos:', err);
-      setErro(err.message || 'Erro ao carregar arquivos.');
+      if (currentSeq === requestSeqRef.current) {
+        console.error('Erro ao listar arquivos:', err);
+        setErro(err.message || 'Erro ao carregar arquivos.');
+      }
     } finally {
-      setCarregando(false);
+      if (currentSeq === requestSeqRef.current) {
+        setCarregando(false);
+      }
     }
   };
 
+  // Busca com atraso de 300 ms (debounce) e cancelamento de timers pendentes
   useEffect(() => {
-    carregarDados(busca);
+    const timer = setTimeout(() => {
+      carregarDados(busca);
+    }, 300);
+
+    return () => clearTimeout(timer);
   }, [busca]);
 
   const renderIconeArquivo = (nome: string) => {
@@ -168,6 +184,7 @@ export const ArquivosPage: React.FC = () => {
   const handleDownload = async (arquivo: ArquivoAdmin) => {
     try {
       setBaixandoId(arquivo.id);
+      setErro(null);
       const urlAssinada = await obterUrlDownload(arquivo.caminho_storage, arquivo.nome_original);
       const link = document.createElement('a');
       link.href = urlAssinada;
@@ -176,7 +193,7 @@ export const ArquivosPage: React.FC = () => {
       link.click();
       document.body.removeChild(link);
     } catch (err: any) {
-      alert(`Não foi possível baixar o arquivo: ${err.message}`);
+      setErro(`Não foi possível baixar o arquivo "${arquivo.nome}": ${err.message || 'Erro de download'}`);
     } finally {
       setBaixandoId(null);
     }
@@ -233,7 +250,12 @@ export const ArquivosPage: React.FC = () => {
     try {
       setSubstituindo(true);
       setErroSubstituicao(null);
-      await substituirArquivo(arquivoSubstituindo, novoArquivoSubstituicao);
+      const res = await substituirArquivo(arquivoSubstituindo, novoArquivoSubstituicao);
+      if (res.avisoRemocaoAntigo) {
+        setAviso(res.avisoRemocaoAntigo);
+      } else {
+        setAviso(null);
+      }
       setArquivoSubstituindo(null);
       setNovoArquivoSubstituicao(null);
       await carregarDados(busca);
@@ -403,16 +425,38 @@ export const ArquivosPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Banner de Aviso (ex: substituição com falha de remoção do antigo) */}
+        {aviso && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 flex items-start gap-3 shadow-xs">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h4 className="text-xs font-bold text-amber-900">Aviso do Sistema</h4>
+              <p className="text-xs text-amber-700 mt-0.5">{aviso}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAviso(null)}
+              className="p-1 text-amber-500 hover:text-amber-800 rounded cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Alerta de Erro Geral */}
         {erro && (
           <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-4 flex items-start gap-3 shadow-xs">
             <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <h4 className="text-xs font-bold text-rose-900">Erro ao carregar repositório</h4>
+              <h4 className="text-xs font-bold text-rose-900">Erro no repositório</h4>
               <p className="text-xs text-rose-700 mt-0.5">{erro}</p>
             </div>
             <button
               type="button"
-              onClick={() => carregarDados(busca)}
+              onClick={() => {
+                setErro(null);
+                carregarDados(busca);
+              }}
               className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-900 rounded text-xs font-semibold cursor-pointer"
             >
               Tentar Novamente
@@ -420,6 +464,7 @@ export const ArquivosPage: React.FC = () => {
           </div>
         )}
 
+        {/* Tabela de Arquivos */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           {carregando ? (
             <div className="p-12 text-center text-slate-500">
@@ -442,6 +487,7 @@ export const ArquivosPage: React.FC = () => {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                     <th className="py-3 px-4">Arquivo</th>
+                    <th className="py-3 px-4">Tipo</th>
                     <th className="py-3 px-4">Descrição</th>
                     <th className="py-3 px-4">Tamanho</th>
                     <th className="py-3 px-4">Data de Envio</th>
@@ -449,19 +495,29 @@ export const ArquivosPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-xs text-slate-700">
-                  {arquivos.map((arq) => (
-                    <tr key={arq.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-start gap-3">
-                          {renderIconeArquivo(arq.nome_original)}
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-xs leading-snug">{arq.nome}</p>
-                            <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate max-w-xs">
-                              {arq.nome_original}
-                            </p>
+                  {arquivos.map((arq) => {
+                    const extUpper = extrairExtensao(arq.nome_original).toUpperCase() || 'ARQUIVO';
+                    return (
+                      <tr key={arq.id} className="hover:bg-slate-50/80 transition-colors">
+                        {/* Arquivo / Nome */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-start gap-3">
+                            {renderIconeArquivo(arq.nome_original)}
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 text-xs leading-snug">{arq.nome}</p>
+                              <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate max-w-xs">
+                                {arq.nome_original}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
+
+                        {/* Tipo (Extensão em maiúsculas) */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide bg-slate-100 text-slate-700 border border-slate-200 font-mono">
+                            {extUpper}
+                          </span>
+                        </td>
 
                       <td className="py-3.5 px-4 max-w-xs">
                         <p className="text-xs text-slate-600 line-clamp-2">
@@ -531,8 +587,9 @@ export const ArquivosPage: React.FC = () => {
                         </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
+                  );
+                })}
+              </tbody>
               </table>
             </div>
           )}

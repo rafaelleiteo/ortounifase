@@ -1,14 +1,33 @@
-﻿import { supabase } from './supabase';
+import { supabase } from './supabase';
 import {
   ArquivoAdmin,
   CriarArquivoParams,
   EditarArquivoParams,
+  ResultadoSubstituicao,
   validarArquivo,
   sanitizarNomeOriginal,
   gerarCaminhoStorage
 } from './arquivosTypes';
 
 export const BUCKET_NAME = 'arquivos-admin';
+
+/**
+ * Verifica se um objeto ainda existe no Storage usando createSignedUrl de curta duração.
+ * Retorna true se o objeto existir (URL gerada com sucesso), false se não existir ou se falhar.
+ */
+async function verificarSeObjetoExiste(caminhoStorage: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(caminhoStorage, 10);
+    if (error || !data?.signedUrl) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Lista todos os arquivos da administração ordenados por data de criação (mais recentes primeiro).
@@ -147,7 +166,10 @@ export async function editarArquivo(params: EditarArquivoParams): Promise<Arquiv
  * 2. Atualiza os metadados da linha na tabela.
  * 3. Somente após a atualização confirmada da tabela, apaga o arquivo antigo do Storage.
  */
-export async function substituirArquivo(arquivoAtual: ArquivoAdmin, novoFile: File): Promise<ArquivoAdmin> {
+export async function substituirArquivo(
+  arquivoAtual: ArquivoAdmin,
+  novoFile: File
+): Promise<ResultadoSubstituicao> {
   const validacao = validarArquivo(novoFile);
   if (!validacao.valido) {
     throw new Error(validacao.erro || 'Arquivo inválido.');
@@ -196,40 +218,67 @@ export async function substituirArquivo(arquivoAtual: ArquivoAdmin, novoFile: Fi
   }
 
   // 3. Remover com segurança o arquivo antigo do Storage
+  let avisoRemocaoAntigo: string | null = null;
   if (caminhoStorageAntigo) {
     try {
-      const { error: removeError } = await supabase.storage
+      const { data: removeData, error: removeError } = await supabase.storage
         .from(BUCKET_NAME)
         .remove([caminhoStorageAntigo]);
-      if (removeError) {
-        console.warn('Aviso: arquivo antigo não pôde ser removido do Storage:', removeError);
+
+      const falhaRemocao =
+        removeError ||
+        !removeData ||
+        removeData.length === 0;
+
+      if (falhaRemocao) {
+        const aindaExiste = await verificarSeObjetoExiste(caminhoStorageAntigo);
+        if (aindaExiste) {
+          avisoRemocaoAntigo = 'Arquivo substituído, mas o arquivo antigo não pôde ser removido do servidor.';
+        }
       }
     } catch (removeErr) {
       console.warn('Aviso ao tentar excluir arquivo antigo do Storage:', removeErr);
+      avisoRemocaoAntigo = 'Arquivo substituído, mas o arquivo antigo não pôde ser removido do servidor.';
     }
   }
 
-  return dbData as ArquivoAdmin;
+  return {
+    arquivo: dbData as ArquivoAdmin,
+    avisoRemocaoAntigo
+  };
 }
 
 /**
- * Exclui um arquivo da administração:
- * 1. Remove do Storage.
- * 2. Remove da tabela arquivos_admin.
- * Se a exclusão no banco falhar, lança erro para evitar que a inconsistência passe despercebida.
+ * Exclui um arquivo da administração com proteção contra exclusão silenciosa:
+ * 1. Remove do Storage capturando { data, error }.
+ * 2. Se houver error, interrompe e não remove da tabela.
+ * 3. Se data vier vazio ou nulo, verifica via URL assinada se o objeto ainda existe.
+ *    - Se ainda existe, interrompe com erro (Storage não removeu / sem permissão).
+ *    - Se não existe mais (já havia sido removido antes), prossegue para limpar o registro órfão.
+ * 4. Remove o registro da tabela arquivos_admin.
  */
 export async function apagarArquivo(arquivo: ArquivoAdmin): Promise<void> {
-  // 1. Remove do Storage
-  const { error: storageError } = await supabase.storage
+  // 1. Tentar remover do Storage
+  const { data: storageData, error: storageError } = await supabase.storage
     .from(BUCKET_NAME)
     .remove([arquivo.caminho_storage]);
 
   if (storageError) {
     console.error('Erro ao remover arquivo do Storage:', storageError);
-    throw new Error(`Erro ao remover arquivo do Storage: ${storageError.message}`);
+    throw new Error(`Erro ao remover arquivo do servidor: ${storageError.message}`);
   }
 
-  // 2. Remove da tabela
+  // 2. Se data vier vazio ou nulo, verificar se o arquivo ainda existe
+  if (!storageData || storageData.length === 0) {
+    const aindaExiste = await verificarSeObjetoExiste(arquivo.caminho_storage);
+    if (aindaExiste) {
+      throw new Error(
+        'O servidor não permitiu remover o arquivo físico (falha ou falta de permissão no Storage). O registro foi mantido.'
+      );
+    }
+  }
+
+  // 3. Remove da tabela
   const { error: dbError } = await supabase
     .from('arquivos_admin')
     .delete()
