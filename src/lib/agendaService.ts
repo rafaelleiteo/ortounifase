@@ -9,6 +9,12 @@ import {
   normalizarTextoComparacao,
   AgendaAluno
 } from './agendaTypes';
+import {
+  planejarReaplicacaoObservacoes,
+  ObservacaoAntiga,
+  ItemNaoReaplicado,
+  normalizarObservacao
+} from './agendaObservacoes';
 
 export async function importarAgendaMensal(payload: ImportPayload) {
   if (!payload.turma || !payload.mes_referencia || !Array.isArray(payload.registros)) {
@@ -47,12 +53,6 @@ export async function importarAgendaMensal(payload: ImportPayload) {
 
   if (alunosError) throw alunosError;
 
-  // NÃO CRIAR NOVOS ALUNOS!
-  // Os alunos de cada turma são cadastrados manualmente pelo coordenador em agenda_alunos e são fixos —
-  // a importação mensal NUNCA deve criar um novo registro em agenda_alunos.
-  // Na ESP2, os alunos atendem em DUPLA: membros individuais, duplas completas ou variações de
-  // caixa/espaço/acento resolvem para a respectiva dupla oficial. O que não casar cai em Atendimento Extra.
-
   // 3. Montar os registros para upsert em agenda_mensal
   // UNIQUE (turma_id, mes_referencia, paciente, horario, dia_semana)
   const rowsToUpsert = payload.registros.map((reg) => {
@@ -76,6 +76,31 @@ export async function importarAgendaMensal(payload: ImportPayload) {
     };
   });
 
+  // 4. PRESERVAÇÃO DE OBSERVAÇÕES MENSAIS
+  // ANTES do delete: ler as linhas existentes com observação preenchida.
+  // Se a leitura falhar, ABORTA a importação antes de apagar qualquer coisa para segurança dos dados.
+  const { data: observacoesExistentes, error: errLeituraObs } = await supabase
+    .from('agenda_mensal')
+    .select('paciente, dia_semana, horario, observacao')
+    .eq('turma_id', turma.id)
+    .eq('mes_referencia', payload.mes_referencia)
+    .not('observacao', 'is', null);
+
+  if (errLeituraObs) {
+    throw new Error(
+      `Falha na leitura prévia de observações da agenda mensal. Operação abortada para segurança: ${errLeituraObs.message}`
+    );
+  }
+
+  const obsParaPreservar: ObservacaoAntiga[] = (observacoesExistentes || [])
+    .filter((o) => normalizarObservacao(o.observacao) !== null)
+    .map((o) => ({
+      paciente: o.paciente,
+      dia_semana: o.dia_semana,
+      horario: o.horario,
+      observacao: o.observacao!
+    }));
+
   // 4.1 Limpar registros existentes desta turma e mês antes de reinserir,
   // para que a reimportação sempre reflita exatamente o payload atual,
   // sem deixar registros "fantasma" de importações anteriores.
@@ -87,14 +112,55 @@ export async function importarAgendaMensal(payload: ImportPayload) {
 
   if (deleteError) throw deleteError;
 
-  // 4.2 Inserir / Upsert em agenda_mensal
-  const { error: upsertError } = await supabase
+  // 4.2 Inserir / Upsert em agenda_mensal retornando os novos IDs para reconciliação
+  const { data: upsertData, error: upsertError } = await supabase
     .from('agenda_mensal')
     .upsert(rowsToUpsert, {
       onConflict: 'turma_id,mes_referencia,paciente,horario,dia_semana',
-    });
+    })
+    .select('id, paciente, dia_semana, horario');
 
   if (upsertError) throw upsertError;
+
+  // 4.3 Reaplicar observações salvas aos novos registros correspondentes
+  const plano = planejarReaplicacaoObservacoes(
+    obsParaPreservar,
+    (upsertData || []).map((u) => ({
+      id: u.id,
+      paciente: u.paciente,
+      dia_semana: u.dia_semana,
+      horario: u.horario
+    }))
+  );
+
+  const naoReaplicadasFinais: ItemNaoReaplicado[] = [...plano.naoReaplicadas];
+
+  for (const item of plano.reaplicar) {
+    try {
+      const { error: errUpdateObs } = await supabase
+        .from('agenda_mensal')
+        .update({ observacao: item.observacao })
+        .eq('id', item.id);
+
+      if (errUpdateObs) {
+        naoReaplicadasFinais.push({
+          paciente: item.paciente,
+          dia_semana: item.dia_semana,
+          horario: item.horario,
+          observacao: item.observacao,
+          motivo: `Erro no banco ao salvar: ${errUpdateObs.message}`
+        });
+      }
+    } catch (errCatch: any) {
+      naoReaplicadasFinais.push({
+        paciente: item.paciente,
+        dia_semana: item.dia_semana,
+        horario: item.horario,
+        observacao: item.observacao,
+        motivo: `Exceção ao atualizar: ${errCatch.message}`
+      });
+    }
+  }
 
   // 5. Chamar a função compare_agendas preservando status revisados
   const compareResult = await recalcularInconsistenciasComPreservacao(
@@ -113,6 +179,7 @@ export async function importarAgendaMensal(payload: ImportPayload) {
     totalVinculados,
     totalExtras,
     compareResult,
+    naoReaplicadas: naoReaplicadasFinais
   };
 }
 

@@ -23,6 +23,7 @@ export interface AgendaFixaItem {
   turma_id: string;
   tipo_registro?: 'paciente' | 'bloqueio';
   tipo_bloqueio?: TipoBloqueio;
+  observacao?: string | null;
   created_at?: string;
   updated_at?: string;
   agenda_alunos?: {
@@ -42,6 +43,7 @@ export interface AgendaMensalItem {
   mes_referencia: string; // "YYYY-MM-01"
   tipo_registro?: 'paciente' | 'bloqueio';
   tipo_bloqueio?: TipoBloqueio;
+  observacao?: string | null;
   created_at?: string;
   agenda_alunos?: {
     id: string;

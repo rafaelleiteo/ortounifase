@@ -21,6 +21,9 @@ export interface AgendaCardItem {
   tipo_registro?: 'paciente' | 'bloqueio';
   tipo_bloqueio?: TipoBloqueio;
   is_extra?: boolean;
+  observacao?: string | null;
+  observacaoFixa?: string | null;
+  origem?: 'fixa' | 'mensal';
 }
 
 export interface AgendaCardAtendimentoProps {
@@ -109,6 +112,80 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
           </span>
         )}
       </div>
+
+      {/* Observações na Tela */}
+      {(() => {
+        const isMensal = item.origem === 'mensal' || Boolean(item.mes_referencia);
+        const temObs = Boolean(item.observacao && item.observacao.trim());
+        const temObsFixa = Boolean(item.observacaoFixa && item.observacaoFixa.trim());
+
+        if (!temObs && !temObsFixa) return null;
+
+        return (
+          <>
+            {/* Exibição em Tela (print:hidden) */}
+            <div className="agenda-card-obs-screen space-y-0.5 my-1 print:hidden">
+              {isMensal ? (
+                <>
+                  {temObsFixa && (
+                    <div
+                      title={`Observação Fixa: ${item.observacaoFixa}`}
+                      className="text-[10px] italic text-slate-600 line-clamp-3 leading-tight"
+                    >
+                      <span className="font-semibold not-italic text-slate-700">Fixa:</span> {item.observacaoFixa}
+                    </div>
+                  )}
+                  {temObs && (
+                    <div
+                      title={`Observação do Mês: ${item.observacao}`}
+                      className="text-[10px] italic text-slate-600 line-clamp-3 leading-tight"
+                    >
+                      <span className="font-semibold not-italic text-slate-700">Mês:</span> {item.observacao}
+                    </div>
+                  )}
+                </>
+              ) : (
+                temObs && (
+                  <div
+                    title={item.observacao!}
+                    className="text-[10px] italic text-slate-600 line-clamp-3 leading-tight"
+                  >
+                    {item.observacao}
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* Exibição em Impressão (hidden print:block) */}
+            <div className="agenda-card-obs-print hidden print:block agenda-print-obs print:text-[7px] print:leading-tight italic text-slate-600">
+              {isMensal ? (
+                temObsFixa && temObs ? (
+                  <div className="space-y-0">
+                    <div className="line-clamp-1 truncate">
+                      <span className="font-semibold not-italic">Fixa:</span> {item.observacaoFixa}
+                    </div>
+                    <div className="line-clamp-1 truncate">
+                      <span className="font-semibold not-italic">Mês:</span> {item.observacao}
+                    </div>
+                  </div>
+                ) : temObsFixa ? (
+                  <div className="line-clamp-2">
+                    <span className="font-semibold not-italic">Fixa:</span> {item.observacaoFixa}
+                  </div>
+                ) : (
+                  <div className="line-clamp-2">
+                    <span className="font-semibold not-italic">Mês:</span> {item.observacao}
+                  </div>
+                )
+              ) : (
+                <div className="line-clamp-2">
+                  {item.observacao}
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Badge ou Detalhe (ex: Inconsistência) */}
       {badge && <div className="mb-1 print:mb-0 agenda-print-badge">{badge}</div>}

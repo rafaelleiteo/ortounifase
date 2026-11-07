@@ -13,6 +13,7 @@ import {
   getDescricaoBloqueio,
   TipoBloqueio
 } from '@/lib/agendaTypes';
+import { normalizarObservacao } from '@/lib/agendaObservacoes';
 
 interface UseAgendaModaisOptions {
   onSalvarItem: (dados: {
@@ -23,6 +24,7 @@ interface UseAgendaModaisOptions {
     dia_semana?: string;
     tipo_registro?: 'paciente' | 'bloqueio';
     tipo_bloqueio?: TipoBloqueio;
+    observacao?: string | null;
   }) => Promise<void> | void;
   itensExistentes?: AgendaCardItem[];
   alunos?: Array<{ id: string; nome: string }>;
@@ -40,7 +42,8 @@ export function useAgendaModais({
     paciente: '',
     alunoId: '',
     horario: '08:00',
-    diaSemana: diaDefault
+    diaSemana: diaDefault,
+    observacao: ''
   });
 
   const [modalReagendar, setModalReagendar] = useState<ModalReagendarState>({
@@ -65,12 +68,13 @@ export function useAgendaModais({
       paciente: isBloqueio ? getDescricaoBloqueio(item.paciente) : item.paciente,
       alunoId: item.aluno_id || '',
       horario: formatarHorarioExibicao(item.horario),
-      diaSemana: item.dia_semana || diaDefault
+      diaSemana: item.dia_semana || diaDefault,
+      observacao: item.observacao || ''
     });
   };
 
   const fecharEditar = () => {
-    setModalEditar((prev) => ({ ...prev, isOpen: false, item: undefined }));
+    setModalEditar((prev) => ({ ...prev, isOpen: false, item: undefined, observacao: '' }));
   };
 
   const handleSalvarEditar = async (dados: {
@@ -79,6 +83,7 @@ export function useAgendaModais({
     aluno_id: string | null;
     horario: string;
     dia_semana: string;
+    observacao?: string | null;
   }) => {
     const itemOriginal = modalEditar.item;
     const isBloqueio = itemOriginal?.tipo_registro === 'bloqueio' || isItemBloqueio(itemOriginal);
@@ -95,7 +100,8 @@ export function useAgendaModais({
       horario: normalizarHorario(dados.horario),
       dia_semana: dados.dia_semana,
       tipo_registro: isBloqueio ? 'bloqueio' : 'paciente',
-      tipo_bloqueio: isBloqueio ? tipo : undefined
+      tipo_bloqueio: isBloqueio ? tipo : undefined,
+      observacao: isBloqueio ? itemOriginal?.observacao : normalizarObservacao(dados.observacao)
     });
     fecharEditar();
   };
@@ -155,7 +161,8 @@ export function useAgendaModais({
       horario: hNormDestino,
       dia_semana: dados.dia_semana,
       tipo_registro: isBloqueio ? 'bloqueio' : undefined,
-      tipo_bloqueio: isBloqueio ? tipo : undefined
+      tipo_bloqueio: isBloqueio ? tipo : undefined,
+      observacao: item.observacao
     });
     fecharReagendar();
   };
@@ -186,7 +193,8 @@ export function useAgendaModais({
       id: dados.id,
       aluno_id: isExtraDestino ? null : dados.novoAlunoId,
       tipo_registro: isBloqueio ? 'bloqueio' : undefined,
-      tipo_bloqueio: isBloqueio ? tipo : undefined
+      tipo_bloqueio: isBloqueio ? tipo : undefined,
+      observacao: item?.observacao
     });
     fecharTrocarAluno();
   };

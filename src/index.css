@@ -221,6 +221,11 @@
     opacity: 0.85 !important;
   }
 
+  .agenda-print-obs {
+    font-size: 7px !important;
+    line-height: 1.1 !important;
+  }
+
   .agenda-card-actions {
     display: none !important;
   }
@@ -392,6 +397,11 @@
 
   html.agenda-modo-impressao .agenda-print-detalhe {
     font-size: 8.5px !important;
+    line-height: 1.1 !important;
+  }
+
+  html.agenda-modo-impressao .agenda-print-obs {
+    font-size: 7px !important;
     line-height: 1.1 !important;
   }
 

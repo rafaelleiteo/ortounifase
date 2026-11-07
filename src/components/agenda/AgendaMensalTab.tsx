@@ -49,10 +49,18 @@ import { AgendaCardAtendimento } from './AgendaCardAtendimento';
 import { AgendaModaisAtendimento } from './AgendaModaisAtendimento';
 import { useAgendaModais } from './useAgendaModais';
 import { AgendaPrintHeader } from './AgendaPrintHeader';
+import {
+  vincularObservacoesFixas,
+  normalizarObservacao,
+  LIMITE_CARACTERES_OBSERVACAO,
+  ItemNaoReaplicado
+} from '@/lib/agendaObservacoes';
+import { AgendaFixaItem } from '@/lib/agendaTypes';
 
 interface AgendaMensalTabProps {
   turmaNome: string;
   alunos: AgendaAluno[];
+  agendaFixa?: AgendaFixaItem[];
   agendaMensal: AgendaMensalItem[];
   inconsistencias: InconsistenciaItem[];
   mesReferencia: string;
@@ -62,6 +70,7 @@ interface AgendaMensalTabProps {
   periodo?: TurnoAgenda;
   onPeriodoChange?: (periodo: TurnoAgenda) => void;
   onAbrirImportModal: () => void;
+  obsNaoReaplicadasImport?: ItemNaoReaplicado[];
   onSalvarItem?: (dados: {
     id?: string;
     paciente?: string;
@@ -70,6 +79,7 @@ interface AgendaMensalTabProps {
     dia_semana?: string;
     tipo_registro?: 'paciente' | 'bloqueio';
     tipo_bloqueio?: TipoBloqueio;
+    observacao?: string | null;
   }) => Promise<void> | void;
   onRemoverItem?: (id: string, pacienteNome?: string) => Promise<void> | void;
   isCoordenadorOrAdmin?: boolean;
@@ -78,6 +88,7 @@ interface AgendaMensalTabProps {
 export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   turmaNome,
   alunos,
+  agendaFixa = [],
   agendaMensal,
   inconsistencias,
   mesReferencia,
@@ -87,6 +98,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   periodo: periodoProp,
   onPeriodoChange,
   onAbrirImportModal,
+  obsNaoReaplicadasImport = [],
   onSalvarItem,
   onRemoverItem,
   isCoordenadorOrAdmin = false
@@ -158,6 +170,15 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   const divisorTarde = useMemo(() => {
     return horarios.find((h) => h >= '12:00') || HORARIO_DIVISOR_TURNO;
   }, [horarios]);
+
+  // Vínculo puro de Observações da Agenda Fixa para os cartões da Agenda Mensal
+  const { mapaObservacoesPorMensalId, observacoesFixasSemCartao } = useMemo(() => {
+    return vincularObservacoesFixas({
+      agendaFixa: agendaFixa || [],
+      agendaMensal,
+      diaSelecionado
+    });
+  }, [agendaFixa, agendaMensal, diaSelecionado]);
 
   // Mapas por chave: `${alunoId}_${horario}` => lista de itens (suporta múltiplos extras no mesmo horário)
   const mensalMap = new Map<string, AgendaMensalItem[]>();
@@ -273,7 +294,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       aluno_id: m.aluno_id,
       aluno: m.aluno,
       horario: m.horario,
-      dia_semana: m.dia_semana
+      dia_semana: m.dia_semana,
+      observacao: m.observacao
     })),
     alunos: alunosOrdenados.filter((a) => a.id !== 'EXTRA_VIRTUAL'),
     diaDefault: diaSelecionado
@@ -286,12 +308,14 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     diaSemana: string;
     horario: string;
     alunoId: string;
+    observacao: string;
   }>({
     isOpen: false,
     pacienteNome: '',
     diaSemana: 'QUINTA',
     horario: '08:00',
-    alunoId: ''
+    alunoId: '',
+    observacao: ''
   });
 
   // Modal para "Fechar Horário (Bloqueio)" na Agenda Mensal
@@ -329,14 +353,16 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       paciente: modalNovoPaciente.pacienteNome.trim(),
       dia_semana: modalNovoPaciente.diaSemana,
       horario: normalizarHorario(modalNovoPaciente.horario),
-      aluno_id: isExtra ? null : modalNovoPaciente.alunoId
+      aluno_id: isExtra ? null : modalNovoPaciente.alunoId,
+      observacao: normalizarObservacao(modalNovoPaciente.observacao)
     });
     setModalNovoPaciente({
       isOpen: false,
       pacienteNome: '',
       diaSemana: diaSelecionado,
       horario: '08:00',
-      alunoId: alunosOrdenados[0]?.id || ''
+      alunoId: alunosOrdenados[0]?.id || '',
+      observacao: ''
     });
   };
 
@@ -638,7 +664,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                       pacienteNome: '',
                       diaSemana: diaSelecionado,
                       horario: '08:00',
-                      alunoId: alunosOrdenados[0]?.id || ''
+                      alunoId: alunosOrdenados[0]?.id || '',
+                      observacao: ''
                     })
                   }
                   className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
@@ -733,6 +760,60 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                 <strong>{ausente.paciente}</strong> (Horário: {ausente.horario} | Aluno Habitual: {ausente.aluno_fixa || 'N/A'})
               </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Aviso de Observações Fixas Sem Paciente Correspondente neste Mês (Oculto na impressão) */}
+      {observacoesFixasSemCartao.length > 0 && (
+        <div className="bg-amber-50/90 border border-amber-300/80 rounded-2xl p-4 text-xs text-amber-950 space-y-2 print:hidden shadow-xs">
+          <div className="flex items-center gap-2 font-bold text-amber-900">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Observações fixas sem paciente correspondente neste mês ({observacoesFixasSemCartao.length}):</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+            {observacoesFixasSemCartao.map((obs, idx) => (
+              <div key={idx} className="bg-white/90 border border-amber-200/80 rounded-xl p-2.5 space-y-0.5">
+                <div className="font-semibold text-slate-800">{obs.paciente}</div>
+                <div className="text-[11px] text-amber-800 font-medium">
+                  Dia: {obs.dia_semana} ({formatarHorarioExibicao(obs.horario)})
+                </div>
+                <div className="text-[11px] text-slate-600 italic break-words">
+                  "{obs.observacao}"
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Aviso de Observações Mensais Não Reaplicadas após Reimportação (Oculto na impressão) */}
+      {obsNaoReaplicadasImport && obsNaoReaplicadasImport.length > 0 && (
+        <div className="bg-amber-100/90 border border-amber-400 rounded-2xl p-4 text-xs text-amber-950 space-y-2 print:hidden shadow-sm">
+          <div className="flex items-center gap-2 font-bold text-amber-900">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>Aviso de Reimportação: {obsNaoReaplicadasImport.length} observação(ões) mensal(is) não puderam ser reaplicadas automaticamente:</span>
+          </div>
+          <p className="text-[11px] text-amber-800">
+            Os pacientes abaixo possuíam notas no mês que não coincidiram com o novo arquivo importado. Você pode redigitá-las se necessário:
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+            {obsNaoReaplicadasImport.map((obs, idx) => (
+              <div key={idx} className="bg-white/90 border border-amber-300 rounded-xl p-2.5 space-y-0.5">
+                <div className="font-semibold text-slate-800">{obs.paciente}</div>
+                <div className="text-[11px] text-amber-800 font-medium">
+                  Dia: {obs.dia_semana} ({formatarHorarioExibicao(obs.horario)})
+                </div>
+                <div className="text-[11px] text-slate-600 italic break-words">
+                  "{obs.observacao}"
+                </div>
+                {obs.motivo && (
+                  <div className="text-[10px] text-slate-400 font-normal">
+                    {obs.motivo}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -860,7 +941,10 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                             dia_semana: item.dia_semana,
                                             tipo_registro: itemBloqueio ? 'bloqueio' : 'paciente',
                                             tipo_bloqueio: tipoBloq,
-                                            is_extra: isExtra
+                                            is_extra: isExtra,
+                                            observacao: item.observacao,
+                                            observacaoFixa: itemBloqueio ? undefined : mapaObservacoesPorMensalId.get(item.id),
+                                            origem: 'mensal'
                                           }}
                                           badge={
                                             itemBloqueio ? undefined : incInfo ? (
@@ -925,7 +1009,8 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                               pacienteNome: '',
                                               diaSemana: diaSelecionado,
                                               horario: h,
-                                              alunoId: isExtra ? 'EXTRA_VIRTUAL' : aluno.id
+                                              alunoId: isExtra ? 'EXTRA_VIRTUAL' : aluno.id,
+                                              observacao: ''
                                             })
                                           }
                                           className="flex-1 h-full rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50/50 transition-all cursor-pointer"
@@ -1082,6 +1167,28 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">Observação do Mês (opcional)</label>
+                  <span className="text-[10px] text-slate-400">
+                    {modalNovoPaciente.observacao.length}/{LIMITE_CARACTERES_OBSERVACAO}
+                  </span>
+                </div>
+                <textarea
+                  value={modalNovoPaciente.observacao}
+                  onChange={(e) =>
+                    setModalNovoPaciente({
+                      ...modalNovoPaciente,
+                      observacao: e.target.value.slice(0, LIMITE_CARACTERES_OBSERVACAO)
+                    })
+                  }
+                  placeholder="Ex: trazer radiografia, troca de arco, paciente faltoso..."
+                  maxLength={LIMITE_CARACTERES_OBSERVACAO}
+                  rows={2}
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white resize-none"
+                />
               </div>
             </div>
 

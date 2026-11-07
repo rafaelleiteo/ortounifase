@@ -17,6 +17,10 @@ import {
   formatarMesAno
 } from '@/lib/agendaTypes';
 import { recalcularInconsistenciasComPreservacao } from '@/lib/agendaService';
+import {
+  normalizarObservacao,
+  ItemNaoReaplicado
+} from '@/lib/agendaObservacoes';
 import { AgendaFixaTab } from '@/components/agenda/AgendaFixaTab';
 import { AgendaMensalTab } from '@/components/agenda/AgendaMensalTab';
 import { InconsistenciasTab } from '@/components/agenda/InconsistenciasTab';
@@ -140,6 +144,9 @@ export const AgendaPage: React.FC = () => {
   // Modal de Importação e Gerenciar Alunos
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
   const [isGerenciarAlunosOpen, setIsGerenciarAlunosOpen] = useState<boolean>(false);
+
+  // Observações mensais não reaplicadas após reimportação
+  const [obsNaoReaplicadasImport, setObsNaoReaplicadasImport] = useState<ItemNaoReaplicado[]>([]);
 
   // 1. Carregar Turmas
   const carregarTurmas = async () => {
@@ -340,6 +347,7 @@ export const AgendaPage: React.FC = () => {
           dia_semana: item.dia_semana,
           ...(item.tipo_registro ? { tipo_registro: item.tipo_registro } : {}),
           ...(item.tipo_bloqueio ? { tipo_bloqueio: item.tipo_bloqueio } : {}),
+          ...(item.observacao !== undefined ? { observacao: normalizarObservacao(item.observacao) } : {}),
           updated_at: new Date().toISOString()
         };
         let { error: errUpdate } = await supabase
@@ -362,7 +370,8 @@ export const AgendaPage: React.FC = () => {
           horario: item.horario,
           dia_semana: item.dia_semana,
           tipo_registro: item.tipo_registro || 'paciente',
-          ...(item.tipo_bloqueio ? { tipo_bloqueio: item.tipo_bloqueio } : {})
+          ...(item.tipo_bloqueio ? { tipo_bloqueio: item.tipo_bloqueio } : {}),
+          observacao: normalizarObservacao(item.observacao)
         };
         let { error: errInsert } = await supabase
           .from('agenda_fixa')
@@ -405,6 +414,7 @@ export const AgendaPage: React.FC = () => {
     dia_semana?: string;
     tipo_registro?: 'paciente' | 'bloqueio';
     tipo_bloqueio?: TipoBloqueio;
+    observacao?: string | null;
   }) => {
     if (!turmaSelecionada) return;
     try {
@@ -420,6 +430,7 @@ export const AgendaPage: React.FC = () => {
         if (dados.dia_semana !== undefined) updatePayload.dia_semana = dados.dia_semana;
         if (dados.tipo_registro !== undefined) updatePayload.tipo_registro = dados.tipo_registro;
         if (dados.tipo_bloqueio !== undefined) updatePayload.tipo_bloqueio = dados.tipo_bloqueio;
+        if (dados.observacao !== undefined) updatePayload.observacao = normalizarObservacao(dados.observacao);
 
         if (dados.aluno_id !== undefined) {
           updatePayload.aluno_id = dados.aluno_id;
@@ -452,6 +463,7 @@ export const AgendaPage: React.FC = () => {
           aluno_id: dados.aluno_id || null,
           aluno: nomeAluno,
           tipo_registro: dados.tipo_registro || (isItemBloqueio(dados) ? 'bloqueio' : 'paciente'),
+          observacao: normalizarObservacao(dados.observacao),
           ...(dados.tipo_bloqueio ? { tipo_bloqueio: dados.tipo_bloqueio } : {})
         };
         let { error: errInsert } = await supabase
@@ -573,6 +585,11 @@ export const AgendaPage: React.FC = () => {
     );
     if (result?.mesReferencia) {
       setMesReferencia(result.mesReferencia);
+    }
+    if (result?.naoReaplicadas) {
+      setObsNaoReaplicadasImport(result.naoReaplicadas);
+    } else {
+      setObsNaoReaplicadasImport([]);
     }
     setAbaAtiva('mensal');
     if (turmaSelecionada) {
@@ -825,6 +842,7 @@ export const AgendaPage: React.FC = () => {
               <AgendaMensalTab
                 turmaNome={turmaSelecionada.nome}
                 alunos={alunos}
+                agendaFixa={agendaFixa}
                 agendaMensal={agendaMensal}
                 inconsistencias={inconsistencias}
                 mesReferencia={mesReferencia}
@@ -834,6 +852,7 @@ export const AgendaPage: React.FC = () => {
                 periodo={periodo}
                 onPeriodoChange={setPeriodo}
                 onAbrirImportModal={() => setIsImportModalOpen(true)}
+                obsNaoReaplicadasImport={obsNaoReaplicadasImport}
                 onSalvarItem={handleSalvarItemMensal}
                 onRemoverItem={handleRemoverItemMensal}
                 isCoordenadorOrAdmin={isAuthorized}

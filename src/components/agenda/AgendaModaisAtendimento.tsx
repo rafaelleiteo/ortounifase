@@ -9,6 +9,7 @@ import {
 } from '@/lib/agendaTypes';
 import { CalendarClock, ArrowRightLeft, Edit2, AlertTriangle } from 'lucide-react';
 import { AgendaCardItem } from './AgendaCardAtendimento';
+import { LIMITE_CARACTERES_OBSERVACAO } from '@/lib/agendaObservacoes';
 
 export interface ModalEditarState {
   isOpen: boolean;
@@ -17,6 +18,7 @@ export interface ModalEditarState {
   alunoId: string;
   horario: string;
   diaSemana: string;
+  observacao?: string;
 }
 
 export interface ModalReagendarState {
@@ -47,6 +49,7 @@ export interface AgendaModaisAtendimentoProps {
     aluno_id: string | null;
     horario: string;
     dia_semana: string;
+    observacao?: string | null;
   }) => Promise<void> | void;
   onUpdateModalEditar: (dados: Partial<ModalEditarState>) => void;
 
@@ -142,7 +145,8 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
                         paciente: modalEditar.paciente.trim(),
                         aluno_id: modalEditar.alunoId ? modalEditar.alunoId : null,
                         horario: modalEditar.horario,
-                        dia_semana: modalEditar.diaSemana
+                        dia_semana: modalEditar.diaSemana,
+                        observacao: modalEditar.observacao
                       });
                     }
                   }}
@@ -204,6 +208,23 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
                   </select>
                 </div>
               </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">Observação do Mês (opcional)</label>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {(modalEditar.observacao || '').length}/{LIMITE_CARACTERES_OBSERVACAO}
+                  </span>
+                </div>
+                <textarea
+                  value={modalEditar.observacao || ''}
+                  onChange={(e) => onUpdateModalEditar({ observacao: e.target.value.slice(0, LIMITE_CARACTERES_OBSERVACAO) })}
+                  placeholder="Ex: Trazer radiografia panorâmica; confirmar encaixe..."
+                  rows={2}
+                  maxLength={LIMITE_CARACTERES_OBSERVACAO}
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 resize-none"
+                />
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -223,7 +244,8 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
                     paciente: modalEditar.paciente.trim(),
                     aluno_id: modalEditar.alunoId ? modalEditar.alunoId : null,
                     horario: modalEditar.horario,
-                    dia_semana: modalEditar.diaSemana
+                    dia_semana: modalEditar.diaSemana,
+                    observacao: modalEditar.observacao
                   })
                 }
                 className="px-4 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50"

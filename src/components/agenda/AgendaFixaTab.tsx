@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { AgendaCardAtendimento } from './AgendaCardAtendimento';
 import { AgendaPrintHeader } from './AgendaPrintHeader';
+import { normalizarObservacao, LIMITE_CARACTERES_OBSERVACAO } from '@/lib/agendaObservacoes';
 
 interface AgendaFixaTabProps {
   turmaId: string;
@@ -142,12 +143,14 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     horario: string;
     diaSemana: string;
     pacienteNome: string;
+    observacao: string;
   }>({
     isOpen: false,
     alunoId: '',
     horario: '',
     diaSemana: 'QUINTA',
-    pacienteNome: ''
+    pacienteNome: '',
+    observacao: ''
   });
 
   // Modal para mover paciente de aluno
@@ -167,12 +170,14 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     diaSemana: string;
     horario: string;
     alunoId: string;
+    observacao: string;
   }>({
     isOpen: false,
     pacienteNome: '',
     diaSemana: 'QUINTA',
     horario: '08:00',
-    alunoId: ''
+    alunoId: '',
+    observacao: ''
   });
 
   // Modal para "Editar Nome do Paciente"
@@ -180,9 +185,11 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     isOpen: boolean;
     item?: AgendaFixaItem;
     pacienteNome: string;
+    observacao: string;
   }>({
     isOpen: false,
-    pacienteNome: ''
+    pacienteNome: '',
+    observacao: ''
   });
 
   // Modal para "Mover Paciente de Horário / Dia / Aluno"
@@ -260,7 +267,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       alunoId,
       horario,
       diaSemana: diaSelecionado,
-      pacienteNome: existente ? existente.paciente : ''
+      pacienteNome: existente ? existente.paciente : '',
+      observacao: existente ? (existente.observacao || '') : ''
     });
   };
 
@@ -274,9 +282,10 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       horario: normalizarHorario(modalCell.horario),
       dia_semana: modalCell.diaSemana,
       turma_id: turmaId,
-      paciente: modalCell.pacienteNome.trim()
+      paciente: modalCell.pacienteNome.trim(),
+      observacao: normalizarObservacao(modalCell.observacao)
     });
-    setModalCell({ ...modalCell, isOpen: false, pacienteNome: '' });
+    setModalCell({ ...modalCell, isOpen: false, pacienteNome: '', observacao: '' });
   };
 
   const handleSalvarNovoPaciente = async () => {
@@ -288,14 +297,16 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       horario: normalizarHorario(modalNovoPaciente.horario),
       dia_semana: modalNovoPaciente.diaSemana,
       turma_id: turmaId,
-      paciente: modalNovoPaciente.pacienteNome.trim()
+      paciente: modalNovoPaciente.pacienteNome.trim(),
+      observacao: normalizarObservacao(modalNovoPaciente.observacao)
     });
     setModalNovoPaciente({
       isOpen: false,
       pacienteNome: '',
       diaSemana: diaSelecionado,
       horario: '08:00',
-      alunoId: colunasFixa[0]?.id || ''
+      alunoId: colunasFixa[0]?.id || '',
+      observacao: ''
     });
   };
 
@@ -316,9 +327,10 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       turma_id: turmaId,
       paciente: pacienteSalvar,
       tipo_registro: modalEditarNome.item.tipo_registro,
-      tipo_bloqueio: isBloqueio ? tipo : undefined
+      tipo_bloqueio: isBloqueio ? tipo : undefined,
+      observacao: isBloqueio ? modalEditarNome.item.observacao : normalizarObservacao(modalEditarNome.observacao)
     });
-    setModalEditarNome({ isOpen: false, pacienteNome: '' });
+    setModalEditarNome({ isOpen: false, pacienteNome: '', observacao: '' });
   };
 
   const handleSalvarFecharHorario = async () => {
@@ -466,7 +478,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       turma_id: turmaId,
       paciente: moverModal.item.paciente,
       tipo_registro: moverModal.item.tipo_registro,
-      tipo_bloqueio: moverModal.item.tipo_bloqueio
+      tipo_bloqueio: moverModal.item.tipo_bloqueio,
+      observacao: moverModal.item.observacao
     });
     setMoverModal({ isOpen: false, novoAlunoId: '' });
   };
@@ -507,7 +520,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       aluno: isDestinoExtra ? NOME_ATENDIMENTO_EXTRA : undefined,
       turma_id: turmaId,
       tipo_registro: item.tipo_registro,
-      tipo_bloqueio: item.tipo_bloqueio
+      tipo_bloqueio: item.tipo_bloqueio,
+      observacao: item.observacao
     });
 
     setModalMoverHorario({
@@ -551,7 +565,8 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                     pacienteNome: '',
                     diaSemana: diaSelecionado,
                     horario: '08:00',
-                    alunoId: colunasFixa[0]?.id || ''
+                    alunoId: colunasFixa[0]?.id || '',
+                    observacao: ''
                   })
                 }
                 className="px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 hover:shadow-md"
@@ -709,14 +724,17 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                                           horario: item.horario,
                                           dia_semana: item.dia_semana,
                                           tipo_registro: item.tipo_registro,
-                                          tipo_bloqueio: item.tipo_bloqueio
+                                          tipo_bloqueio: item.tipo_bloqueio,
+                                          observacao: item.observacao,
+                                          origem: 'fixa'
                                         }}
                                         podeEditar={isCoordenadorOrAdmin}
                                         onEditar={() =>
                                           setModalEditarNome({
                                             isOpen: true,
                                             item,
-                                            pacienteNome: item.tipo_registro === 'bloqueio' ? getDescricaoBloqueio(item.paciente) : item.paciente
+                                            pacienteNome: item.tipo_registro === 'bloqueio' ? getDescricaoBloqueio(item.paciente) : item.paciente,
+                                            observacao: item.observacao || ''
                                           })
                                         }
                                         onReagendar={() =>
@@ -829,6 +847,23 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                 placeholder="Digite o nome completo do paciente..."
                 className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                 onKeyDown={(e) => e.key === 'Enter' && handleSalvarCelula()}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-700">Observação Fixa (opcional)</label>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {modalCell.observacao.length}/{LIMITE_CARACTERES_OBSERVACAO}
+                </span>
+              </div>
+              <textarea
+                value={modalCell.observacao}
+                onChange={(e) => setModalCell({ ...modalCell, observacao: e.target.value.slice(0, LIMITE_CARACTERES_OBSERVACAO) })}
+                placeholder="Ex: Alérgico a látex; comparece sempre acompanhado..."
+                rows={2}
+                maxLength={LIMITE_CARACTERES_OBSERVACAO}
+                className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 resize-none"
               />
             </div>
 
@@ -990,6 +1025,23 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                   ))}
                 </select>
               </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">Observação Fixa (opcional)</label>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {modalNovoPaciente.observacao.length}/{LIMITE_CARACTERES_OBSERVACAO}
+                  </span>
+                </div>
+                <textarea
+                  value={modalNovoPaciente.observacao}
+                  onChange={(e) => setModalNovoPaciente({ ...modalNovoPaciente, observacao: e.target.value.slice(0, LIMITE_CARACTERES_OBSERVACAO) })}
+                  placeholder="Ex: Alérgico a látex; comparece sempre acompanhado..."
+                  rows={2}
+                  maxLength={LIMITE_CARACTERES_OBSERVACAO}
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 resize-none"
+                />
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -1018,10 +1070,12 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
           <div id="modal-editar-nome" className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h4 className="text-sm font-bold text-slate-800">Editar Nome do Paciente</h4>
+              <h4 className="text-sm font-bold text-slate-800">
+                {modalEditarNome.item.tipo_registro === 'bloqueio' ? 'Editar Bloqueio' : 'Editar Paciente da Agenda Fixa'}
+              </h4>
               <button
                 type="button"
-                onClick={() => setModalEditarNome({ isOpen: false, pacienteNome: '' })}
+                onClick={() => setModalEditarNome({ isOpen: false, pacienteNome: '', observacao: '' })}
                 className="text-slate-400 hover:text-slate-600"
               >
                 ✕
@@ -1052,10 +1106,29 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
               />
             </div>
 
+            {modalEditarNome.item.tipo_registro !== 'bloqueio' && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">Observação Fixa (opcional)</label>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {modalEditarNome.observacao.length}/{LIMITE_CARACTERES_OBSERVACAO}
+                  </span>
+                </div>
+                <textarea
+                  value={modalEditarNome.observacao}
+                  onChange={(e) => setModalEditarNome({ ...modalEditarNome, observacao: e.target.value.slice(0, LIMITE_CARACTERES_OBSERVACAO) })}
+                  placeholder="Ex: Alérgico a látex; comparece sempre acompanhado..."
+                  rows={2}
+                  maxLength={LIMITE_CARACTERES_OBSERVACAO}
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 resize-none"
+                />
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setModalEditarNome({ isOpen: false, pacienteNome: '' })}
+                onClick={() => setModalEditarNome({ isOpen: false, pacienteNome: '', observacao: '' })}
                 className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
               >
                 Cancelar
