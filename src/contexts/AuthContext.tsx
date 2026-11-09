@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import {
@@ -7,6 +7,14 @@ import {
   fetchPermissoesPapel,
   updatePermissaoPapel as apiUpdatePermissaoPapel,
 } from '@/lib/permissoesPapel';
+import {
+  sessaoExpirada,
+  obterInicioSessao,
+  salvarInicioSessao,
+  salvarInicioSessaoSeNaoExistir,
+  limparInicioSessao,
+  inicioValido,
+} from '@/lib/sessaoLimite';
 
 export interface Perfil {
   id: string;
@@ -53,6 +61,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [rolePermissionsError, setRolePermissionsError] = useState<string | null>(null);
   const [previewRole, setPreviewRole] = useState<PreviewRole>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const deslogandoRef = useRef<boolean>(false);
+
+  const deslogarPorExpiracao = async () => {
+    if (deslogandoRef.current) return;
+    deslogandoRef.current = true;
+
+    try {
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch {
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      console.warn('Erro ao deslogar por expiracao de sessao:', err);
+    } finally {
+      limparInicioSessao();
+      setUser(null);
+      setProfile(null);
+      setPermissions([]);
+      setPreviewRole(null);
+      setLoading(false);
+      window.location.href = '/login?expirada=1';
+    }
+  };
 
   const loadRolePermissions = async () => {
     try {
@@ -103,18 +135,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     loadRolePermissions();
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserData(session.user);
-      } else {
-        setLoading(false);
-      }
-    });
+    let montado = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const checarAoMontar = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!montado) return;
+
+        if (session?.user) {
+          const inicio = obterInicioSessao();
+          const agora = Date.now();
+          if (inicio === null || !inicioValido(inicio, agora)) {
+            salvarInicioSessao(agora);
+          } else if (sessaoExpirada(inicio, agora)) {
+            await deslogarPorExpiracao();
+            return;
+          }
+
+          setUser(session.user);
+          await fetchUserData(session.user);
+        } else {
+          setUser(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('Erro na verificacao de sessao:', err);
+        if (montado) setLoading(false);
+      }
+    };
+
+    checarAoMontar();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!montado) return;
+
+      if (event === 'SIGNED_OUT') {
+        limparInicioSessao();
+        setUser(null);
+        setProfile(null);
+        setPermissions([]);
+        setLoading(false);
+        return;
+      }
+
+      if (event === 'SIGNED_IN') {
+        salvarInicioSessaoSeNaoExistir();
+      }
+
       setUser(session?.user ?? null);
       if (session?.user) {
+        const inicio = obterInicioSessao();
+        const agora = Date.now();
+        if (sessaoExpirada(inicio, agora)) {
+          deslogarPorExpiracao();
+          return;
+        }
         fetchUserData(session.user);
       } else {
         setProfile(null);
@@ -123,7 +198,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    return () => subscription.unsubscribe();
+    const verificarPeriodico = () => {
+      if (deslogandoRef.current) return;
+      const agora = Date.now();
+      const inicio = obterInicioSessao();
+      if (inicio !== null && sessaoExpirada(inicio, agora)) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user) {
+            deslogarPorExpiracao();
+          }
+        });
+      }
+    };
+
+    const intervalId = window.setInterval(verificarPeriodico, 60000);
+
+    const onFocus = () => {
+      verificarPeriodico();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        verificarPeriodico();
+      }
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      montado = false;
+      subscription.unsubscribe();
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, []);
 
   const loginWithPassword = async (email: string, password: string) => {
@@ -139,6 +248,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (data.user) {
+      salvarInicioSessao();
       await fetchUserData(data.user);
     }
     return { error: null };
@@ -146,7 +256,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     setLoading(true);
-    await supabase.auth.signOut();
+    limparInicioSessao();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Erro ao executar signOut:', err);
+    }
     setUser(null);
     setProfile(null);
     setPermissions([]);

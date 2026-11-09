@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthLayout } from '@/components/layout/AuthLayout';
-import { KeyRound, Mail, ArrowRight, Shield, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
+import { KeyRound, Mail, ArrowRight, Shield, AlertCircle, Loader2, Eye, EyeOff, Clock } from 'lucide-react';
 import logoOfficial from '@/assets/logo/logo-official.png';
 import { useAuth } from '@/contexts/AuthContext';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { loginWithPassword } = useAuth();
   
   const [email, setEmail] = useState('coordenador@ortounifase.edu.br');
@@ -14,9 +15,17 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [avisoExpirada, setAvisoExpirada] = useState<boolean>(() => searchParams.get('expirada') === '1');
+
+  useEffect(() => {
+    if (searchParams.get('expirada') === '1') {
+      navigate('/login', { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAvisoExpirada(false);
     setErrorMessage(null);
     setLoading(true);
 
@@ -51,6 +60,26 @@ export const Login: React.FC = () => {
           <h2 className="text-xl font-bold text-slate-800 tracking-tight">Acesso ao Sistema</h2>
           <p className="text-xs text-slate-500 mt-1">Digite suas credenciais de Admin / Docente</p>
         </div>
+
+        {/* Expired Session Alert */}
+        {avisoExpirada && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start justify-between gap-2.5">
+            <div className="flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-900 leading-relaxed font-medium">
+                Sua sessão expirou (limite de 24 horas). Entre novamente.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAvisoExpirada(false)}
+              className="text-amber-500 hover:text-amber-700 text-xs font-semibold px-1 rounded transition-colors"
+              title="Fechar aviso"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Error Alert */}
         {errorMessage && (
