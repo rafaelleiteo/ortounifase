@@ -18,6 +18,7 @@ import { ValidacaoConflitosPage } from '@/pages/pacientes/ValidacaoConflitosPage
 import { AgendaPage } from '@/pages/agenda/AgendaPage';
 import { AlinhadoresPage } from '@/pages/alinhadores/AlinhadoresPage';
 import { ArquivosPage } from '@/pages/arquivos/ArquivosPage';
+import { SolicitacoesPage } from '@/pages/solicitacoes/SolicitacoesPage';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 
 export const App: React.FC = () => {
@@ -33,6 +34,7 @@ export const App: React.FC = () => {
           <Route path="/agenda" element={<ProtectedRoute><AgendaPage /></ProtectedRoute>} />
           <Route path="/alinhadores" element={<ProtectedRoute allowedRoles={['coordenador', 'admin_master']}><AlinhadoresPage /></ProtectedRoute>} />
           <Route path="/arquivos" element={<ProtectedRoute allowedRoles={['coordenador', 'admin_master']}><ArquivosPage /></ProtectedRoute>} />
+          <Route path="/solicitacoes" element={<ProtectedRoute allowedRoles={['coordenador', 'admin_master']}><SolicitacoesPage /></ProtectedRoute>} />
           <Route path="/pacientes" element={<ProtectedRoute><PacientesPage /></ProtectedRoute>} />
           <Route path="/pacientes/validacao" element={<ProtectedRoute><ValidacaoConflitosPage /></ProtectedRoute>} />
           <Route path="/links-uteis" element={<ProtectedRoute><LinksUteisPage /></ProtectedRoute>} />
