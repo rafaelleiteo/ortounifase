@@ -91,13 +91,132 @@ export function formatarTamanho(bytes: number | null | undefined): string {
   return `${valor} ${sizes[i]}`;
 }
 
+export const EXTENSOES_ABRIVEIS = new Set([
+  'pdf',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'bmp',
+  'mp3',
+  'mp4',
+  'webm'
+]);
+
+/**
+ * Retorna true se o arquivo pertencer a lista restrita de formatos seguros
+ * que podem ser renderizados diretamente na aba do navegador.
+ * Nao inclui txt, csv, html, htm, svg, xml nem js.
+ */
+export function podeAbrirNoNavegador(nomeOriginal: string): boolean {
+  if (!nomeOriginal) return false;
+  const ext = extrairExtensao(nomeOriginal).toLowerCase();
+  return EXTENSOES_ABRIVEIS.has(ext);
+}
+
+/**
+ * Infere o tipo MIME seguro para as extensoes abriveis suportadas.
+ */
+export function inferirContentType(extensao: string): string | undefined {
+  const ext = extensao.toLowerCase().trim();
+  switch (ext) {
+    case 'pdf':
+      return 'application/pdf';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'bmp':
+      return 'image/bmp';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'mp4':
+      return 'video/mp4';
+    case 'webm':
+      return 'video/webm';
+    default:
+      return undefined;
+  }
+}
+
 export function sanitizarNomeOriginal(nome: string): string {
-  // Remove caracteres potencialmente problemáticos para cabeçalhos HTTP e nomes de arquivo
+  // Remove caracteres potencialmente problematicos para cabecalhos HTTP e nomes de arquivo
   return nome.replace(/["\r\n\t]/g, '').trim();
 }
 
+/**
+ * Sanitiza o nome original do arquivo para armazenamento seguro no Storage:
+ * - Normaliza NFD e remove acentos
+ * - Troca qualquer caractere fora de [A-Za-z0-9._-] por "_"
+ * - Colapsa "_" e "." repetidos e remove "_" e "." das pontas
+ * - Base com no maximo 80 caracteres
+ * - Extensao em minusculas so com [a-z0-9], ate 10 caracteres
+ * - Se a base ficar vazia usa "arquivo"
+ * - Nunca permite "/" nem ".." no resultado
+ */
+export function sanitizarNomeArquivo(nomeOriginal: string): string {
+  if (!nomeOriginal || typeof nomeOriginal !== 'string') {
+    return 'arquivo';
+  }
+
+  // 1. Normalizar NFD e remover acentos
+  const semAcento = nomeOriginal
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  // 2. Trocar qualquer caractere fora de [A-Za-z0-9._-] por "_"
+  const limpo = semAcento.replace(/[^A-Za-z0-9._-]/g, '_');
+
+  // 3. Colapsar repeticoes de "_" e "." e remover das pontas
+  const colapsado = limpo
+    .replace(/_+/g, '_')
+    .replace(/\.+/g, '.')
+    .replace(/^[._]+|[._]+$/g, '');
+
+  // 4. Separar base e extensao
+  const ultimoPonto = colapsado.lastIndexOf('.');
+  let rawBase = colapsado;
+  let rawExt = '';
+
+  if (ultimoPonto > 0) {
+    rawBase = colapsado.slice(0, ultimoPonto);
+    rawExt = colapsado.slice(ultimoPonto + 1);
+  } else if (ultimoPonto === 0) {
+    rawBase = '';
+    rawExt = colapsado.slice(1);
+  }
+
+  // 5. Extensao em minusculas so com [a-z0-9], ate 10 caracteres
+  const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10);
+
+  // 6. Base com no maximo 80 caracteres, limpando pontas novamente
+  let base = rawBase
+    .replace(/_+/g, '_')
+    .replace(/\.+/g, '.')
+    .replace(/^[._]+|[._]+$/g, '')
+    .slice(0, 80)
+    .replace(/^[._]+|[._]+$/g, '');
+
+  // 7. Se a base ficar vazia, usar "arquivo"
+  if (!base) {
+    base = 'arquivo';
+  }
+
+  // 8. Montar nome seguro sem "/" nem ".."
+  const resultado = ext ? `${base}.${ext}` : base;
+  return resultado.replace(/[/\\]/g, '_').replace(/\.{2,}/g, '.');
+}
+
+/**
+ * Gera caminho no Storage no formato seguro: uuid/nomeSeguro.ext
+ */
 export function gerarCaminhoStorage(nomeOriginal: string): string {
-  const ext = extrairExtensao(nomeOriginal);
   const uuid = typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -105,5 +224,7 @@ export function gerarCaminhoStorage(nomeOriginal: string): string {
         const v = c === 'x' ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
-  return ext ? `${uuid}.${ext}` : uuid;
+  const nomeSeguro = sanitizarNomeArquivo(nomeOriginal);
+  return `${uuid}/${nomeSeguro}`;
 }
+

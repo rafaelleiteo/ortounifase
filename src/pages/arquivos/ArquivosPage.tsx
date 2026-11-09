@@ -5,6 +5,7 @@ import {
   UploadCloud,
   Search,
   Download,
+  Eye,
   Pencil,
   Trash2,
   RefreshCw,
@@ -24,12 +25,14 @@ import {
   formatarTamanho,
   extrairExtensao,
   validarArquivo,
+  podeAbrirNoNavegador,
   ProgressoUploadItem
 } from '@/lib/arquivosTypes';
 import {
   listarArquivos,
   enviarArquivo,
   obterUrlDownload,
+  obterUrlVisualizacao,
   editarArquivo,
   substituirArquivo,
   apagarArquivo
@@ -67,6 +70,7 @@ export const ArquivosPage: React.FC = () => {
   const [erroApagando, setErroApagando] = useState<string | null>(null);
 
   const [baixandoId, setBaixandoId] = useState<string | null>(null);
+  const [abrindoId, setAbrindoId] = useState<string | null>(null);
 
   const carregarDados = async (termoBusca?: string) => {
     const currentSeq = ++requestSeqRef.current;
@@ -196,6 +200,33 @@ export const ArquivosPage: React.FC = () => {
       setErro(`Não foi possível baixar o arquivo "${arquivo.nome}": ${err.message || 'Erro de download'}`);
     } finally {
       setBaixandoId(null);
+    }
+  };
+
+  const handleAbrirNoNavegador = async (arquivo: ArquivoAdmin) => {
+    // Abertura sincrona da aba antes de qualquer await para evitar bloqueio de pop-up
+    const novaAba = window.open('', '_blank');
+    if (!novaAba) {
+      setErro('O navegador bloqueou a nova aba. Permita pop-ups para este site e tente novamente.');
+      return;
+    }
+
+    try {
+      novaAba.opener = null;
+      setAbrindoId(arquivo.id);
+      setErro(null);
+
+      const urlVisualizacao = await obterUrlVisualizacao(arquivo.caminho_storage);
+      novaAba.location.href = urlVisualizacao;
+    } catch (err: any) {
+      try {
+        novaAba.close();
+      } catch {
+        // Ignora erro ao fechar a aba
+      }
+      setErro(`Não foi possível abrir o arquivo "${arquivo.nome}": ${err.message || 'Erro ao gerar link de visualização'}`);
+    } finally {
+      setAbrindoId(null);
     }
   };
 
@@ -541,6 +572,32 @@ export const ArquivosPage: React.FC = () => {
 
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
+                          {/* Botão Abrir no Navegador */}
+                          {podeAbrirNoNavegador(arq.nome_original) ? (
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirNoNavegador(arq)}
+                              disabled={abrindoId === arq.id || baixandoId === arq.id}
+                              title="Abrir arquivo no navegador em nova aba"
+                              className="p-1.5 text-slate-600 hover:text-brand-700 hover:bg-brand-50 rounded transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {abrindoId === arq.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                              ) : (
+                                <Eye className="w-4 h-4" />
+                              )}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              title="Este tipo de arquivo não abre no navegador. Use Baixar."
+                              className="p-1.5 text-slate-300 rounded cursor-not-allowed"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => handleDownload(arq)}

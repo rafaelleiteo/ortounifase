@@ -6,7 +6,9 @@ import {
   ResultadoSubstituicao,
   validarArquivo,
   sanitizarNomeOriginal,
-  gerarCaminhoStorage
+  gerarCaminhoStorage,
+  extrairExtensao,
+  inferirContentType
 } from './arquivosTypes';
 
 export const BUCKET_NAME = 'arquivos-admin';
@@ -69,12 +71,17 @@ export async function enviarArquivo(params: CriarArquivoParams): Promise<Arquivo
   const caminhoStorage = gerarCaminhoStorage(nomeOriginalLimpo);
   const nomeExibido = (nome && nome.trim()) ? nome.trim() : nomeOriginalLimpo;
 
+  const ext = extrairExtensao(file.name).toLowerCase();
+  const mimeInferido = inferirContentType(ext);
+  const contentTypeFinal = file.type || mimeInferido || undefined;
+
   // 2. Upload para o Supabase Storage
   const { error: uploadError } = await supabase.storage
     .from(BUCKET_NAME)
     .upload(caminhoStorage, file, {
       cacheControl: '3600',
-      upsert: false
+      upsert: false,
+      contentType: contentTypeFinal
     });
 
   if (uploadError) {
@@ -132,6 +139,22 @@ export async function obterUrlDownload(caminhoStorage: string, nomeOriginal: str
 }
 
 /**
+ * Gera URL assinada de 300 segundos para visualizacao direta no navegador (sem download forcado).
+ */
+export async function obterUrlVisualizacao(caminhoStorage: string): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .createSignedUrl(caminhoStorage, 300);
+
+  if (error || !data?.signedUrl) {
+    console.error('Erro ao gerar URL assinada de visualizacao:', error);
+    throw new Error(`Erro ao obter link de visualizacao: ${error?.message || 'URL nao gerada'}`);
+  }
+
+  return data.signedUrl;
+}
+
+/**
  * Edita o nome exibido e a descrição de um arquivo existente.
  */
 export async function editarArquivo(params: EditarArquivoParams): Promise<ArquivoAdmin> {
@@ -179,12 +202,17 @@ export async function substituirArquivo(
   const novoCaminhoStorage = gerarCaminhoStorage(novoNomeOriginal);
   const caminhoStorageAntigo = arquivoAtual.caminho_storage;
 
+  const ext = extrairExtensao(novoFile.name).toLowerCase();
+  const mimeInferido = inferirContentType(ext);
+  const contentTypeFinal = novoFile.type || mimeInferido || undefined;
+
   // 1. Upload do novo arquivo
   const { error: uploadError } = await supabase.storage
     .from(BUCKET_NAME)
     .upload(novoCaminhoStorage, novoFile, {
       cacheControl: '3600',
-      upsert: false
+      upsert: false,
+      contentType: contentTypeFinal
     });
 
   if (uploadError) {
