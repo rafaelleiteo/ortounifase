@@ -7,7 +7,8 @@ import {
   isItemBloqueio,
   resolverAlunoImportacao,
   normalizarTextoComparacao,
-  AgendaAluno
+  AgendaAluno,
+  mesmoDia
 } from './agendaTypes';
 import {
   planejarReaplicacaoObservacoes,
@@ -224,7 +225,7 @@ export async function recalcularInconsistenciasComPreservacao(
         const match = novasInconsistencias.find(
           (nova) =>
             nova.tipo === rev.tipo &&
-            (nova.dia_semana || '').toUpperCase().trim() === (rev.dia_semana || '').toUpperCase().trim() &&
+            mesmoDia(nova.dia_semana, rev.dia_semana) &&
             (nova.paciente.toLowerCase().trim() === revNorm ||
              nova.paciente.toLowerCase().includes(revNorm) ||
              revNorm.includes(nova.paciente.toLowerCase().trim()))

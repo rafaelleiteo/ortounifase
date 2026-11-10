@@ -3,7 +3,9 @@ import {
   normalizarHorario,
   isItemBloqueio,
   AgendaFixaItem,
-  AgendaMensalItem
+  AgendaMensalItem,
+  canonicalizarDia,
+  mesmoDia
 } from './agendaTypes';
 
 export const LIMITE_CARACTERES_OBSERVACAO = 120;
@@ -64,7 +66,8 @@ export function vincularObservacoesFixas(params: {
     const obsNorm = normalizarObservacao(itemFixa.observacao);
     if (!obsNorm) continue;
 
-    const chave = `${normalizarTextoComparacao(itemFixa.paciente)}__${(itemFixa.dia_semana || '').toUpperCase().trim()}`;
+    const diaCanonico = canonicalizarDia(itemFixa.dia_semana) || (itemFixa.dia_semana || '').toUpperCase().trim();
+    const chave = `${normalizarTextoComparacao(itemFixa.paciente)}__${diaCanonico}`;
     const existente = mapaFixaPorChave.get(chave);
     if (existente) {
       if (!existente.textos.includes(obsNorm)) {
@@ -85,7 +88,8 @@ export function vincularObservacoesFixas(params: {
 
   for (const itemMensal of agendaMensal) {
     if (isItemBloqueio(itemMensal)) continue;
-    const chave = `${normalizarTextoComparacao(itemMensal.paciente)}__${(itemMensal.dia_semana || '').toUpperCase().trim()}`;
+    const diaCanonico = canonicalizarDia(itemMensal.dia_semana) || (itemMensal.dia_semana || '').toUpperCase().trim();
+    const chave = `${normalizarTextoComparacao(itemMensal.paciente)}__${diaCanonico}`;
 
     const matchFixa = mapaFixaPorChave.get(chave);
     if (matchFixa && matchFixa.textos.length > 0) {
@@ -104,7 +108,7 @@ export function vincularObservacoesFixas(params: {
         if (
           diaSelecionado &&
           diaSelecionado !== 'TODOS' &&
-          (item.dia_semana || '').toUpperCase().trim() !== diaSelecionado.toUpperCase().trim()
+          !mesmoDia(item.dia_semana, diaSelecionado)
         ) {
           continue;
         }
@@ -191,7 +195,7 @@ export function planejarReaplicacaoObservacoes(
       const nomeNovoNorm = normalizarTextoComparacao(linha.paciente);
       const diaNovoNorm = (linha.dia_semana || '').toUpperCase().trim();
 
-      if (nomeNovoNorm === nomeAntigoNorm && diaNovoNorm === diaAntigoNorm) {
+      if (nomeNovoNorm === nomeAntigoNorm && mesmoDia(linha.dia_semana, antiga.dia_semana)) {
         candidatos.push({ index: idx, linha });
       }
     });

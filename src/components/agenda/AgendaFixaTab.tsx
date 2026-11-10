@@ -21,7 +21,10 @@ import {
   getTipoBloqueio,
   getDescricaoBloqueio,
   isItemBloqueio,
-  sugerirSequenciaFecharHorario
+  sugerirSequenciaFecharHorario,
+  mesmoDia,
+  canonicalizarDia,
+  rotuloDia
 } from '@/lib/agendaTypes';
 import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
@@ -241,10 +244,17 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     return horarios.find((h) => h >= '12:00') || HORARIO_DIVISOR_TURNO;
   }, [horarios]);
 
+  // Identifica registros com dia da semana nao reconhecido
+  const registrosDiaInvalido = useMemo(() => {
+    return agendaFixa.filter(
+      (item) => item.dia_semana && canonicalizarDia(item.dia_semana) === null
+    );
+  }, [agendaFixa]);
+
   // Indexa itens por chave: colId_horarioNormalizado (suporta múltiplos atendimentos na coluna extra)
   const itemMap = new Map<string, AgendaFixaItem[]>();
   agendaFixa
-    .filter((item) => (item.dia_semana || '').toUpperCase() === diaSelecionado.toUpperCase())
+    .filter((item) => mesmoDia(item.dia_semana, diaSelecionado))
     .forEach((item) => {
       const hNorm = normalizarHorario(item.horario);
       const isExtra = !item.aluno_id || isAtendimentoExtra(item.agenda_alunos?.nome || item.aluno);
@@ -620,6 +630,24 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
           </div>
         </AgendaFiltrosHeader>
       </div>
+
+      {/* Aviso de Registros com Dia da Semana Nao Reconhecido (Oculto na impressao) */}
+      {registrosDiaInvalido.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-950 space-y-1.5 print:hidden shadow-xs">
+          <div className="flex items-center gap-2 font-bold text-amber-900">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              {registrosDiaInvalido.length} {registrosDiaInvalido.length === 1 ? 'registro' : 'registros'} com dia da semana não reconhecido
+            </span>
+          </div>
+          <p className="text-[11px] text-amber-800">
+            Valores encontrados:{' '}
+            <span className="font-semibold">
+              {Array.from(new Set(registrosDiaInvalido.map((r) => r.dia_semana || '(vazio)'))).join(', ')}
+            </span>
+          </p>
+        </div>
+      )}
 
       {/* Grid / Tabela Kanban da Agenda Fixa com Suporte a Impressão em Página Única */}
       {colunasFixa.length === 0 ? (

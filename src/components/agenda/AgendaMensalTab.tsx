@@ -23,7 +23,10 @@ import {
   getDescricaoBloqueio,
   isItemBloqueio,
   sugerirSequenciaFecharHorario,
-  obterColunasTurma
+  obterColunasTurma,
+  mesmoDia,
+  canonicalizarDia,
+  rotuloDia
 } from '@/lib/agendaTypes';
 import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
@@ -180,10 +183,17 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     });
   }, [agendaFixa, agendaMensal, diaSelecionado]);
 
+  // Identifica registros com dia da semana nao reconhecido
+  const registrosDiaInvalido = useMemo(() => {
+    return agendaMensal.filter(
+      (item) => item.dia_semana && canonicalizarDia(item.dia_semana) === null
+    );
+  }, [agendaMensal]);
+
   // Mapas por chave: `${alunoId}_${horario}` => lista de itens (suporta múltiplos extras no mesmo horário)
   const mensalMap = new Map<string, AgendaMensalItem[]>();
   agendaMensal
-    .filter((item) => (item.dia_semana || '').toUpperCase() === diaSelecionado.toUpperCase())
+    .filter((item) => mesmoDia(item.dia_semana, diaSelecionado))
     .forEach((item) => {
       const hNorm = normalizarHorario(item.horario);
       const isItemExtra = !item.aluno_id || isAtendimentoExtra(item.aluno);
@@ -197,7 +207,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   // Mapeia inconsistências do dia selecionado
   // Guarda por horário para cruzamento
   const incPorHorario = inconsistencias.filter(
-    (inc) => (inc.dia_semana || '').toUpperCase() === diaSelecionado.toUpperCase()
+    (inc) => mesmoDia(inc.dia_semana, diaSelecionado)
   );
 
   // Função para determinar o status/cor da inconsistência em um card
@@ -502,8 +512,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
 
       // Procura inconsistência correspondente para determinar texto de alteração
       const matchInc = inconsistencias.find((inc) => {
-        const mesmoDia = (inc.dia_semana || '').toUpperCase().trim() === (item.dia_semana || '').toUpperCase().trim();
-        if (!mesmoDia) return false;
+        if (!mesmoDia(inc.dia_semana, item.dia_semana)) return false;
 
         const matchName = inc.paciente.toLowerCase().trim() === item.paciente.toLowerCase().trim();
         if (inc.tipo === 'HORARIO_ALTERADO' && matchName) {
@@ -743,6 +752,24 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
           </div>
         </AgendaFiltrosHeader>
       </div>
+
+      {/* Aviso de Registros com Dia da Semana Nao Reconhecido (Oculto na impressao) */}
+      {registrosDiaInvalido.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-950 space-y-1.5 print:hidden shadow-xs">
+          <div className="flex items-center gap-2 font-bold text-amber-900">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              {registrosDiaInvalido.length} {registrosDiaInvalido.length === 1 ? 'registro' : 'registros'} com dia da semana não reconhecido
+            </span>
+          </div>
+          <p className="text-[11px] text-amber-800">
+            Valores encontrados:{' '}
+            <span className="font-semibold">
+              {Array.from(new Set(registrosDiaInvalido.map((r) => r.dia_semana || '(vazio)'))).join(', ')}
+            </span>
+          </p>
+        </div>
+      )}
 
       {/* Painel de Ausentes identificados para o Dia Selecionado (Oculto na impressão) */}
       {ausentesDoDia.length > 0 && (

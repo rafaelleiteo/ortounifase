@@ -1,5 +1,5 @@
 import React from 'react';
-import { DIAS_SEMANA, OPCOES_TURNO, DiaSemana, TurnoAgenda } from '../../lib/agendaTypes';
+import { DIAS_SEMANA, OPCOES_TURNO, DiaSemana, TurnoAgenda, mesmoDia } from '../../lib/agendaTypes';
 
 export interface AgendaFiltrosHeaderProps {
   diaSelecionado: DiaSemana;
@@ -30,7 +30,7 @@ export function AgendaFiltrosHeader({
               type="button"
               onClick={() => onDiaChange(dia)}
               className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                diaSelecionado === dia
+                mesmoDia(diaSelecionado, dia)
                   ? 'bg-white text-brand-600 shadow-xs font-bold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}

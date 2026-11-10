@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+export * from './agendaDias';
+import { mesmoDia } from './agendaDias';
 
 export interface Turma {
   id: string;
@@ -201,7 +203,7 @@ export function obterHorariosCompletos({
   for (const item of itens) {
     if (!item?.horario) continue;
     if (diaSelecionado && item.dia_semana) {
-      if (item.dia_semana.toUpperCase() !== diaSelecionado.toUpperCase()) {
+      if (!mesmoDia(item.dia_semana, diaSelecionado)) {
         continue;
       }
     }
@@ -371,7 +373,7 @@ export function sugerirSequenciaFecharHorario(
     .filter(
       (item) =>
         item.aluno_id === alunoId &&
-        (item.dia_semana || '').toUpperCase().trim() === diaSemana.toUpperCase().trim() &&
+        mesmoDia(item.dia_semana, diaSemana) &&
         item.paciente &&
         item.paciente.trim().length > 0
     )

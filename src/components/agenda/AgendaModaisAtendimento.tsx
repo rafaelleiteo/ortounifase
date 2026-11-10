@@ -5,7 +5,9 @@ import {
   HORARIOS_TARDE,
   getHorariosTurma,
   formatarHorarioExibicao,
-  DiaSemana
+  DiaSemana,
+  canonicalizarDia,
+  rotuloDia
 } from '@/lib/agendaTypes';
 import { CalendarClock, ArrowRightLeft, Edit2, AlertTriangle } from 'lucide-react';
 import { AgendaCardItem } from './AgendaCardAtendimento';
@@ -179,7 +181,7 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
                     Dia da Semana
                   </label>
                   <select
-                    value={modalEditar.diaSemana}
+                    value={canonicalizarDia(modalEditar.diaSemana) || modalEditar.diaSemana}
                     onChange={(e) => onUpdateModalEditar({ diaSemana: e.target.value })}
                     className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
                   >
@@ -280,8 +282,8 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
             <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl space-y-1 border border-slate-100">
               <div><strong>Paciente:</strong> {modalReagendar.item.paciente}</div>
               <div className="text-slate-500 text-[11px]">
-                <strong>Horário Atual:</strong> {modalReagendar.item.dia_semana} às {formatarHorarioExibicao(modalReagendar.item.horario)}
-                {modalReagendar.item.aluno && ` — Aluno: ${modalReagendar.item.aluno}`}
+                <strong>Horário Atual:</strong> {rotuloDia(modalReagendar.item.dia_semana) || modalReagendar.item.dia_semana} às {formatarHorarioExibicao(modalReagendar.item.horario)}
+                {modalReagendar.item.aluno && ` - Aluno: ${modalReagendar.item.aluno}`}
               </div>
             </div>
 
@@ -298,7 +300,7 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
                   Dia da Semana
                 </label>
                 <select
-                  value={modalReagendar.diaSemana}
+                  value={canonicalizarDia(modalReagendar.diaSemana) || modalReagendar.diaSemana}
                   onChange={(e) => onUpdateModalReagendar({ diaSemana: e.target.value, erro: undefined })}
                   className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white"
                 >
@@ -377,7 +379,7 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
             <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl space-y-1 border border-slate-100">
               <div><strong>Paciente:</strong> {modalTrocarAluno.item.paciente}</div>
               <div>
-                <strong>Horário:</strong> {modalTrocarAluno.item.dia_semana} às {formatarHorarioExibicao(modalTrocarAluno.item.horario)}
+                <strong>Horário:</strong> {rotuloDia(modalTrocarAluno.item.dia_semana) || modalTrocarAluno.item.dia_semana} às {formatarHorarioExibicao(modalTrocarAluno.item.horario)}
               </div>
               <div>
                 <strong>Aluno Atual:</strong>{' '}

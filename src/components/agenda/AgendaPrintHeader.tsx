@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatarMesAno } from '@/lib/agendaTypes';
+import { formatarMesAno, rotuloDia } from '@/lib/agendaTypes';
 
 export interface AgendaPrintHeaderProps {
   turmaNome: string;
@@ -9,11 +9,7 @@ export interface AgendaPrintHeaderProps {
 }
 
 const formatarDiaSemana = (dia: string): string => {
-  const d = (dia || '').toUpperCase().trim();
-  if (d === 'QUINTA') return 'Quinta-feira';
-  if (d === 'SEXTA') return 'Sexta-feira';
-  if (d === 'SABADO' || d === 'SÁBADO') return 'Sábado';
-  return dia;
+  return rotuloDia(dia) || dia;
 };
 
 const formatarDataHoraAtual = (): string => {
@@ -43,7 +39,7 @@ export const AgendaPrintHeader: React.FC<AgendaPrintHeaderProps> = ({
     <div className="agenda-print-header hidden print:flex items-center justify-between pb-1.5 mb-2 border-b-2 border-slate-300 text-slate-800">
       <div className="flex items-center gap-2.5">
         <span className="font-black text-sm uppercase tracking-wide text-slate-900">
-          {turmaNome} — {tipo === 'fixa' ? 'Agenda Fixa' : 'Agenda Mensal'}
+          {turmaNome} - {tipo === 'fixa' ? 'Agenda Fixa' : 'Agenda Mensal'}
         </span>
         <span className="text-[11px] font-bold px-2 py-0.5 bg-slate-100 rounded border border-slate-300 text-slate-700">
           {formatarDiaSemana(diaSemana)}

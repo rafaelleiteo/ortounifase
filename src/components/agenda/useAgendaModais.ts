@@ -11,7 +11,8 @@ import {
   isItemBloqueio,
   getTipoBloqueio,
   getDescricaoBloqueio,
-  TipoBloqueio
+  TipoBloqueio,
+  mesmoDia
 } from '@/lib/agendaTypes';
 import { normalizarObservacao } from '@/lib/agendaObservacoes';
 
@@ -138,7 +139,7 @@ export function useAgendaModais({
         (outro) =>
           outro.id !== item.id &&
           outro.aluno_id === item.aluno_id &&
-          (outro.dia_semana || '').toUpperCase() === dados.dia_semana.toUpperCase() &&
+          mesmoDia(outro.dia_semana, dados.dia_semana) &&
           normalizarHorario(outro.horario) === hNormDestino
       );
 
