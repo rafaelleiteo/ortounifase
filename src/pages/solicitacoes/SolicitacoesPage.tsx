@@ -1016,6 +1016,11 @@ export const SolicitacoesPage: React.FC = () => {
                         <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md font-bold">
                           {resumoImportacao.prontas} prontas
                         </span>
+                        {resumoImportacao.parecidas > 0 && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-md font-bold">
+                            {resumoImportacao.parecidas} parecidas
+                          </span>
+                        )}
                         <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-md font-bold">
                           {resumoImportacao.duplicadas} duplicadas
                         </span>
@@ -1129,6 +1134,14 @@ export const SolicitacoesPage: React.FC = () => {
                                     title={linha.motivoStatus}
                                   >
                                     Aviso de agenda
+                                  </span>
+                                )}
+                                {linha.status === 'parecida' && (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300"
+                                    title={linha.motivoStatus}
+                                  >
+                                    Nome parecido com: {linha.nomeParecidoCom || linha.motivoStatus}
                                   </span>
                                 )}
                                 {linha.status === 'duplicada_banco' && (

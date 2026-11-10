@@ -9,6 +9,7 @@ export const MAX_LINHAS_IMPORTACAO = 200;
 export type StatusLinhaImportacao =
   | 'ok'
   | 'aviso'
+  | 'parecida'
   | 'duplicada_banco'
   | 'duplicada_lote'
   | 'erro';
@@ -21,6 +22,7 @@ export interface LinhaImportacaoAnalisada {
   turmaNome: string; // Nome da turma ou "Indefinida"
   observacao: string;
   status: StatusLinhaImportacao;
+  nomeParecidoCom?: string;
   motivoStatus?: string;
   selecionada: boolean;
 }
@@ -34,8 +36,86 @@ export interface PayloadImportacao {
 export interface ResumoImportacao {
   total: number;
   prontas: number;
+  parecidas: number;
   duplicadas: number;
   erros: number;
+}
+
+/**
+ * Calcula a distancia de edicao de Levenshtein entre duas strings.
+ */
+export function distanciaLevenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+
+  for (let j = 0; j <= n; j++) prev[j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    const charA = a.charCodeAt(i - 1);
+    for (let j = 1; j <= n; j++) {
+      const cost = charA === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(
+        prev[j] + 1,       // delecao
+        curr[j - 1] + 1,   // insercao
+        prev[j - 1] + cost // substituicao
+      );
+    }
+    const temp = prev;
+    prev = curr;
+    curr = temp;
+  }
+
+  return prev[n];
+}
+
+/**
+ * Funcao pura para detectar se dois nomes de pacientes sao parecidos.
+ * Avalia sobre nomes normalizados (sem acento, minusculas, trim).
+ *
+ * Retorna verdadeiro quando:
+ * (1) Um nome e prefixo do outro e o menor tem pelo menos 15 caracteres (o sistema de origem corta nomes em 33 caracteres);
+ * (2) As duas listas de palavras sao iguais em ordem diferente;
+ * (3) A distancia de edicao e no maximo 2 e ambos tem pelo menos 10 caracteres.
+ */
+export function nomesParecidos(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  const normA = normalizarNomePaciente(a);
+  const normB = normalizarNomePaciente(b);
+
+  if (!normA || !normB) return false;
+  // Se forem identicos, e duplicidade exata, nao apenas parecido
+  if (normA === normB) return false;
+
+  const minLen = Math.min(normA.length, normB.length);
+
+  // (1) Prefixo onde o menor tem pelo menos 15 caracteres
+  if (minLen >= 15 && (normA.startsWith(normB) || normB.startsWith(normA))) {
+    return true;
+  }
+
+  // (2) Listas de palavras sao iguais em ordem diferente
+  const wordsA = normA.split(' ').filter(Boolean).sort().join(' ');
+  const wordsB = normB.split(' ').filter(Boolean).sort().join(' ');
+  if (wordsA === wordsB) {
+    return true;
+  }
+
+  // (3) Distancia de edicao no maximo 2 e ambos tem pelo menos 10 caracteres
+  if (normA.length >= 10 && normB.length >= 10) {
+    if (Math.abs(normA.length - normB.length) <= 2) {
+      if (distanciaLevenshtein(normA, normB) <= 2) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 const SINONIMOS_INDEFINIDA = new Set([
@@ -297,6 +377,32 @@ export function analisarLoteImportacao(
       continue;
     }
 
+    // 4. Verificacao de nome parecido (contra pendentes do banco e contra outras linhas do lote)
+    const parecidoBanco = pacientesPendentesBanco.find((p) =>
+      nomesParecidos(pacienteStr, p.paciente)
+    );
+    const parecidoLote = resultado.find(
+      (r) => r.status !== 'erro' && nomesParecidos(pacienteStr, r.paciente)
+    );
+
+    const nomeParecidoRef = parecidoBanco ? parecidoBanco.paciente : parecidoLote ? parecidoLote.paciente : null;
+
+    if (nomeParecidoRef) {
+      resultado.push({
+        indice,
+        paciente: pacienteStr,
+        agendaOriginal: agendaOriginalStr,
+        turma_id,
+        turmaNome,
+        observacao: obsStr,
+        status: 'parecida',
+        nomeParecidoCom: nomeParecidoRef,
+        motivoStatus: `Nome parecido com: ${nomeParecidoRef}`,
+        selecionada: true
+      });
+      continue;
+    }
+
     if (aviso) {
       resultado.push({
         indice,
@@ -332,12 +438,16 @@ export function analisarLoteImportacao(
  */
 export function calcularResumoImportacao(linhas: LinhaImportacaoAnalisada[]): ResumoImportacao {
   let prontas = 0;
+  let parecidas = 0;
   let duplicadas = 0;
   let erros = 0;
 
   for (const l of linhas) {
-    if (l.status === 'ok' || l.status === 'aviso') {
+    if (l.status === 'ok' || l.status === 'aviso' || l.status === 'parecida') {
       prontas++;
+      if (l.status === 'parecida') {
+        parecidas++;
+      }
     } else if (l.status === 'duplicada_banco' || l.status === 'duplicada_lote') {
       duplicadas++;
     } else if (l.status === 'erro') {
@@ -348,6 +458,7 @@ export function calcularResumoImportacao(linhas: LinhaImportacaoAnalisada[]): Re
   return {
     total: linhas.length,
     prontas,
+    parecidas,
     duplicadas,
     erros
   };
@@ -374,31 +485,36 @@ export function gerarTextoModeloClaude(turmas: TurmaItem[]): string {
   const turmasTexto =
     turmas && turmas.length > 0
       ? turmas.map((t) => `  - "${t.nome}"`).join('\n')
-      : '  (Nenhuma turma cadastrada no momento; utilize null)';
+      : '  - "ESP1"\n  - "ESP2"\n  - "SERVIÇO"';
+
+  const turmaExemplo =
+    turmas && turmas.length > 0
+      ? (turmas.find((t) => t.nome === 'ESP1')?.nome || turmas[0].nome)
+      : 'ESP1';
 
   return `Voce e um assistente responsavel por converter listas de espera de pacientes para o formato JSON do sistema OrtoUnifase.
 
 REGRAS OBRIGATORIAS:
 1. Responda APENAS com a lista JSON pura. Nao inclua introducao, explicacoes, cumprimentos nem conclusoes.
 2. Cada item da lista deve conter exatamente os campos:
-   - "paciente": nome completo do paciente em texto (obrigatorio). Nao invente dados nem complete nomes por conta propria.
-   - "agenda": nome exato de uma das turmas abaixo, ou null se a turma nao for conhecida:
+   - "paciente": nome do paciente em texto (obrigatorio). Uma linha por paciente. Se uma frase trouxer dois ou mais nomes, separar em itens diferentes. Nao inventar dados, nao completar nomes cortados, nao juntar pacientes diferentes.
+   - "agenda": nome exato de uma das turmas abaixo, ou null quando a agenda nao for conhecida:
 ${turmasTexto}
-   - "observacao": informacao breve em texto (ex: disponibilidade de horario), ou null caso nao haja. NUNCA inclua dados clinicos confidenciais ou sensiveis.
-3. Se a agenda nao estiver indicada na lista original, use null.
+   - "observacao": informacoes que nao sao nome (ex.: "exame pronto", "retorno", "urgente", disponibilidade de horario), vao em observacao, nunca no nome. Usar null caso nao haja. NUNCA inclua dados clinicos confidenciais ou sensiveis.
+3. Se a agenda nao for conhecida, usar null.
 4. Mantenha o maximo de 200 itens por lote.
 
 EXEMPLO DE RESPOSTA ESPERADA:
 [
   {
     "paciente": "Maria da Silva",
-    "agenda": ${turmas.length > 0 ? `"${turmas[0].nome}"` : 'null'},
-    "observacao": "Prefere atendimento a tarde"
+    "agenda": "${turmaExemplo}",
+    "observacao": "exame pronto, retorno"
   },
   {
     "paciente": "Joao Souza",
     "agenda": null,
-    "observacao": null
+    "observacao": "urgente"
   }
 ]`;
 }

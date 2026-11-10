@@ -10,6 +10,8 @@ import {
   calcularResumoImportacao,
   montarPayloadsGravacao,
   gerarTextoModeloClaude,
+  nomesParecidos,
+  distanciaLevenshtein,
   MAX_LINHAS_IMPORTACAO
 } from '../src/lib/solicitacoesImportacao';
 import { TurmaItem } from '../src/lib/solicitacoesTypes';
@@ -261,18 +263,81 @@ it('status: ok comeca MARCADA', () => {
   expectTrue(analisados[0].selecionada);
 });
 
-it('resumo: contabiliza corretamente prontas, duplicadas e erros', () => {
+// ------------------------------------------------------------------------------
+// 3.1 TESTES DE NOMES PARECIDOS (FUNCAO PURA)
+// ------------------------------------------------------------------------------
+
+it('nomesParecidos: "Lucas Amaral Do Carmo Garrido" e "Kaique Amaral Do Carmo Garrido" NAO sao parecidos', () => {
+  const resultado = nomesParecidos(
+    'Lucas Amaral Do Carmo Garrido',
+    'Kaique Amaral Do Carmo Garrido'
+  );
+  expectFalse(resultado);
+});
+
+it('nomesParecidos: "Livia Carvalho Raeder" e "Ana Clara Carvalho Raeder" NAO sao parecidos', () => {
+  const resultado = nomesParecidos(
+    'Livia Carvalho Raeder',
+    'Ana Clara Carvalho Raeder'
+  );
+  expectFalse(resultado);
+});
+
+it('nomesParecidos: "Raiane Dos Santos Amorim De Olive" e "Raiane Dos Santos Amorim De Oliveira" SAO parecidos', () => {
+  const resultado = nomesParecidos(
+    'Raiane Dos Santos Amorim De Olive',
+    'Raiane Dos Santos Amorim De Oliveira'
+  );
+  expectTrue(resultado);
+});
+
+it('nomesParecidos: "Jose Lucio" e "Joze Lucio" SAO parecidos', () => {
+  const resultado = nomesParecidos('Jose Lucio', 'Joze Lucio');
+  expectTrue(resultado);
+});
+
+it('nomesParecidos: palavras em ordem diferente com mesmo conjunto SAO parecidos', () => {
+  const resultado = nomesParecidos('Carlos Eduardo Silva', 'Silva Carlos Eduardo');
+  expectTrue(resultado);
+});
+
+it('status: parecida contra banco ou lote comeca MARCADA e nao bloqueia', () => {
+  const lote = [
+    { paciente: 'Joze Lucio', agenda: 'ESP1' },
+    { paciente: 'Jose Lucio', agenda: 'ESP1' } // parecido com o item anterior do lote
+  ];
+  const pendentesBanco = [{ paciente: 'Raiane Dos Santos Amorim De Oliveira' }];
+  const loteComBanco = [
+    { paciente: 'Raiane Dos Santos Amorim De Olive', agenda: 'ESP2' } // parecido com o banco
+  ];
+
+  const analisados1 = analisarLoteImportacao(lote, TURMAS_MOCK, []);
+  expectEqual(analisados1[0].status, 'ok');
+  expectEqual(analisados1[1].status, 'parecida');
+  expectTrue(analisados1[1].selecionada, 'Parecida deve comecar marcada');
+  expectEqual(analisados1[1].nomeParecidoCom, 'Joze Lucio');
+
+  const analisados2 = analisarLoteImportacao(loteComBanco, TURMAS_MOCK, pendentesBanco);
+  expectEqual(analisados2[0].status, 'parecida');
+  expectTrue(analisados2[0].selecionada, 'Parecida deve comecar marcada');
+  expectEqual(analisados2[0].nomeParecidoCom, 'Raiane Dos Santos Amorim De Oliveira');
+});
+
+it('resumo: contabiliza corretamente prontas, parecidas, duplicadas e erros', () => {
   const lote = [
     { paciente: 'P1', agenda: 'ESP1' }, // ok
     { paciente: 'P2', agenda: 'Desconhecida' }, // aviso (pronta)
+    { paciente: 'Joze Lucio', agenda: 'ESP1' }, // ok
+    { paciente: 'Jose Lucio', agenda: 'ESP1' }, // parecida (pronta)
     { paciente: 'P1' }, // duplicada_lote
     { paciente: '' } // erro
   ];
   const analisados = analisarLoteImportacao(lote, TURMAS_MOCK, []);
   const resumo = calcularResumoImportacao(analisados);
 
-  expectEqual(resumo.total, 4);
-  expectEqual(resumo.prontas, 2); // 1 ok + 1 aviso
+  expectEqual(resumo.total, 6);
+  expectEqual(resumo.prontas, 4); // 2 ok + 1 aviso + 1 parecida
+  expectEqual(resumo.parecidas, 1);
   expectEqual(resumo.duplicadas, 1);
   expectEqual(resumo.erros, 1);
 });
@@ -311,13 +376,23 @@ it('payload: apara espacos de paciente e converte observacao vazia para null', (
 it('modelo: contem todas as turmas recebidas e instrucoes obrigatorias', () => {
   const texto = gerarTextoModeloClaude(TURMAS_MOCK);
 
+  expectTrue(texto.includes('"agenda"'), 'Deve usar o campo "agenda"');
   expectTrue(texto.includes('"ESP1"'));
   expectTrue(texto.includes('"ESP2"'));
   expectTrue(texto.includes('"Mestrado 2026"'));
   expectTrue(texto.includes('APENAS com a lista JSON'));
-  expectTrue(texto.includes('Nao invente dados'));
+  expectTrue(texto.includes('Uma linha por paciente'));
+  expectTrue(texto.includes('separar em itens diferentes'));
+  expectTrue(texto.includes('exame pronto'));
   expectTrue(texto.includes('NUNCA inclua dados clinicos'));
   expectTrue(texto.includes('null'));
+});
+
+it('modelo: sem turmas fornecidas usa exemplos ESP1, ESP2 e SERVIÇO', () => {
+  const texto = gerarTextoModeloClaude([]);
+  expectTrue(texto.includes('"ESP1"'));
+  expectTrue(texto.includes('"ESP2"'));
+  expectTrue(texto.includes('"SERVIÇO"'));
 });
 
 // Runner
