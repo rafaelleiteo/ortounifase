@@ -15,14 +15,14 @@ import {
 
 interface TestCase {
   nome: string;
-  fn: () => void;
+  fn: () => void | Promise<void>;
 }
 
 const testes: TestCase[] = [];
 let passCount = 0;
 let failCount = 0;
 
-function it(nome: string, fn: () => void) {
+function it(nome: string, fn: () => void | Promise<void>) {
   testes.push({ nome, fn });
 }
 
@@ -207,24 +207,117 @@ it('11) limparChavesSessaoSupabase remove somente storageKey e storageKey-code-v
   expectEqual(mockStorage.getItem('app.tema'), 'dark');
 });
 
-// Execucao
-console.log('=== EXECUTANDO TESTES DE LIMITE DE SESSAO ===\n');
+// ------------------------------------------------------------------------------
+// TESTES DE PRESERVACAO DO RELOGIO DE SESSAO NO LOGIN COM SENHA ERRADA
+// ------------------------------------------------------------------------------
 
-for (const t of testes) {
+async function simularLoginWithPassword(
+  signInResult: { data?: { user: { id: string } } | null; error?: Error | null },
+  deveLancarErro: boolean = false
+) {
+  const inicioAnterior = obterInicioSessao();
+  limparInicioSessao();
+
   try {
-    t.fn();
-    console.log(`[PASS] ${t.nome}`);
-    passCount++;
+    if (deveLancarErro) {
+      throw new Error('Falha de rede na chamada ao Supabase');
+    }
+
+    const { data, error } = signInResult;
+
+    if (error) {
+      if (inicioValido(inicioAnterior)) {
+        salvarInicioSessao(inicioAnterior as number);
+      }
+      return { error };
+    }
+
+    if (data?.user) {
+      salvarInicioSessao();
+    }
+    return { error: null };
   } catch (err) {
-    console.error(`[FAIL] ${t.nome}: ${err.message}`);
-    failCount++;
+    if (inicioValido(inicioAnterior)) {
+      salvarInicioSessao(inicioAnterior as number);
+    }
+    throw err;
   }
 }
 
-console.log(`\nTotal: ${testes.length} | Passou: ${passCount} | Falhou: ${failCount}`);
+it('12) Login falhado com senha errada preserva o carimbo de sessao anterior valido', async () => {
+  mockStorage.clear();
+  const carimboAnterior = AGORA - 2 * UMA_HORA_MS;
+  mockStorage.setItem(CHAVE_STORAGE_SESSAO_INICIO, String(carimboAnterior));
 
-if (failCount > 0) {
-  process.exit(1);
-} else {
-  console.log('Todos os testes de limite de sessao passaram com sucesso!');
+  const resultado = await simularLoginWithPassword({ error: new Error('Invalid login credentials') });
+
+  expectTrue(resultado.error !== null);
+  expectEqual(obterInicioSessao(), carimboAnterior);
+});
+
+it('13) Login que lanca excecao (ex: rede) preserva o carimbo de sessao anterior valido', async () => {
+  mockStorage.clear();
+  const carimboAnterior = AGORA - 3 * UMA_HORA_MS;
+  mockStorage.setItem(CHAVE_STORAGE_SESSAO_INICIO, String(carimboAnterior));
+
+  let capturouErro = false;
+  try {
+    await simularLoginWithPassword({}, true);
+  } catch {
+    capturouErro = true;
+  }
+
+  expectTrue(capturouErro);
+  expectEqual(obterInicioSessao(), carimboAnterior);
+});
+
+it('14) Login falhado quando nao havia carimbo valido nao cria carimbo indevido', async () => {
+  mockStorage.clear();
+
+  const resultado = await simularLoginWithPassword({ error: new Error('Invalid login credentials') });
+
+  expectTrue(resultado.error !== null);
+  expectEqual(obterInicioSessao(), null);
+});
+
+it('15) Login bem-sucedido renova o carimbo de sessao para o instante atual', async () => {
+  mockStorage.clear();
+  const carimboAnterior = AGORA - 4 * UMA_HORA_MS;
+  mockStorage.setItem(CHAVE_STORAGE_SESSAO_INICIO, String(carimboAnterior));
+
+  const antes = Date.now();
+  const resultado = await simularLoginWithPassword({ data: { user: { id: 'user-123' } }, error: null });
+  const depois = Date.now();
+
+  expectEqual(resultado.error, null);
+  const novoCarimbo = obterInicioSessao();
+  expectTrue(novoCarimbo !== null);
+  expectTrue((novoCarimbo as number) >= antes && (novoCarimbo as number) <= depois);
+  expectTrue((novoCarimbo as number) !== carimboAnterior);
+});
+
+// Execucao
+async function executarTestes() {
+  console.log('=== EXECUTANDO TESTES DE LIMITE DE SESSAO ===\n');
+
+  for (const t of testes) {
+    try {
+      await t.fn();
+      console.log(`[PASS] ${t.nome}`);
+      passCount++;
+    } catch (err: any) {
+      console.error(`[FAIL] ${t.nome}: ${err.message}`);
+      failCount++;
+    }
+  }
+
+  console.log(`\nTotal: ${testes.length} | Passou: ${passCount} | Falhou: ${failCount}`);
+
+  if (failCount > 0) {
+    process.exit(1);
+  } else {
+    console.log('Todos os testes de limite de sessao passaram com sucesso!');
+  }
 }
+
+executarTestes();
