@@ -1,33 +1,73 @@
 -- ==============================================================================
 -- MIGRATION: 20261110120000_compare_agendas_canonicalizar_dia.sql
 -- DESCRICAO: Canonicaliza dia_semana na funcao compare_agendas para reconhecer
---            variacoes de acento (Sabado vs SÁBADO), caixa e abreviacoes.
+--            variacoes de acento (Sabado vs SÁBADO), caixa, sufixos e abreviacoes.
 --
 -- ROLLBACK MANUAL:
 --   Caso seja necessario reverter, execute a definicao anterior presente em:
 --   supabase/migrations/20261018200000_consolidated_agenda_schema_and_security.sql
+--   (linhas 131 a 370 para compare_agendas).
 -- ==============================================================================
 
 -- 1. Funcao pura auxiliar no PostgreSQL para canonicalizacao de dia da semana
+-- Espelha a logica pura de canonicalizarDia em TypeScript (src/lib/agendaDias.ts).
 CREATE OR REPLACE FUNCTION public.canonicalizar_dia(p_dia text)
 RETURNS text
-LANGUAGE sql
+LANGUAGE plpgsql
 IMMUTABLE
 AS $$
-  SELECT CASE
-    WHEN p_dia IS NULL THEN NULL
-    WHEN translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC') ~ '^SAB(ADO)?(\.|\b)?' THEN 'SABADO'
-    WHEN translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC') ~ '^SEX(TA)?(\.|\b)?' THEN 'SEXTA'
-    WHEN translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC') ~ '^QUI(NTA)?(\.|\b)?' THEN 'QUINTA'
-    WHEN translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC') ~ '^QUA(RTA)?(\.|\b)?' THEN 'QUARTA'
-    WHEN translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC') ~ '^TER(CA)?(\.|\b)?' THEN 'TERCA'
-    WHEN translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC') ~ '^SEG(UNDA)?(\.|\b)?' THEN 'SEGUNDA'
-    WHEN translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC') ~ '^DOM(INGO)?(\.|\b)?' THEN 'DOMINGO'
-    ELSE translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOUUUC')
-  END;
+DECLARE
+  v_limpo text;
+BEGIN
+  IF p_dia IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- 1. Remove acentos, converte para maiusculas e trim
+  -- Origem e destino com exatamente 18 caracteres alinhados par a par
+  v_limpo := translate(upper(trim(p_dia)), 'ÁÀÃÂÉÈÊÍÌÎÓÒÕÔÚÙÛÇ', 'AAAAEEEIIIOOOOUUUC');
+  IF v_limpo = '' THEN
+    RETURN NULL;
+  END IF;
+
+  -- 2. Colapsa multiplos espacos em espaco unico
+  v_limpo := regexp_replace(v_limpo, '\s+', ' ', 'g');
+
+  -- 3. Remove ponto final residual (ex: 'SAB.', 'SEX.')
+  v_limpo := trim(regexp_replace(v_limpo, '\.+$', ''));
+
+  -- 4. Remove sufixo '-FEIRA' ou ' FEIRA'
+  v_limpo := trim(regexp_replace(v_limpo, '[- ]FEIRA$', ''));
+
+  -- 5. Comparacao exata por igualdade contra listas fechadas (sem regex de prefixo)
+  IF v_limpo IN ('SEG', 'SEGUNDA') THEN
+    RETURN 'SEGUNDA';
+  ELSIF v_limpo IN ('TER', 'TERCA') THEN
+    RETURN 'TERCA';
+  ELSIF v_limpo IN ('QUA', 'QUARTA') THEN
+    RETURN 'QUARTA';
+  ELSIF v_limpo IN ('QUI', 'QUINTA') THEN
+    RETURN 'QUINTA';
+  ELSIF v_limpo IN ('SEX', 'SEXTA') THEN
+    RETURN 'SEXTA';
+  ELSIF v_limpo IN ('SAB', 'SABADO') THEN
+    RETURN 'SABADO';
+  ELSIF v_limpo IN ('DOM', 'DOMINGO') THEN
+    RETURN 'DOMINGO';
+  ELSE
+    -- Para valor nao reconhecido, devolve o texto normalizado (sem acento, maiusculas, trim),
+    -- para que dois valores iguais ainda se comparem entre si sem perda de informacao.
+    RETURN v_limpo;
+  END IF;
+END;
 $$;
 
+-- Permissoes para a funcao canonicalizar_dia
+REVOKE ALL ON FUNCTION public.canonicalizar_dia(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.canonicalizar_dia(text) TO authenticated, service_role, anon;
+
 -- 2. Atualiza compare_agendas utilizando canonicalizar_dia na comparacao de dias
+-- Preserva exatamente a estrutura da migration 20261018200000_consolidated_agenda_schema_and_security.sql
 CREATE OR REPLACE FUNCTION public.compare_agendas(
   p_turma_id uuid,
   p_mes_referencia date
@@ -35,7 +75,7 @@ CREATE OR REPLACE FUNCTION public.compare_agendas(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   rec_fixa RECORD;
@@ -257,5 +297,10 @@ BEGIN
   );
 END;
 $$;
+
+-- Permissoes para a funcao compare_agendas
+REVOKE ALL ON FUNCTION public.compare_agendas(uuid, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.compare_agendas(uuid, date) FROM anon;
+GRANT EXECUTE ON FUNCTION public.compare_agendas(uuid, date) TO authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';
