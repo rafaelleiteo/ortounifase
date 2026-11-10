@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import {
   ClipboardList,
@@ -23,11 +23,13 @@ import {
   LIMITE_CARACTERES_OBSERVACAO,
   calcularDiasDecorridos,
   formatarDiasDecorridos,
+  formatarEsperaResolvida,
   detectarDuplicidade
 } from '@/lib/solicitacoesTypes';
 import {
   listarTurmas,
   listarSolicitacoes,
+  listarPacientesPendentes,
   criarSolicitacao,
   editarSolicitacao,
   marcarResolvido,
@@ -56,6 +58,10 @@ export const SolicitacoesPage: React.FC = () => {
   const [formObservacao, setFormObservacao] = useState<string>('');
   const [salvando, setSalvando] = useState<boolean>(false);
   const [erroModal, setErroModal] = useState<string | null>(null);
+
+  // Duplicidade independente de filtro
+  const [pacientesPendentes, setPacientesPendentes] = useState<Array<{ paciente: string }>>([]);
+  const [erroVerificarDuplicidade, setErroVerificarDuplicidade] = useState<boolean>(false);
 
   // Modal de Exclusao
   const [solicitacaoExcluindo, setSolicitacaoExcluindo] = useState<SolicitacaoAgendamento | null>(null);
@@ -120,13 +126,21 @@ export const SolicitacoesPage: React.FC = () => {
   }, [situacaoFiltro, turmaFiltro, buscaNome]);
 
   // Abertura do modal para criacao
-  const handleAbrirCriacao = () => {
+  const handleAbrirCriacao = async () => {
     setSolicitacaoEditando(null);
     setFormNome('');
     setFormTurmaId('');
     setFormObservacao('');
     setErroModal(null);
+    setErroVerificarDuplicidade(false);
     setModalAberto(true);
+    try {
+      const lista = await listarPacientesPendentes();
+      setPacientesPendentes(lista);
+    } catch (err) {
+      console.error('Falha ao consultar pacientes pendentes para duplicidade:', err);
+      setErroVerificarDuplicidade(true);
+    }
   };
 
   // Abertura do modal para edicao
@@ -205,11 +219,11 @@ export const SolicitacoesPage: React.FC = () => {
   };
 
   // Verificacao de duplicidade de nome em tempo real no modal de criacao
-  const existeDuplicadaPendente = !solicitacaoEditando && formNome.trim().length > 0 &&
-    detectarDuplicidade(
-      formNome,
-      solicitacoes.filter((s) => !s.resolvido)
-    );
+  const existeDuplicadaPendente =
+    !solicitacaoEditando &&
+    !erroVerificarDuplicidade &&
+    formNome.trim().length > 0 &&
+    detectarDuplicidade(formNome, pacientesPendentes);
 
   return (
     <DashboardLayout
@@ -364,8 +378,12 @@ export const SolicitacoesPage: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-xs text-slate-700">
                   {solicitacoes.map((item) => {
-                    const diasEspera = calcularDiasDecorridos(item.created_at);
-                    const textoEspera = formatarDiasDecorridos(diasEspera);
+                    const diasEspera = item.resolvido
+                      ? calcularDiasDecorridos(item.created_at, item.resolvido_em || item.updated_at)
+                      : calcularDiasDecorridos(item.created_at);
+                    const textoEspera = item.resolvido
+                      ? formatarEsperaResolvida(item.created_at, item.resolvido_em || item.updated_at)
+                      : formatarDiasDecorridos(diasEspera);
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
@@ -424,7 +442,9 @@ export const SolicitacoesPage: React.FC = () => {
                         <td className="py-3.5 px-4 whitespace-nowrap">
                           <span
                             className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                              diasEspera > 14
+                              item.resolvido
+                                ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                                : diasEspera > 14
                                 ? 'bg-amber-100 text-amber-900 border border-amber-200'
                                 : diasEspera === 0
                                 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
@@ -548,6 +568,13 @@ export const SolicitacoesPage: React.FC = () => {
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>Já existe uma solicitação pendente com este nome.</span>
               </div>
+            )}
+
+            {/* Aviso quando a verificacao de duplicidade falha */}
+            {erroVerificarDuplicidade && !solicitacaoEditando && (
+              <p className="text-[11px] text-slate-400">
+                Não foi possível verificar duplicidade agora.
+              </p>
             )}
 
             {/* Erro do Formulario */}

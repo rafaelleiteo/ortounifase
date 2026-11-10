@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Tipos e Funcoes Puras do Modulo de Solicitacoes de Agendamento
  */
 
@@ -115,3 +115,81 @@ export function detectarDuplicidade(
     (item) => normalizarNomePaciente(item.paciente) === normNovo
   );
 }
+
+/**
+ * Ordena solicitacoes de agendamento de acordo com a situacao:
+ * - pendentes: ordenadas por created_at crescente (mais antigas no topo)
+ * - resolvidos: ordenadas por resolvido_em decrescente (mais recentes no topo; se nulo, usa updated_at)
+ * - todos: pendentes primeiro (created_at crescente) e resolvidos depois (resolvido_em decrescente)
+ */
+export function ordenarSolicitacoes(
+  lista: SolicitacaoAgendamento[],
+  situacao: SituacaoFiltro = 'pendentes'
+): SolicitacaoAgendamento[] {
+  return [...lista].sort((a, b) => {
+    if (situacao === 'todos') {
+      if (a.resolvido !== b.resolvido) {
+        return a.resolvido ? 1 : -1;
+      }
+    }
+
+    // Se ambos sao pendentes
+    if (!a.resolvido && !b.resolvido) {
+      const timeA = new Date(a.created_at).getTime();
+      const timeB = new Date(b.created_at).getTime();
+      return timeA - timeB;
+    }
+
+    // Se ambos sao resolvidos
+    if (a.resolvido && b.resolvido) {
+      const dataA = a.resolvido_em || a.updated_at;
+      const dataB = b.resolvido_em || b.updated_at;
+      const timeA = new Date(dataA).getTime();
+      const timeB = new Date(dataB).getTime();
+      return timeB - timeA;
+    }
+
+    if (situacao === 'pendentes') {
+      if (a.resolvido !== b.resolvido) return a.resolvido ? 1 : -1;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    }
+
+    if (situacao === 'resolvidos') {
+      if (a.resolvido !== b.resolvido) return a.resolvido ? -1 : 1;
+      const dataA = a.resolvido_em || a.updated_at;
+      const dataB = b.resolvido_em || b.updated_at;
+      return new Date(dataB).getTime() - new Date(dataA).getTime();
+    }
+
+    return 0;
+  });
+}
+
+/**
+ * Formata o tempo de espera de uma solicitacao ja resolvida:
+ * - 0 dias: "Resolvido no mesmo dia"
+ * - 1 dia: "Esperou 1 dia"
+ * - X dias: "Esperou X dias"
+ */
+export function formatarEsperaResolvida(
+  created_at: string | Date,
+  resolvido_em?: string | Date | null
+): string {
+  const ref = resolvido_em || undefined;
+  const dias = calcularDiasDecorridos(created_at, ref);
+  if (dias === 0) return 'Resolvido no mesmo dia';
+  if (dias === 1) return 'Esperou 1 dia';
+  return `Esperou ${dias} dias`;
+}
+
+/**
+ * Escapa caracteres especiais de LIKE/ILIKE (%, _ e \) para evitar interpretacao como curingas.
+ */
+export function escaparTermoLike(termo?: string | null): string {
+  if (!termo || typeof termo !== 'string') return '';
+  return termo
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+}
+

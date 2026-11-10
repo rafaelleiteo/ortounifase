@@ -1,10 +1,12 @@
-﻿import { supabase } from './supabase';
+import { supabase } from './supabase';
 import {
   SolicitacaoAgendamento,
   CriarSolicitacaoParams,
   EditarSolicitacaoParams,
   FiltroSolicitacoes,
-  TurmaItem
+  TurmaItem,
+  ordenarSolicitacoes,
+  escaparTermoLike
 } from './solicitacoesTypes';
 
 /**
@@ -23,6 +25,24 @@ export async function listarTurmas(): Promise<TurmaItem[]> {
   }
 
   return (data || []) as TurmaItem[];
+}
+
+/**
+ * Consulta a lista de pacientes com solicitacoes pendentes para deteccao de duplicidade.
+ * O erro do Supabase e propagado.
+ */
+export async function listarPacientesPendentes(): Promise<Array<{ paciente: string }>> {
+  const { data, error } = await supabase
+    .from('solicitacoes_agendamento')
+    .select('paciente')
+    .eq('resolvido', false);
+
+  if (error) {
+    console.error('Erro ao listar pacientes pendentes:', error);
+    throw new Error(`Erro ao consultar pacientes pendentes: ${error.message}`);
+  }
+
+  return (data || []) as Array<{ paciente: string }>;
 }
 
 /**
@@ -62,9 +82,10 @@ export async function listarSolicitacoes(
       .order('created_at', { ascending: true });
   }
 
-  // 3. Filtro de busca por nome
+  // 3. Filtro de busca por nome com escape de caracteres curinga
   if (filtros?.buscaNome && filtros.buscaNome.trim()) {
-    query = query.ilike('paciente', `%${filtros.buscaNome.trim()}%`);
+    const termoEscapado = escaparTermoLike(filtros.buscaNome.trim());
+    query = query.ilike('paciente', `%${termoEscapado}%`);
   }
 
   const { data, error } = await query;
@@ -74,7 +95,8 @@ export async function listarSolicitacoes(
     throw new Error(`Erro ao consultar solicitacoes: ${error.message}`);
   }
 
-  return (data || []) as SolicitacaoAgendamento[];
+  const lista = (data || []) as SolicitacaoAgendamento[];
+  return ordenarSolicitacoes(lista, situacao);
 }
 
 /**
@@ -132,11 +154,15 @@ export async function editarSolicitacao(
     .update(payload)
     .eq('id', id)
     .select('*, turmas(id, nome)')
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error('Erro ao atualizar solicitacao de agendamento:', error);
     throw new Error(`Erro ao salvar alteracoes da solicitacao: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error('Nenhuma linha foi alterada. A solicitacao pode ter sido removida ou voce nao tem permissao.');
   }
 
   return data as SolicitacaoAgendamento;
@@ -167,11 +193,15 @@ export async function marcarResolvido(
     .update(payload)
     .eq('id', id)
     .select('*, turmas(id, nome)')
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error('Erro ao alterar situacao da solicitacao:', error);
     throw new Error(`Erro ao atualizar status da solicitacao: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error('Nenhuma linha foi alterada. A solicitacao pode ter sido removida ou voce nao tem permissao.');
   }
 
   return data as SolicitacaoAgendamento;
@@ -181,13 +211,18 @@ export async function marcarResolvido(
  * Exclui uma solicitacao de agendamento.
  */
 export async function excluirSolicitacao(id: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('solicitacoes_agendamento')
     .delete()
-    .eq('id', id);
+    .eq('id', id)
+    .select('id');
 
   if (error) {
     console.error('Erro ao excluir solicitacao de agendamento:', error);
     throw new Error(`Erro ao remover solicitacao: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Nada foi excluido. A solicitacao pode ja ter sido removida ou voce nao tem permissao.');
   }
 }

@@ -1,9 +1,13 @@
-﻿import {
+import {
   normalizarNomePaciente,
   calcularDiasDecorridos,
   formatarDiasDecorridos,
   detectarDuplicidade,
-  extrairPartesDataLocal
+  extrairPartesDataLocal,
+  ordenarSolicitacoes,
+  formatarEsperaResolvida,
+  escaparTermoLike,
+  SolicitacaoAgendamento
 } from '../src/lib/solicitacoesTypes';
 
 interface TestCase {
@@ -140,6 +144,118 @@ it('calcularDiasDecorridos: aceita string timestamptz ISO', () => {
   const entradaIso = '2026-11-09T03:00:00.000Z';
   const agoraRef = new Date(entradaIso);
   expectEqual(calcularDiasDecorridos(entradaIso, agoraRef), 0);
+});
+
+// ------------------------------------------------------------------------------
+// 4. TESTES DE formatarEsperaResolvida
+// ------------------------------------------------------------------------------
+it('formatarEsperaResolvida: mesmo dia vira "Resolvido no mesmo dia"', () => {
+  const criacao = '2026-11-09T08:00:00.000Z';
+  const resolucao = '2026-11-09T17:30:00.000Z';
+  expectEqual(formatarEsperaResolvida(criacao, resolucao), 'Resolvido no mesmo dia');
+});
+
+it('formatarEsperaResolvida: 1 dia vira "Esperou 1 dia"', () => {
+  const criacao = '2026-11-08T10:00:00.000Z';
+  const resolucao = '2026-11-09T14:00:00.000Z';
+  expectEqual(formatarEsperaResolvida(criacao, resolucao), 'Esperou 1 dia');
+});
+
+it('formatarEsperaResolvida: multiplos dias vira "Esperou X dias"', () => {
+  const criacao = '2026-10-10T10:00:00.000Z';
+  const resolucao = '2026-11-09T10:00:00.000Z';
+  expectEqual(formatarEsperaResolvida(criacao, resolucao), 'Esperou 30 dias');
+});
+
+it('formatarEsperaResolvida: quando resolvido_em e nulo ou indefinido, usa data atual como referencia', () => {
+  const hojeIso = new Date().toISOString();
+  expectEqual(formatarEsperaResolvida(hojeIso, null), 'Resolvido no mesmo dia');
+  expectEqual(formatarEsperaResolvida(hojeIso, undefined), 'Resolvido no mesmo dia');
+});
+
+// ------------------------------------------------------------------------------
+// 5. TESTES DE escaparTermoLike
+// ------------------------------------------------------------------------------
+it('escaparTermoLike: mantem texto alfanumerico comum inalterado', () => {
+  expectEqual(escaparTermoLike('Carlos Eduardo'), 'Carlos Eduardo');
+  expectEqual(escaparTermoLike('12345'), '12345');
+});
+
+it('escaparTermoLike: escapa porcentagem, sublinhado e barra invertida', () => {
+  expectEqual(escaparTermoLike('100%'), '100\\%');
+  expectEqual(escaparTermoLike('paciente_teste'), 'paciente\\_teste');
+  expectEqual(escaparTermoLike('caminho\\pasta'), 'caminho\\\\pasta');
+  expectEqual(escaparTermoLike('50%_teste\\exemplo'), '50\\%\\_teste\\\\exemplo');
+});
+
+it('escaparTermoLike: lida com nulo, indefinido e vazio', () => {
+  expectEqual(escaparTermoLike(''), '');
+  expectEqual(escaparTermoLike(null), '');
+  expectEqual(escaparTermoLike(undefined), '');
+});
+
+// ------------------------------------------------------------------------------
+// 6. TESTES DE ordenarSolicitacoes
+// ------------------------------------------------------------------------------
+function mockItem(parciais: Partial<SolicitacaoAgendamento>): SolicitacaoAgendamento {
+  return {
+    id: parciais.id || 'id-mock',
+    paciente: parciais.paciente || 'Paciente Mock',
+    turma_id: parciais.turma_id || null,
+    observacao: parciais.observacao || null,
+    resolvido: parciais.resolvido ?? false,
+    resolvido_em: parciais.resolvido_em || null,
+    criado_por: parciais.criado_por || null,
+    created_at: parciais.created_at || '2026-11-09T10:00:00.000Z',
+    updated_at: parciais.updated_at || '2026-11-09T10:00:00.000Z',
+    ...parciais
+  };
+}
+
+it('ordenarSolicitacoes: situacao "pendentes" ordena por created_at crescente (mais antigas no topo)', () => {
+  const p1 = mockItem({ id: '1', paciente: 'Mais Antigo', created_at: '2026-11-01T10:00:00.000Z', resolvido: false });
+  const p2 = mockItem({ id: '2', paciente: 'Mais Recente', created_at: '2026-11-08T10:00:00.000Z', resolvido: false });
+  const p3 = mockItem({ id: '3', paciente: 'Intermediario', created_at: '2026-11-05T10:00:00.000Z', resolvido: false });
+
+  const ordenado = ordenarSolicitacoes([p2, p1, p3], 'pendentes');
+  expectEqual(ordenado.map(x => x.id).join(','), '1,3,2');
+});
+
+it('ordenarSolicitacoes: situacao "resolvidos" ordena por resolvido_em decrescente (mais recentes no topo)', () => {
+  const r1 = mockItem({ id: '1', paciente: 'Resolvido Antigo', resolvido: true, resolvido_em: '2026-11-02T10:00:00.000Z' });
+  const r2 = mockItem({ id: '2', paciente: 'Resolvido Hoje', resolvido: true, resolvido_em: '2026-11-09T10:00:00.000Z' });
+  const r3 = mockItem({ id: '3', paciente: 'Resolvido Ontem', resolvido: true, resolvido_em: '2026-11-08T10:00:00.000Z' });
+
+  const ordenado = ordenarSolicitacoes([r1, r2, r3], 'resolvidos');
+  expectEqual(ordenado.map(x => x.id).join(','), '2,3,1');
+});
+
+it('ordenarSolicitacoes: situacao "resolvidos" usa updated_at se resolvido_em for nulo', () => {
+  const r1 = mockItem({ id: '1', resolvido: true, resolvido_em: null, updated_at: '2026-11-01T10:00:00.000Z' });
+  const r2 = mockItem({ id: '2', resolvido: true, resolvido_em: null, updated_at: '2026-11-09T10:00:00.000Z' });
+
+  const ordenado = ordenarSolicitacoes([r1, r2], 'resolvidos');
+  expectEqual(ordenado.map(x => x.id).join(','), '2,1');
+});
+
+it('ordenarSolicitacoes: situacao "todos" coloca pendentes primeiro e resolvidos depois', () => {
+  const p1 = mockItem({ id: 'p1', resolvido: false, created_at: '2026-11-02T10:00:00.000Z' });
+  const p2 = mockItem({ id: 'p2', resolvido: false, created_at: '2026-11-06T10:00:00.000Z' });
+  const r1 = mockItem({ id: 'r1', resolvido: true, resolvido_em: '2026-11-08T10:00:00.000Z' });
+  const r2 = mockItem({ id: 'r2', resolvido: true, resolvido_em: '2026-11-09T10:00:00.000Z' });
+
+  const ordenado = ordenarSolicitacoes([r1, p2, r2, p1], 'todos');
+  expectEqual(ordenado.map(x => x.id).join(','), 'p1,p2,r2,r1');
+});
+
+it('ordenarSolicitacoes: nao muta o array original recebido', () => {
+  const p1 = mockItem({ id: '1', created_at: '2026-11-05T10:00:00.000Z', resolvido: false });
+  const p2 = mockItem({ id: '2', created_at: '2026-11-01T10:00:00.000Z', resolvido: false });
+  const listaOriginal = [p1, p2];
+
+  ordenarSolicitacoes(listaOriginal, 'pendentes');
+  expectEqual(listaOriginal[0].id, '1');
+  expectEqual(listaOriginal[1].id, '2');
 });
 
 // ------------------------------------------------------------------------------
