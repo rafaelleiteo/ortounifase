@@ -226,3 +226,38 @@ export async function excluirSolicitacao(id: string): Promise<void> {
     throw new Error('Nada foi excluido. A solicitacao pode ja ter sido removida ou voce nao tem permissao.');
   }
 }
+
+/**
+ * Importa solicitacoes de agendamento em lote com um unico insert atomico.
+ */
+export async function importarSolicitacoes(
+  linhas: Array<{ paciente: string; turma_id: string | null; observacao?: string | null }>
+): Promise<number> {
+  if (!linhas || linhas.length === 0) {
+    throw new Error('Nenhuma solicitacao valida selecionada para importacao.');
+  }
+
+  const payloads = linhas.map((l) => ({
+    paciente: l.paciente.trim(),
+    turma_id: l.turma_id || null,
+    observacao: l.observacao && l.observacao.trim() ? l.observacao.trim() : null
+  }));
+
+  const { data, error } = await supabase
+    .from('solicitacoes_agendamento')
+    .insert(payloads)
+    .select('id');
+
+  if (error) {
+    console.error('Erro ao importar solicitacoes em lote:', error);
+    throw new Error(`Erro ao gravar lote de solicitacoes: ${error.message}`);
+  }
+
+  if (!data || data.length !== payloads.length) {
+    throw new Error(
+      `Divergencia na gravacao em lote: ${payloads.length} enviadas, mas apenas ${data?.length || 0} registradas.`
+    );
+  }
+
+  return data.length;
+}

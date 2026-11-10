@@ -14,7 +14,11 @@ import {
   Clock,
   User,
   X,
-  Filter
+  Filter,
+  Upload,
+  Copy,
+  FileText,
+  Check
 } from 'lucide-react';
 import {
   SolicitacaoAgendamento,
@@ -27,13 +31,23 @@ import {
   detectarDuplicidade
 } from '@/lib/solicitacoesTypes';
 import {
+  LinhaImportacaoAnalisada,
+  ResumoImportacao,
+  parsearJsonImportacao,
+  analisarLoteImportacao,
+  calcularResumoImportacao,
+  montarPayloadsGravacao,
+  gerarTextoModeloClaude
+} from '@/lib/solicitacoesImportacao';
+import {
   listarTurmas,
   listarSolicitacoes,
   listarPacientesPendentes,
   criarSolicitacao,
   editarSolicitacao,
   marcarResolvido,
-  excluirSolicitacao
+  excluirSolicitacao,
+  importarSolicitacoes
 } from '@/lib/solicitacoesService';
 
 export const SolicitacoesPage: React.FC = () => {
@@ -69,6 +83,25 @@ export const SolicitacoesPage: React.FC = () => {
 
   // Estado de acao individual por linha (resolvendo/reabrindo)
   const [processandoId, setProcessandoId] = useState<string | null>(null);
+
+  const [sucesso, setSucesso] = useState<string | null>(null);
+
+  // Modal de Importacao em Lote
+  const [modalImportacaoAberto, setModalImportacaoAberto] = useState<boolean>(false);
+  const [textoJson, setTextoJson] = useState<string>('');
+  const [arquivoJsonNome, setArquivoJsonNome] = useState<string | null>(null);
+  const [linhasAnalisadas, setLinhasAnalisadas] = useState<LinhaImportacaoAnalisada[]>([]);
+  const [resumoImportacao, setResumoImportacao] = useState<ResumoImportacao | null>(null);
+  const [analisando, setAnalisando] = useState<boolean>(false);
+  const [importando, setImportando] = useState<boolean>(false);
+  const [erroImportacaoModal, setErroImportacaoModal] = useState<string | null>(null);
+  const [avisoDuplicidadeModal, setAvisoDuplicidadeModal] = useState<string | null>(null);
+  const [copiadoClaude, setCopiadoClaude] = useState<boolean>(false);
+  const [mostrarCaixaModelo, setMostrarCaixaModelo] = useState<boolean>(false);
+  const [textoModeloClaude, setTextoModeloClaude] = useState<string>('');
+  const importandoRef = useRef<boolean>(false);
+  const inputFileRef = useRef<HTMLInputElement>(null);
+
 
   // Carregar turmas no inicio
   useEffect(() => {
@@ -124,6 +157,133 @@ export const SolicitacoesPage: React.FC = () => {
     }, 300);
     return () => clearTimeout(timer);
   }, [situacaoFiltro, turmaFiltro, buscaNome]);
+
+  // Handlers da Importacao em Lote
+  const handleAbrirImportacao = () => {
+    setTextoJson('');
+    setArquivoJsonNome(null);
+    setLinhasAnalisadas([]);
+    setResumoImportacao(null);
+    setErroImportacaoModal(null);
+    setAvisoDuplicidadeModal(null);
+    setMostrarCaixaModelo(false);
+    setCopiadoClaude(false);
+    if (inputFileRef.current) {
+      inputFileRef.current.value = '';
+    }
+    setModalImportacaoAberto(true);
+  };
+
+  const handleArquivoJsonChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1024 * 1024) {
+      setErroImportacaoModal('O arquivo selecionado excede o limite máximo de 1 MB.');
+      return;
+    }
+
+    setArquivoJsonNome(file.name);
+    setErroImportacaoModal(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const conteudo = String(event.target?.result || '');
+      setTextoJson(conteudo);
+    };
+    reader.onerror = () => {
+      setErroImportacaoModal('Não foi possível ler o arquivo selecionado.');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleAnalisarJson = async () => {
+    if (!textoJson.trim()) {
+      setErroImportacaoModal('Cole o JSON ou selecione um arquivo para analisar.');
+      return;
+    }
+
+    setAnalisando(true);
+    setErroImportacaoModal(null);
+    setAvisoDuplicidadeModal(null);
+
+    let pendentesAtuais: Array<{ paciente: string }> = [];
+    try {
+      pendentesAtuais = await listarPacientesPendentes();
+    } catch (err) {
+      console.warn('Falha ao consultar pacientes pendentes durante analise de lote:', err);
+      setAvisoDuplicidadeModal('Não foi possível verificar duplicidade com a lista atual.');
+    }
+
+    try {
+      const itensCrus = parsearJsonImportacao(textoJson);
+      const linhas = analisarLoteImportacao(itensCrus, turmas, pendentesAtuais);
+      setLinhasAnalisadas(linhas);
+      setResumoImportacao(calcularResumoImportacao(linhas));
+    } catch (err: any) {
+      setErroImportacaoModal(err.message || 'Erro ao processar o formato do JSON.');
+      setLinhasAnalisadas([]);
+      setResumoImportacao(null);
+    } finally {
+      setAnalisando(false);
+    }
+  };
+
+  const handleToggleLinha = (indice: number) => {
+    setLinhasAnalisadas((prev) =>
+      prev.map((l) => (l.indice === indice && l.status !== 'erro' ? { ...l, selecionada: !l.selecionada } : l))
+    );
+  };
+
+  const handleToggleTodas = (marcar: boolean) => {
+    setLinhasAnalisadas((prev) =>
+      prev.map((l) => (l.status !== 'erro' ? { ...l, selecionada: marcar } : l))
+    );
+  };
+
+  const handleCopiarModeloClaude = async () => {
+    const texto = gerarTextoModeloClaude(turmas);
+    setTextoModeloClaude(texto);
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(texto);
+        setCopiadoClaude(true);
+        setTimeout(() => setCopiadoClaude(false), 3000);
+      } else {
+        setMostrarCaixaModelo(true);
+      }
+    } catch {
+      setMostrarCaixaModelo(true);
+    }
+  };
+
+  const handleExecutarImportacao = async () => {
+    if (importandoRef.current) return;
+
+    const payloads = montarPayloadsGravacao(linhasAnalisadas);
+    if (payloads.length === 0) {
+      setErroImportacaoModal('Nenhuma solicitação selecionada para importação.');
+      return;
+    }
+
+    importandoRef.current = true;
+    setImportando(true);
+    setErroImportacaoModal(null);
+
+    try {
+      const qtdGravada = await importarSolicitacoes(payloads);
+      setModalImportacaoAberto(false);
+      setSucesso(`${qtdGravada} solicitações importadas com sucesso`);
+      setSituacaoFiltro('pendentes');
+      await carregarDados();
+    } catch (err: any) {
+      setErroImportacaoModal(err.message || 'Erro ao gravar solicitações no banco.');
+    } finally {
+      importandoRef.current = false;
+      setImportando(false);
+    }
+  };
 
   // Abertura do modal para criacao
   const handleAbrirCriacao = async () => {
@@ -271,15 +431,27 @@ export const SolicitacoesPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Botao Nova Solicitacao */}
-            <button
-              type="button"
-              onClick={handleAbrirCriacao}
-              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs hover:shadow-md cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Nova Solicitação</span>
-            </button>
+            {/* Botoes de Acao: Importar e Nova Solicitacao */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAbrirImportacao}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                title="Importar lista de solicitações via JSON"
+              >
+                <Upload className="w-4 h-4 text-slate-600" />
+                <span>Importar</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAbrirCriacao}
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs hover:shadow-md cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nova Solicitação</span>
+              </button>
+            </div>
           </div>
 
           {/* Linha de Filtros: Busca e Turma */}
@@ -322,6 +494,24 @@ export const SolicitacoesPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Banner de Sucesso */}
+        {sucesso && (
+          <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-800 shadow-xs">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-medium">{sucesso}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSucesso(null)}
+              className="text-emerald-500 hover:text-emerald-800 text-sm font-bold px-1 rounded cursor-pointer"
+              title="Fechar aviso"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Banner de Erro Geral */}
         {erro && (
@@ -658,6 +848,365 @@ export const SolicitacoesPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Importacao em Lote */}
+      {modalImportacaoAberto && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            {/* Cabecalho do Modal */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-brand-50 rounded-xl text-brand-600">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    Importar Solicitações em Lote
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Importe múltiplas solicitações de uma só vez a partir de uma lista JSON
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalImportacaoAberto(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Conteudo com Rolagem */}
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Barra do Modelo para Claude */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 text-slate-600">
+                  <FileText className="w-4 h-4 text-brand-600 shrink-0" />
+                  <span className="text-[11px]">
+                    Precisa converter uma lista de pacientes? Copie as instruções prontas para o Claude:
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopiarModeloClaude}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0 transition-colors"
+                >
+                  {copiadoClaude ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700">Modelo copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Copiar modelo para o Claude</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Caixa alternativa caso clipboard nao esteja acessivel */}
+              {mostrarCaixaModelo && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-amber-900">
+                      Copie o texto abaixo manualmente:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setMostrarCaixaModelo(false)}
+                      className="text-amber-700 hover:text-amber-900 text-xs font-bold px-1"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                  <textarea
+                    readOnly
+                    value={textoModeloClaude}
+                    rows={6}
+                    className="w-full text-[11px] font-mono p-2 border border-amber-200 rounded-lg bg-white resize-none"
+                    onFocus={(e) => e.target.select()}
+                  />
+                </div>
+              )}
+
+              {/* Entrada de JSON: Textarea e Arquivo */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">
+                    Conteúdo JSON
+                  </label>
+                  <span className="text-[11px] text-slate-400">
+                    Máximo de 200 solicitações por importação
+                  </span>
+                </div>
+
+                <textarea
+                  value={textoJson}
+                  onChange={(e) => setTextoJson(e.target.value)}
+                  placeholder={`[
+  { "paciente": "Maria da Silva", "agenda": "ESP1", "observacao": "Prefere tarde" },
+  { "paciente": "Joao Souza", "agenda": null, "observacao": null }
+]`}
+                  rows={6}
+                  className="w-full font-mono text-[11px] px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-brand-500 bg-white resize-y"
+                />
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center gap-2">
+                    <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-slate-500" />
+                      <span>{arquivoJsonNome ? 'Trocar arquivo .json' : 'Carregar arquivo .json'}</span>
+                      <input
+                        ref={inputFileRef}
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={handleArquivoJsonChange}
+                        className="hidden"
+                      />
+                    </label>
+                    {arquivoJsonNome && (
+                      <span className="text-[11px] text-slate-500 truncate max-w-xs">
+                        {arquivoJsonNome}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAnalisarJson}
+                    disabled={analisando || !textoJson.trim()}
+                    className="w-full sm:w-auto px-4 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+                  >
+                    {analisando && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{analisando ? 'Analisando...' : 'Analisar e Pré-visualizar'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Avisos e Erros do Modal de Importacao */}
+              {erroImportacaoModal && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-rose-800">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold">Atenção ao processar o lote</p>
+                    <p>{erroImportacaoModal}</p>
+                  </div>
+                </div>
+              )}
+
+              {avisoDuplicidadeModal && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2 text-amber-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>{avisoDuplicidadeModal}</span>
+                </div>
+              )}
+
+              {/* Tabela de Previa de Linhas */}
+              {linhasAnalisadas.length > 0 && (
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  {/* Resumo Quantitativo */}
+                  {resumoImportacao && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md font-bold">
+                          {resumoImportacao.prontas} prontas
+                        </span>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-md font-bold">
+                          {resumoImportacao.duplicadas} duplicadas
+                        </span>
+                        {resumoImportacao.erros > 0 && (
+                          <span className="px-2 py-0.5 bg-rose-50 text-rose-800 border border-rose-200 rounded-md font-bold">
+                            {resumoImportacao.erros} com erro
+                          </span>
+                        )}
+                        <span className="text-slate-400">
+                          Total: {resumoImportacao.total}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTodas(true)}
+                          className="text-brand-600 hover:underline font-semibold cursor-pointer"
+                        >
+                          Marcar todas válidas
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTodas(false)}
+                          className="text-slate-500 hover:underline font-semibold cursor-pointer"
+                        >
+                          Desmarcar todas
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tabela de Previa */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200 sticky top-0 z-10">
+                        <tr>
+                          <th className="py-2.5 px-3 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={
+                                linhasAnalisadas.filter((l) => l.status !== 'erro').length > 0 &&
+                                linhasAnalisadas.filter((l) => l.status !== 'erro').every((l) => l.selecionada)
+                              }
+                              onChange={(e) => handleToggleTodas(e.target.checked)}
+                              className="rounded text-brand-600 focus:ring-brand-500"
+                            />
+                          </th>
+                          <th className="py-2.5 px-2 w-10 text-center">#</th>
+                          <th className="py-2.5 px-3">Paciente</th>
+                          <th className="py-2.5 px-3">Agenda</th>
+                          <th className="py-2.5 px-3">Observação</th>
+                          <th className="py-2.5 px-3">Situação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-[11px]">
+                        {linhasAnalisadas.map((linha) => {
+                          const isErro = linha.status === 'erro';
+                          const isDup = linha.status === 'duplicada_banco' || linha.status === 'duplicada_lote';
+
+                          return (
+                            <tr
+                              key={linha.indice}
+                              className={`transition-colors ${
+                                isErro
+                                  ? 'bg-rose-50/40 text-rose-900'
+                                  : linha.selecionada
+                                  ? 'bg-white hover:bg-slate-50/80'
+                                  : 'bg-slate-50/50 text-slate-400'
+                              }`}
+                            >
+                              <td className="py-2 px-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  disabled={isErro}
+                                  checked={linha.selecionada}
+                                  onChange={() => handleToggleLinha(linha.indice)}
+                                  className="rounded text-brand-600 focus:ring-brand-500 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                                />
+                              </td>
+                              <td className="py-2 px-2 text-center text-slate-400 font-mono">
+                                {linha.indice}
+                              </td>
+                              <td className="py-2 px-3 font-semibold text-slate-800">
+                                {linha.paciente || <span className="text-rose-500 italic">(vazio)</span>}
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className={linha.turma_id ? 'font-medium text-slate-700' : 'text-slate-400 italic'}>
+                                  {linha.turmaNome}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 max-w-xs">
+                                {linha.observacao ? (
+                                  <span className="line-clamp-2" title={linha.observacao}>
+                                    {linha.observacao}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic">-</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 whitespace-nowrap">
+                                {linha.status === 'ok' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    Pronta
+                                  </span>
+                                )}
+                                {linha.status === 'aviso' && (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                                    title={linha.motivoStatus}
+                                  >
+                                    Aviso de agenda
+                                  </span>
+                                )}
+                                {linha.status === 'duplicada_banco' && (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300"
+                                    title={linha.motivoStatus}
+                                  >
+                                    Já existe no sistema
+                                  </span>
+                                )}
+                                {linha.status === 'duplicada_lote' && (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                    title={linha.motivoStatus}
+                                  >
+                                    Repetida no lote
+                                  </span>
+                                )}
+                                {linha.status === 'erro' && (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300"
+                                    title={linha.motivoStatus}
+                                  >
+                                    Erro: {linha.motivoStatus}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Rodape do Modal */}
+            <div className="p-4 sm:p-5 border-t border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/50">
+              <span className="text-[11px] text-slate-500">
+                {linhasAnalisadas.length > 0 && (
+                  <>
+                    <strong>
+                      {linhasAnalisadas.filter((l) => l.selecionada && l.status !== 'erro').length}
+                    </strong>{' '}
+                    solicitação(ões) selecionada(s) para gravação
+                  </>
+                )}
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalImportacaoAberto(false)}
+                  disabled={importando}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecutarImportacao}
+                  disabled={
+                    importando ||
+                    linhasAnalisadas.filter((l) => l.selecionada && l.status !== 'erro').length === 0
+                  }
+                  className="px-5 py-2 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                >
+                  {importando && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>
+                    Importar{' '}
+                    {linhasAnalisadas.filter((l) => l.selecionada && l.status !== 'erro').length > 0
+                      ? `${linhasAnalisadas.filter((l) => l.selecionada && l.status !== 'erro').length} selecionada(s)`
+                      : ''}
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
