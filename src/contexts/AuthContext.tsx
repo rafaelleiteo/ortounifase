@@ -14,6 +14,9 @@ import {
   salvarInicioSessaoSeNaoExistir,
   limparInicioSessao,
   inicioValido,
+  getStorage,
+  obterSupabaseStorageKey,
+  limparChavesSessaoSupabase,
 } from '@/lib/sessaoLimite';
 
 export interface Perfil {
@@ -68,15 +71,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     deslogandoRef.current = true;
 
     try {
-      try {
-        await supabase.auth.signOut({ scope: 'local' });
-      } catch {
-        await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) {
+        console.warn('Erro ao executar signOut local por expiracao de sessao:', error.message);
       }
-    } catch (err) {
-      console.warn('Erro ao deslogar por expiracao de sessao:', err);
+    } catch (err: any) {
+      console.warn('Excecao ao deslogar por expiracao de sessao:', err?.message || err);
     } finally {
       limparInicioSessao();
+      const storageKey =
+        (supabase.auth as unknown as { storageKey?: string })?.storageKey ||
+        obterSupabaseStorageKey(import.meta.env.VITE_SUPABASE_URL);
+      if (storageKey) {
+        limparChavesSessaoSupabase(getStorage(), storageKey);
+      }
       setUser(null);
       setProfile(null);
       setPermissions([]);
@@ -237,6 +245,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithPassword = async (email: string, password: string) => {
     setLoading(true);
+    limparInicioSessao();
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,

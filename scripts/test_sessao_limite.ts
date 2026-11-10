@@ -9,6 +9,8 @@ import {
   salvarInicioSessao,
   salvarInicioSessaoSeNaoExistir,
   limparInicioSessao,
+  obterSupabaseStorageKey,
+  limparChavesSessaoSupabase,
 } from '../src/lib/sessaoLimite';
 
 interface TestCase {
@@ -84,30 +86,25 @@ const UMA_HORA_MS = 60 * 60 * 1000;
 const UM_MINUTO_MS = 60 * 1000;
 
 // ------------------------------------------------------------------------------
-// TESTES DE sessaoExpirada e inicioValido
+// TESTES DE sessaoExpirada e inicioValido (derivados de LIMITE_SESSAO_HORAS)
 // ------------------------------------------------------------------------------
 
-it('1) Sessao com 23h59min nao expira', () => {
-  const inicio = AGORA - (23 * UMA_HORA_MS + 59 * UM_MINUTO_MS);
+it(`1) Sessao com limite menos 1 minuto (${LIMITE_SESSAO_HORAS}h - 1min) nao expira`, () => {
+  const inicio = AGORA - (LIMITE_SESSAO_MS - UM_MINUTO_MS);
   expectFalse(sessaoExpirada(inicio, AGORA));
 });
 
-it('2) Sessao com exatamente 24h expira', () => {
-  const inicio = AGORA - 24 * UMA_HORA_MS;
+it(`2) Sessao com exatamente o limite (${LIMITE_SESSAO_HORAS}h) expira`, () => {
+  const inicio = AGORA - LIMITE_SESSAO_MS;
   expectTrue(sessaoExpirada(inicio, AGORA));
 });
 
-it('3) Sessao com 24h01min expira', () => {
-  const inicio = AGORA - (24 * UMA_HORA_MS + 1 * UM_MINUTO_MS);
+it(`3) Sessao com limite mais 1 hora (${LIMITE_SESSAO_HORAS + 1}h) expira`, () => {
+  const inicio = AGORA - (LIMITE_SESSAO_MS + UMA_HORA_MS);
   expectTrue(sessaoExpirada(inicio, AGORA));
 });
 
-it('4) Sessao com 25h expira', () => {
-  const inicio = AGORA - 25 * UMA_HORA_MS;
-  expectTrue(sessaoExpirada(inicio, AGORA));
-});
-
-it('5) inicioMs nulo, indefinido, NaN ou <= 0 nao expira', () => {
+it('4) inicioMs nulo, indefinido, NaN ou <= 0 nao expira', () => {
   expectFalse(sessaoExpirada(null, AGORA));
   expectFalse(sessaoExpirada(undefined, AGORA));
   expectFalse(sessaoExpirada(NaN, AGORA));
@@ -120,19 +117,19 @@ it('5) inicioMs nulo, indefinido, NaN ou <= 0 nao expira', () => {
   expectFalse(inicioValido(-500, AGORA));
 });
 
-it('6) inicioMs no futuro dentro da tolerancia de 5 min nao expira', () => {
+it('5) inicioMs no futuro dentro da tolerancia de 5 min nao expira', () => {
   const futuroPermitido = AGORA + 3 * UM_MINUTO_MS;
   expectTrue(inicioValido(futuroPermitido, AGORA));
   expectFalse(sessaoExpirada(futuroPermitido, AGORA));
 });
 
-it('7) inicioMs no futuro alem da tolerancia de 5 min e tratado como anomalia e nao expira', () => {
+it('6) inicioMs no futuro alem da tolerancia de 5 min e tratado como anomalia e nao expira', () => {
   const futuroExcessivo = AGORA + 10 * UM_MINUTO_MS;
   expectFalse(inicioValido(futuroExcessivo, AGORA));
   expectFalse(sessaoExpirada(futuroExcessivo, AGORA));
 });
 
-it('8) Limite customizado (ex: 1 hora) respeita o parametro limiteMs', () => {
+it('7) Limite customizado (ex: 1 hora) respeita o parametro limiteMs', () => {
   const inicio30min = AGORA - 30 * UM_MINUTO_MS;
   const inicio75min = AGORA - 75 * UM_MINUTO_MS;
   expectFalse(sessaoExpirada(inicio30min, AGORA, UMA_HORA_MS));
@@ -143,9 +140,9 @@ it('8) Limite customizado (ex: 1 hora) respeita o parametro limiteMs', () => {
 // TESTES DE PERSISTENCIA (salvarInicioSessaoSeNaoExistir, obter, limpar)
 // ------------------------------------------------------------------------------
 
-it('9) salvarInicioSessaoSeNaoExistir nao sobrescreve valor existente valido', () => {
+it('8) salvarInicioSessaoSeNaoExistir nao sobrescreve valor existente valido', () => {
   mockStorage.clear();
-  const inicioOriginal = AGORA - 10 * UMA_HORA_MS;
+  const inicioOriginal = AGORA - 2 * UMA_HORA_MS;
   salvarInicioSessao(inicioOriginal);
 
   expectEqual(obterInicioSessao(), inicioOriginal);
@@ -157,7 +154,7 @@ it('9) salvarInicioSessaoSeNaoExistir nao sobrescreve valor existente valido', (
   expectEqual(obterInicioSessao(), inicioOriginal);
 });
 
-it('10) salvarInicioSessaoSeNaoExistir grava se o valor existente for nulo ou invalido', () => {
+it('9) salvarInicioSessaoSeNaoExistir grava se o valor existente for nulo ou invalido', () => {
   // Caso 1: Nulo
   mockStorage.clear();
   expectEqual(obterInicioSessao(), null);
@@ -178,6 +175,36 @@ it('10) salvarInicioSessaoSeNaoExistir grava se o valor existente for nulo ou in
   // Caso 4: limparInicioSessao remove a chave
   limparInicioSessao();
   expectEqual(obterInicioSessao(), null);
+});
+
+// ------------------------------------------------------------------------------
+// TESTES DE CHAVES DE SESSAO DO SUPABASE
+// ------------------------------------------------------------------------------
+
+it('10) obterSupabaseStorageKey extrai o ref e monta sb-<ref>-auth-token', () => {
+  expectEqual(obterSupabaseStorageKey('https://abcdefghijklm.supabase.co'), 'sb-abcdefghijklm-auth-token');
+  expectEqual(obterSupabaseStorageKey('https://xyz987.supabase.co/rest/v1'), 'sb-xyz987-auth-token');
+  expectEqual(obterSupabaseStorageKey(''), null);
+  expectEqual(obterSupabaseStorageKey(null), null);
+  expectEqual(obterSupabaseStorageKey(undefined), null);
+});
+
+it('11) limparChavesSessaoSupabase remove somente storageKey e storageKey-code-verifier preservando as demais', () => {
+  mockStorage.clear();
+  const storageKey = 'sb-testref-auth-token';
+  const verifierKey = `${storageKey}-code-verifier`;
+
+  mockStorage.setItem(storageKey, '{"access_token":"token_teste"}');
+  mockStorage.setItem(verifierKey, 'code_verifier_teste');
+  mockStorage.setItem(CHAVE_STORAGE_SESSAO_INICIO, String(AGORA));
+  mockStorage.setItem('app.tema', 'dark');
+
+  limparChavesSessaoSupabase(mockStorage, storageKey);
+
+  expectEqual(mockStorage.getItem(storageKey), null);
+  expectEqual(mockStorage.getItem(verifierKey), null);
+  expectEqual(mockStorage.getItem(CHAVE_STORAGE_SESSAO_INICIO), String(AGORA));
+  expectEqual(mockStorage.getItem('app.tema'), 'dark');
 });
 
 // Execucao

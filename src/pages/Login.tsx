@@ -4,6 +4,7 @@ import { AuthLayout } from '@/components/layout/AuthLayout';
 import { KeyRound, Mail, ArrowRight, Shield, AlertCircle, Loader2, Eye, EyeOff, Clock } from 'lucide-react';
 import logoOfficial from '@/assets/logo/logo-official.png';
 import { useAuth } from '@/contexts/AuthContext';
+import { MENSAGEM_SESSAO_EXPIRADA } from '@/lib/sessaoLimite';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -67,7 +68,7 @@ export const Login: React.FC = () => {
             <div className="flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-xs text-amber-900 leading-relaxed font-medium">
-                Sua sessão expirou (limite de 24 horas). Entre novamente.
+                {MENSAGEM_SESSAO_EXPIRADA}
               </p>
             </div>
             <button

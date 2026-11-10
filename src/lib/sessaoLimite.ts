@@ -1,13 +1,13 @@
 /**
- * Funcoes Puras e Helpers de Persistencia para Limite de Sessao de 24 Horas
+ * Funcoes Puras e Helpers de Persistencia para Limite de Sessao de 12 Horas
  */
 
-export const LIMITE_SESSAO_HORAS = 24;
-export const LIMITE_SESSAO_MS = LIMITE_SESSAO_HORAS * 60 * 60 * 1000; // 86.400.000 ms
+export const LIMITE_SESSAO_HORAS = 12;
+export const LIMITE_SESSAO_MS = LIMITE_SESSAO_HORAS * 60 * 60 * 1000; // 43.200.000 ms
 export const TOLERANCIA_FUTURO_MS = 5 * 60 * 1000; // 5 minutos de tolerancia para desvios de relogio
 
 export const CHAVE_STORAGE_SESSAO_INICIO = 'ortounifase.sessao.inicio';
-export const MENSAGEM_SESSAO_EXPIRADA = 'Sua sessão expirou (limite de 24 horas). Entre novamente.';
+export const MENSAGEM_SESSAO_EXPIRADA = `Sua sessão expirou (limite de ${LIMITE_SESSAO_HORAS} horas). Entre novamente.`;
 
 /**
  * Avalia se o inicio informado e valido:
@@ -42,7 +42,7 @@ export function inicioValido(
  * Assinatura:
  * @param inicioMs Milissegundos de epoca em que a sessao foi iniciada.
  * @param agoraMs Milissegundos de epoca atuais (Date.now()).
- * @param limiteMs Limite maximo permitido em milissegundos (padrao: 24h = 86.400.000 ms).
+ * @param limiteMs Limite maximo permitido em milissegundos (padrao: 12h = 43.200.000 ms).
  * @returns true se agoraMs - inicioMs >= limiteMs.
  *
  * Tratamento de anomalias:
@@ -62,7 +62,7 @@ export function sessaoExpirada(
   return agoraMs - (inicioMs as number) >= limiteMs;
 }
 
-function getStorage(): Storage | null {
+export function getStorage(): Storage | null {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       return window.localStorage;
@@ -109,7 +109,7 @@ export function salvarInicioSessao(inicioMs: number = Date.now()): void {
 
 /**
  * Grava o inicio da sessao SOMENTE se ainda nao houver inicio gravado.
- * Impede que eventos SIGNED_IN recorrentes reiniciem o relogio de 24h.
+ * Impede que eventos SIGNED_IN recorrentes reiniciem o relogio de 12h.
  */
 export function salvarInicioSessaoSeNaoExistir(agoraMs: number = Date.now()): void {
   const existente = obterInicioSessao();
@@ -128,5 +128,38 @@ export function limparInicioSessao(): void {
     storage.removeItem(CHAVE_STORAGE_SESSAO_INICIO);
   } catch (err) {
     console.warn('Nao foi possivel remover ortounifase.sessao.inicio do localStorage:', err);
+  }
+}
+
+/**
+ * Calcula a storageKey padrao do Supabase a partir da URL do projeto:
+ * Exemplo: 'https://xyzref.supabase.co' -> 'sb-xyzref-auth-token'
+ */
+export function obterSupabaseStorageKey(url?: string | null): string | null {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const parsed = new URL(url);
+    const ref = parsed.hostname.split('.')[0];
+    return ref ? `sb-${ref}-auth-token` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove do Storage fornecido SOMENTE a chave de sessao do Supabase (storageKey)
+ * e a respectiva chave de code verifier (storageKey + '-code-verifier').
+ * Preserva todas as demais chaves existentes no Storage.
+ */
+export function limparChavesSessaoSupabase(
+  storage: Storage | null | undefined,
+  storageKey?: string | null
+): void {
+  if (!storage || !storageKey) return;
+  try {
+    storage.removeItem(storageKey);
+    storage.removeItem(`${storageKey}-code-verifier`);
+  } catch (err) {
+    console.warn('Nao foi possivel remover chaves do Supabase no storage:', err);
   }
 }
