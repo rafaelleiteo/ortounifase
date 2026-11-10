@@ -17,7 +17,8 @@ import {
   rotuloDia,
   mesmoDia,
   compararDiasSemana,
-  DIAS_SEMANA_CANONICOS
+  DIAS_SEMANA_CANONICOS,
+  normalizarDiaImportacao
 } from '../src/lib/agendaDias';
 
 let passCount = 0;
@@ -59,10 +60,16 @@ assertEqual(canonicalizarDia('sáb'), 'SABADO', 'canonicalizarDia("sáb")');
 assertEqual(canonicalizarDia('sáb.'), 'SABADO', 'canonicalizarDia("sáb.") com ponto');
 assertEqual(canonicalizarDia('sab'), 'SABADO', 'canonicalizarDia("sab")');
 assertEqual(canonicalizarDia('sab.'), 'SABADO', 'canonicalizarDia("sab.") com ponto');
+assertEqual(canonicalizarDia('  Sábado  '), 'SABADO', 'canonicalizarDia("  Sábado  ") com espacos em branco');
 assertEqual(rotuloDia('SABADO'), 'Sábado', 'rotuloDia("SABADO") retorna "Sábado"');
 assertEqual(rotuloDia('sáb.'), 'Sábado', 'rotuloDia("sáb.") retorna "Sábado"');
 
-// 2. Variacoes de Sexta e Segunda
+// 2. Variacoes de Sexta, Segunda e Terca
+assertEqual(canonicalizarDia('Terça'), 'TERCA', 'canonicalizarDia("Terça")');
+assertEqual(canonicalizarDia('Terça-feira'), 'TERCA', 'canonicalizarDia("Terça-feira")');
+assertEqual(canonicalizarDia('terca'), 'TERCA', 'canonicalizarDia("terca")');
+assertEqual(canonicalizarDia('TERÇA'), 'TERCA', 'canonicalizarDia("TERÇA")');
+assertEqual(rotuloDia('TERCA'), 'Terça-feira', 'rotuloDia("TERCA") retorna "Terça-feira"');
 assertEqual(canonicalizarDia('Sexta-feira'), 'SEXTA', 'canonicalizarDia("Sexta-feira")');
 assertEqual(canonicalizarDia('SEXTA'), 'SEXTA', 'canonicalizarDia("SEXTA")');
 assertEqual(canonicalizarDia('Sexta'), 'SEXTA', 'canonicalizarDia("Sexta")');
@@ -135,6 +142,82 @@ assertEqual(
   registrosSabadoSelecionado.length,
   17,
   'Filtro por diaSelecionado="SABADO" retorna todos os 17 registros com "SÁBADO"'
+);
+
+// 8. Testes unitarios para normalizarDiaImportacao
+assertEqual(
+  normalizarDiaImportacao('Sábado'),
+  { dia: 'SABADO', erro: null },
+  'normalizarDiaImportacao("Sábado") retorna SABADO sem erro'
+);
+assertEqual(
+  normalizarDiaImportacao('Sexta'),
+  { dia: 'SEXTA', erro: null },
+  'normalizarDiaImportacao("Sexta") retorna SEXTA sem erro'
+);
+assertEqual(
+  normalizarDiaImportacao('sex.'),
+  { dia: 'SEXTA', erro: null },
+  'normalizarDiaImportacao("sex.") retorna SEXTA sem erro'
+);
+assertEqual(
+  normalizarDiaImportacao(''),
+  { dia: null, erro: 'dia da semana nao reconhecido: ""' },
+  'normalizarDiaImportacao("") retorna erro esperado'
+);
+assertEqual(
+  normalizarDiaImportacao('xyz'),
+  { dia: null, erro: 'dia da semana nao reconhecido: "xyz"' },
+  'normalizarDiaImportacao("xyz") retorna erro esperado'
+);
+assertEqual(
+  normalizarDiaImportacao(null),
+  { dia: null, erro: 'dia da semana nao reconhecido: "null"' },
+  'normalizarDiaImportacao(null) retorna erro esperado'
+);
+assertEqual(
+  normalizarDiaImportacao(undefined),
+  { dia: null, erro: 'dia da semana nao reconhecido: "undefined"' },
+  'normalizarDiaImportacao(undefined) retorna erro esperado'
+);
+
+// 9. Teste de lote: 1 linha invalida no meio de 10 validas (11 no total)
+const loteMisto = [
+  { paciente: 'Paciente 1', dia_semana: 'Segunda-feira' },
+  { paciente: 'Paciente 2', dia_semana: 'Terça' },
+  { paciente: 'Paciente 3', dia_semana: 'Quarta' },
+  { paciente: 'Paciente 4', dia_semana: 'Quinta' },
+  { paciente: 'Paciente 5', dia_semana: 'Sexta' },
+  { paciente: 'Paciente 6', dia_semana: 'Sábado' },
+  { paciente: 'Paciente 7 (Invalido)', dia_semana: 'dia_inexistente' },
+  { paciente: 'Paciente 8', dia_semana: 'SÁBADO' },
+  { paciente: 'Paciente 9', dia_semana: 'SEXTA' },
+  { paciente: 'Paciente 10', dia_semana: 'TERÇA' },
+  { paciente: 'Paciente 11', dia_semana: 'Sábado' }
+];
+
+const errosLote: string[] = [];
+const linhasAceitas: any[] = [];
+
+loteMisto.forEach((reg, index) => {
+  const res = normalizarDiaImportacao(reg.dia_semana);
+  if (res.erro || !res.dia) {
+    errosLote.push(`Linha ${index + 1} (paciente: "${reg.paciente}"): ${res.erro}`);
+  } else {
+    linhasAceitas.push({ ...reg, dia_semana: res.dia });
+  }
+});
+
+// Politica do importador: rejeicao atomica do lote inteiro antes de tocar no banco
+const loteRejeitado = errosLote.length > 0;
+const linhasGravadas = loteRejeitado ? 0 : linhasAceitas.length;
+
+assert(loteRejeitado, 'Lote com 1 linha invalida entre 10 validas e rejeitado');
+assertEqual(linhasGravadas, 0, 'Zero linhas aceitas/gravadas quando lote contem erro');
+assertEqual(errosLote.length, 1, 'Exatamente 1 erro registrado no lote');
+assert(
+  errosLote[0].includes('Linha 7') && errosLote[0].includes('dia_inexistente'),
+  'Mensagem de erro aponta exatamente a Linha 7 e o valor incorreto'
 );
 
 console.log('\n================================================================');

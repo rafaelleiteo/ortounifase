@@ -83,6 +83,30 @@ export function canonicalizarDia(valor?: string | null): DiaSemanaCanonica | nul
   }
 }
 
+export interface ResultadoNormalizacaoDia {
+  dia: DiaSemanaCanonica | null;
+  erro: string | null;
+}
+
+/**
+ * Valida e normaliza o dia da semana para processos de importacao.
+ * Rejeita valores vazios, indefinidos ou nao reconhecidos sem fallback silencioso.
+ */
+export function normalizarDiaImportacao(valor?: string | null): ResultadoNormalizacaoDia {
+  const canonico = canonicalizarDia(valor);
+  if (!canonico) {
+    const valorExibicao = valor === undefined ? 'undefined' : valor === null ? 'null' : String(valor);
+    return {
+      dia: null,
+      erro: `dia da semana nao reconhecido: "${valorExibicao}"`
+    };
+  }
+  return {
+    dia: canonico,
+    erro: null
+  };
+}
+
 /**
  * Retorna o texto formatado para exibicao na interface do usuario.
  * Exemplo: 'SABADO' -> 'Sábado', 'TERCA' -> 'Terça-feira'.

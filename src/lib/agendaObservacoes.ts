@@ -184,7 +184,6 @@ export function planejarReaplicacaoObservacoes(
     if (!obsValida) continue;
 
     const nomeAntigoNorm = normalizarTextoComparacao(antiga.paciente);
-    const diaAntigoNorm = (antiga.dia_semana || '').toUpperCase().trim();
     const hAntigoNorm = normalizarHorario(antiga.horario);
 
     // Encontra todas as linhas candidatas na mesma turma, dia e nome normalizado
@@ -193,7 +192,6 @@ export function planejarReaplicacaoObservacoes(
     linhasNovas.forEach((linha, idx) => {
       if (indicesUsados.has(idx)) return;
       const nomeNovoNorm = normalizarTextoComparacao(linha.paciente);
-      const diaNovoNorm = (linha.dia_semana || '').toUpperCase().trim();
 
       if (nomeNovoNorm === nomeAntigoNorm && mesmoDia(linha.dia_semana, antiga.dia_semana)) {
         candidatos.push({ index: idx, linha });

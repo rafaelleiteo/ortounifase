@@ -8,7 +8,9 @@ import {
   resolverAlunoImportacao,
   normalizarTextoComparacao,
   AgendaAluno,
-  mesmoDia
+  mesmoDia,
+  normalizarDiaImportacao,
+  DiaSemanaCanonica
 } from './agendaTypes';
 import {
   planejarReaplicacaoObservacoes,
@@ -20,6 +22,25 @@ import {
 export async function importarAgendaMensal(payload: ImportPayload) {
   if (!payload.turma || !payload.mes_referencia || !Array.isArray(payload.registros)) {
     throw new Error('Payload inválido. Certifique-se de preencher turma, mes_referencia e registros.');
+  }
+
+  // Pre-validacao de todas as linhas do lote antes de qualquer operacao no banco
+  const errosDia: string[] = [];
+  const diasNormalizados: DiaSemanaCanonica[] = [];
+
+  payload.registros.forEach((reg, index) => {
+    const res = normalizarDiaImportacao(reg.dia_semana);
+    if (res.erro || !res.dia) {
+      errosDia.push(`Linha ${index + 1} (paciente: "${reg.paciente || 'Sem paciente'}"): ${res.erro}`);
+    } else {
+      diasNormalizados.push(res.dia);
+    }
+  });
+
+  if (errosDia.length > 0) {
+    throw new Error(
+      `Falha na validação dos dias da semana. Nenhuma alteração foi realizada no banco (0 registros excluídos ou inseridos).\n${errosDia.join('\n')}`
+    );
   }
 
   // 1. Obter a turma pelo nome ignorando acentos e maiúsculas/minúsculas
@@ -56,7 +77,7 @@ export async function importarAgendaMensal(payload: ImportPayload) {
 
   // 3. Montar os registros para upsert em agenda_mensal
   // UNIQUE (turma_id, mes_referencia, paciente, horario, dia_semana)
-  const rowsToUpsert = payload.registros.map((reg) => {
+  const rowsToUpsert = payload.registros.map((reg, idx) => {
     const rawAluno = (reg.aluno || '').trim();
     const resolvido = resolverAlunoImportacao(
       rawAluno,
@@ -64,7 +85,7 @@ export async function importarAgendaMensal(payload: ImportPayload) {
       (alunosExistentes as AgendaAluno[]) || []
     );
 
-    const diaSemanaNormalizado = (reg.dia_semana || 'QUINTA').trim().toUpperCase();
+    const diaSemanaNormalizado = diasNormalizados[idx];
 
     return {
       turma_id: turma.id,

@@ -453,7 +453,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       const escapeCSV = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
 
       return [
-        escapeCSV(item.dia_semana),
+        escapeCSV(rotuloDia(item.dia_semana) || item.dia_semana),
         escapeCSV(formatarHorarioExibicao(item.horario)),
         escapeCSV(item.paciente),
         escapeCSV(alunoNome),
@@ -506,7 +506,7 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       const conflito = agendaFixa.find(
         (outro) =>
           outro.id !== item.id &&
-          (outro.dia_semana || '').toUpperCase() === diaSemana.toUpperCase() &&
+          mesmoDia(outro.dia_semana, diaSemana) &&
           normalizarHorario(outro.horario) === hNormDestino &&
           outro.aluno_id === alunoId
       );

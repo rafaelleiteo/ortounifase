@@ -425,7 +425,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
           id: inc.id,
           paciente: inc.paciente,
           alunoResp,
-          diaSemana: inc.dia_semana,
+          diaSemana: rotuloDia(inc.dia_semana) || inc.dia_semana,
           horario: formatarHorarioExibicao(inc.horario),
           tipo: inc.tipo,
           descricao: formatarAlteracaoParaRecepcao(inc),
@@ -540,7 +540,7 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
       }
 
       return [
-        escapeCSV(item.dia_semana),
+        escapeCSV(rotuloDia(item.dia_semana) || item.dia_semana),
         escapeCSV(formatarHorarioExibicao(item.horario)),
         escapeCSV(isBloqueio ? getDescricaoBloqueio(item.paciente) : item.paciente),
         escapeCSV(nomeAluno),
