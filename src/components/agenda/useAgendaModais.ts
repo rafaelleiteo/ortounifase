@@ -132,28 +132,6 @@ export function useAgendaModais({
     if (!item) return;
 
     const hNormDestino = normalizarHorario(dados.horario);
-
-    // Validação de conflito se item possui aluno atribuído
-    if (item.aluno_id && itensExistentes.length > 0) {
-      const conflito = itensExistentes.find(
-        (outro) =>
-          outro.id !== item.id &&
-          outro.aluno_id === item.aluno_id &&
-          mesmoDia(outro.dia_semana, dados.dia_semana) &&
-          normalizarHorario(outro.horario) === hNormDestino
-      );
-
-      if (conflito) {
-        const alunoNome =
-          alunos.find((a) => a.id === item.aluno_id)?.nome || 'o aluno selecionado';
-        setModalReagendar((prev) => ({
-          ...prev,
-          erro: `Atenção: Já existe o paciente "${conflito.paciente}" agendado para ${alunoNome} na ${dados.dia_semana} às ${formatarHorarioExibicao(dados.horario)}.`
-        }));
-        return;
-      }
-    }
-
     const isBloqueio = item.tipo_registro === 'bloqueio' || isItemBloqueio(item);
     const tipo = item.tipo_bloqueio || (isBloqueio ? getTipoBloqueio(item) : undefined);
 

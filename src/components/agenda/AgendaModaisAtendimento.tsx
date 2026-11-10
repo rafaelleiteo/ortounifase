@@ -12,6 +12,7 @@ import {
 import { CalendarClock, ArrowRightLeft, Edit2, AlertTriangle } from 'lucide-react';
 import { AgendaCardItem } from './AgendaCardAtendimento';
 import { LIMITE_CARACTERES_OBSERVACAO } from '@/lib/agendaObservacoes';
+import { pacientesNoHorario, formatarAvisoOcupacao } from '@/lib/agendaOcupacao';
 
 export interface ModalEditarState {
   isOpen: boolean;
@@ -65,6 +66,9 @@ export interface AgendaModaisAtendimentoProps {
   }) => Promise<void> | void;
   onUpdateModalReagendar: (dados: Partial<ModalReagendarState>) => void;
 
+  // Itens existentes para deteccao nao bloqueante de ocupacao de horario
+  itensExistentes?: AgendaCardItem[];
+
   // Estado e handlers do Modal Trocar Aluno
   modalTrocarAluno: ModalTrocarAlunoState;
   onFecharTrocarAluno: () => void;
@@ -79,6 +83,7 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
   turmaNome,
   alunos,
   permitirSemAluno = false,
+  itensExistentes = [],
   modalEditar,
   onFecharEditar,
   onSalvarEditar,
@@ -106,6 +111,28 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
     return Array.from(extras).sort((a, b) => a.localeCompare(b));
   }, [turmaNome, modalEditar.horario, modalReagendar.horario]);
 
+  const avisoReagendar = useMemo(() => {
+    if (!modalReagendar.isOpen || !modalReagendar.item) return null;
+    const ocupantes = pacientesNoHorario(
+      itensExistentes,
+      modalReagendar.diaSemana,
+      modalReagendar.horario,
+      { excluirId: modalReagendar.item.id }
+    );
+    return formatarAvisoOcupacao(ocupantes);
+  }, [modalReagendar.isOpen, modalReagendar.item, modalReagendar.diaSemana, modalReagendar.horario, itensExistentes]);
+
+  const avisoEditar = useMemo(() => {
+    if (!modalEditar.isOpen || !modalEditar.item) return null;
+    const ocupantes = pacientesNoHorario(
+      itensExistentes,
+      modalEditar.diaSemana,
+      modalEditar.horario,
+      { excluirId: modalEditar.item.id }
+    );
+    return formatarAvisoOcupacao(ocupantes);
+  }, [modalEditar.isOpen, modalEditar.item, modalEditar.diaSemana, modalEditar.horario, itensExistentes]);
+
   return (
     <>
       {/* 1. Modal Editar Atendimento (Nome, Aluno, Horário, Dia) */}
@@ -129,6 +156,12 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
             </div>
 
             <div className="space-y-3">
+              {avisoEditar && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-start gap-2 shadow-2xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="leading-snug">{avisoEditar}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   Nome do Paciente <span className="text-rose-500">*</span>
@@ -286,6 +319,13 @@ export const AgendaModaisAtendimento: React.FC<AgendaModaisAtendimentoProps> = (
                 {modalReagendar.item.aluno && ` - Aluno: ${modalReagendar.item.aluno}`}
               </div>
             </div>
+
+            {avisoReagendar && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-start gap-2 shadow-2xs">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="leading-snug">{avisoReagendar}</div>
+              </div>
+            )}
 
             {modalReagendar.erro && (
               <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-xs flex items-start gap-2 shadow-2xs">

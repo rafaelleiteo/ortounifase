@@ -28,6 +28,7 @@ import {
   canonicalizarDia,
   rotuloDia
 } from '@/lib/agendaTypes';
+import { pacientesNoHorario, formatarAvisoOcupacao } from '@/lib/agendaOcupacao';
 import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
   Calendar,
@@ -355,6 +356,16 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
     isOpen: false,
     copiado: false
   });
+
+  const avisoNovoPacienteMensal = useMemo(() => {
+    if (!modalNovoPaciente.isOpen) return null;
+    const ocupantes = pacientesNoHorario(
+      agendaMensal,
+      modalNovoPaciente.diaSemana,
+      modalNovoPaciente.horario
+    );
+    return formatarAvisoOcupacao(ocupantes);
+  }, [modalNovoPaciente.isOpen, modalNovoPaciente.diaSemana, modalNovoPaciente.horario, agendaMensal]);
 
   const handleSalvarNovoPaciente = async () => {
     if (!modalNovoPaciente.pacienteNome.trim() || !onSalvarItem) return;
@@ -951,6 +962,13 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                               >
                                 {items.length > 0 ? (
                                   <div className="space-y-1.5">
+                                    {items.length > 1 && (
+                                      <div className="flex items-center justify-between mb-1 print:hidden">
+                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">
+                                          {items.length} pacientes
+                                        </span>
+                                      </div>
+                                    )}
                                     {items.map((item) => {
                                       const itemBloqueio = isItemBloqueio(item);
                                       const incInfo = itemBloqueio ? null : getInconsistenciaInfo(item.paciente, h, aluno.nome);
@@ -1097,6 +1115,17 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
         turmaNome={turmaNome}
         alunos={alunosOrdenados.filter((a) => a.id !== 'EXTRA_VIRTUAL')}
         permitirSemAluno={true}
+        itensExistentes={agendaMensal.map((m) => ({
+          id: m.id,
+          paciente: m.paciente,
+          aluno_id: m.aluno_id,
+          aluno: m.aluno,
+          horario: m.horario,
+          dia_semana: m.dia_semana,
+          tipo_registro: m.tipo_registro,
+          tipo_bloqueio: m.tipo_bloqueio,
+          observacao: m.observacao
+        }))}
         modalEditar={modalEditar}
         onFecharEditar={fecharEditar}
         onSalvarEditar={handleSalvarEditar}
@@ -1132,6 +1161,12 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
             </div>
 
             <div className="space-y-3">
+              {avisoNovoPacienteMensal && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-start gap-2 shadow-2xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="leading-snug">{avisoNovoPacienteMensal}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   Nome do Paciente <span className="text-rose-500">*</span>

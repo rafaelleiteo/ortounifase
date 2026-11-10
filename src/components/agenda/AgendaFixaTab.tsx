@@ -26,6 +26,7 @@ import {
   canonicalizarDia,
   rotuloDia
 } from '@/lib/agendaTypes';
+import { pacientesNoHorario, formatarAvisoOcupacao } from '@/lib/agendaOcupacao';
 import { AgendaFiltrosHeader } from './AgendaFiltrosHeader';
 import {
   Calendar,
@@ -250,6 +251,29 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
       (item) => item.dia_semana && canonicalizarDia(item.dia_semana) === null
     );
   }, [agendaFixa]);
+
+  // Aviso nao bloqueante de ocupacao de horario para o modal de mover
+  const avisoMoverHorario = useMemo(() => {
+    if (!modalMoverHorario.isOpen || !modalMoverHorario.item) return null;
+    const ocupantes = pacientesNoHorario(
+      agendaFixa,
+      modalMoverHorario.diaSemana,
+      modalMoverHorario.horario,
+      { excluirId: modalMoverHorario.item.id }
+    );
+    return formatarAvisoOcupacao(ocupantes);
+  }, [modalMoverHorario.isOpen, modalMoverHorario.item, modalMoverHorario.diaSemana, modalMoverHorario.horario, agendaFixa]);
+
+  // Aviso nao bloqueante de ocupacao para novo paciente na agenda fixa
+  const avisoNovoPacienteFixa = useMemo(() => {
+    if (!modalNovoPaciente.isOpen) return null;
+    const ocupantes = pacientesNoHorario(
+      agendaFixa,
+      modalNovoPaciente.diaSemana,
+      modalNovoPaciente.horario
+    );
+    return formatarAvisoOcupacao(ocupantes);
+  }, [modalNovoPaciente.isOpen, modalNovoPaciente.diaSemana, modalNovoPaciente.horario, agendaFixa]);
 
   // Indexa itens por chave: colId_horarioNormalizado (suporta múltiplos atendimentos na coluna extra)
   const itemMap = new Map<string, AgendaFixaItem[]>();
@@ -501,26 +525,6 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
     const hNormDestino = normalizarHorario(horario);
     const isDestinoExtra = alunoId === 'EXTRA_VIRTUAL';
 
-    // Validação: verificar conflito somente para alunos regulares (Atendimento Extra permite múltiplos)
-    if (!isDestinoExtra) {
-      const conflito = agendaFixa.find(
-        (outro) =>
-          outro.id !== item.id &&
-          mesmoDia(outro.dia_semana, diaSemana) &&
-          normalizarHorario(outro.horario) === hNormDestino &&
-          outro.aluno_id === alunoId
-      );
-
-      if (conflito) {
-        const alunoNome = alunos.find((a) => a.id === alunoId)?.nome || 'o aluno selecionado';
-        setModalMoverHorario((prev) => ({
-          ...prev,
-          erro: `Horário ocupado! Já existe o paciente "${conflito.paciente}" agendado para ${alunoNome} na ${diaSemana} às ${formatarHorarioExibicao(horario)}. Escolha outro slot ou aluno.`
-        }));
-        return;
-      }
-    }
-
     await onSalvarItem({
       id: item.id,
       paciente: item.paciente,
@@ -739,6 +743,13 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
                               >
                                 {itens.length > 0 ? (
                                   <div className="space-y-1">
+                                    {itens.length > 1 && (
+                                      <div className="flex items-center justify-between mb-1 print:hidden">
+                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">
+                                          {itens.length} pacientes
+                                        </span>
+                                      </div>
+                                    )}
                                     {itens.map((item) => (
                                       <AgendaCardAtendimento
                                         key={item.id}
@@ -993,6 +1004,12 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
             </div>
 
             <div className="space-y-3">
+              {avisoNovoPacienteFixa && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-start gap-2 shadow-2xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="leading-snug">{avisoNovoPacienteFixa}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">Nome do Paciente</label>
                 <input
@@ -1209,6 +1226,12 @@ export const AgendaFixaTab: React.FC<AgendaFixaTabProps> = ({
             )}
 
             <div className="space-y-3">
+              {avisoMoverHorario && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-start gap-2 shadow-2xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="leading-snug">{avisoMoverHorario}</div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">Novo Dia da Semana</label>
