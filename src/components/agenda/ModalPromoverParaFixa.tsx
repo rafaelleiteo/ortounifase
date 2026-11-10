@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   X,
   Sparkles,
@@ -20,10 +20,16 @@ import {
   planejarPromocao,
   PlanoPromocao,
   DadosDepoisPromocao,
-  CandidatoPromocao
+  CandidatoPromocao,
+  deveMarcarLinhaLote
 } from '@/lib/agendaPromocao';
 import { pacientesNoHorario, formatarAvisoOcupacao } from '@/lib/agendaOcupacao';
-import { promoverParaFixa, SolicitacaoPromocaoFixa } from '@/lib/agendaService';
+import {
+  promoverParaFixa,
+  SolicitacaoPromocaoFixa,
+  recalcularInconsistenciasComPreservacao,
+  ResultadoPromocaoFixa
+} from '@/lib/agendaService';
 
 export interface ModalPromoverParaFixaProps {
   aberto: boolean;
@@ -31,10 +37,9 @@ export interface ModalPromoverParaFixaProps {
   turmaId: string;
   mesReferencia: string;
   agendaFixa: AgendaFixaItem[];
-  // Pode receber um item individual ou uma lista para lote
   itens: (AgendaMensalItem | any)[];
   titulo?: string;
-  onSucesso: () => Promise<void> | void;
+  onSucesso: (resultado?: ResultadoPromocaoFixa) => Promise<void> | void;
 }
 
 export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
@@ -49,37 +54,46 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
 }) => {
   const isLote = itens.length > 1;
 
-  // Estado para modo individual
-  const [candidatoEscolhidoId, setCandidatoEscolhidoId] = useState<string | 'NOVO'>('NOVO');
+  // Estado para modo individual: null indica nenhuma opcao escolhida
+  const [candidatoEscolhidoId, setCandidatoEscolhidoId] = useState<string | 'NOVO' | null>(null);
 
   // Estado para modo lote
   const [itensLoteSelecionados, setItensLoteSelecionados] = useState<Record<string, boolean>>({});
 
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [avisoRecalculo, setAvisoRecalculo] = useState<string | null>(null);
+  const [recalculando, setRecalculando] = useState(false);
 
   // Inicializacao quando o modal abre
   useEffect(() => {
     if (!aberto || itens.length === 0) {
       setErro(null);
+      setAvisoRecalculo(null);
       return;
     }
 
     if (!isLote) {
       const plano = planejarPromocao({ itemMensal: itens[0], fixaItens: agendaFixa });
-      if (plano.acao === 'ATUALIZAR' && plano.itemEscolhido) {
+      // So ha pre-selecao quando a acao e ATUALIZAR com exatamente 1 candidato exato
+      if (
+        plano.acao === 'ATUALIZAR' &&
+        plano.candidatos.length === 1 &&
+        plano.candidatos[0].tipoMatch === 'exato' &&
+        plano.itemEscolhido
+      ) {
         setCandidatoEscolhidoId(plano.itemEscolhido.id);
-      } else if (plano.candidatos.length > 0) {
-        setCandidatoEscolhidoId(plano.candidatos[0].item.id);
       } else {
-        setCandidatoEscolhidoId('NOVO');
+        // Em ESCOLHER ou qualquer outro cenario que nao seja ATUALIZAR com 1 exato,
+        // o usuario precisa escolher e o Confirmar fica desabilitado ate escolher
+        setCandidatoEscolhidoId(null);
       }
     } else {
-      // Em lote, seleciona por padrao os que sao ATUALIZAR ou CRIAR
+      // Em lote, seleciona por padrao SOMENTE linhas com acao ATUALIZAR ou CRIAR por nome exato (e sem aluno extra)
       const selecoes: Record<string, boolean> = {};
       itens.forEach((it) => {
         const plano = planejarPromocao({ itemMensal: it, fixaItens: agendaFixa });
-        selecoes[it.id] = plano.acao === 'ATUALIZAR' || plano.acao === 'CRIAR';
+        selecoes[it.id] = deveMarcarLinhaLote(plano, it);
       });
       setItensLoteSelecionados(selecoes);
     }
@@ -99,11 +113,31 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
     agendaFixa,
     planoIndividual.depois.dia_semana,
     planoIndividual.depois.horario,
-    { excluirId: candidatoEscolhidoId !== 'NOVO' ? candidatoEscolhidoId : undefined }
+    { excluirId: (candidatoEscolhidoId && candidatoEscolhidoId !== 'NOVO') ? candidatoEscolhidoId : undefined }
   );
   const avisoOcupacaoDestino = formatarAvisoOcupacao(ocupantesDestino);
 
+  const handleRecalcularManualmente = async () => {
+    try {
+      setRecalculando(true);
+      await recalcularInconsistenciasComPreservacao(turmaId, mesReferencia);
+      setAvisoRecalculo(null);
+      await onSucesso();
+      onFechar();
+    } catch (err: any) {
+      console.error('Falha ao recalcular inconsistencias manualmente:', err);
+      setAvisoRecalculo(err?.message || 'Falha ao recalcular inconsistencias.');
+    } finally {
+      setRecalculando(false);
+    }
+  };
+
   const handleConfirmarIndividual = async () => {
+    if (!candidatoEscolhidoId) {
+      setErro('Selecione uma opcao para atualizar a Agenda Fixa.');
+      return;
+    }
+
     try {
       setSalvando(true);
       setErro(null);
@@ -121,7 +155,13 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
         return;
       }
 
-      await onSucesso();
+      if (res.erroRecalculo) {
+        setAvisoRecalculo(res.erroRecalculo);
+        await onSucesso(res);
+        return;
+      }
+
+      await onSucesso(res);
       onFechar();
     } catch (err: any) {
       console.error('Falha ao promover para a agenda fixa:', err);
@@ -154,7 +194,6 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
             depois: plano.depois
           });
         } else if (plano.acao === 'ESCOLHER' && plano.candidatos.length > 0) {
-          // No lote, se houver candidato unico (parecido), atualiza ele
           solicitacoes.push({
             acao: 'ATUALIZAR',
             fixaId: plano.candidatos[0].item.id,
@@ -175,7 +214,13 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
         setErro(`Alguns itens falharam: ${msg}`);
       }
 
-      await onSucesso();
+      if (res.erroRecalculo) {
+        setAvisoRecalculo(res.erroRecalculo);
+        await onSucesso(res);
+        return;
+      }
+
+      await onSucesso(res);
       if (res.erros.length === 0) {
         onFechar();
       }
@@ -186,6 +231,11 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
       setSalvando(false);
     }
   };
+
+  const totalSelecionadosLote = Object.values(itensLoteSelecionados).filter(Boolean).length;
+  const confirmarDesabilitado = isLote
+    ? salvando || totalSelecionadosLote === 0
+    : salvando || !candidatoEscolhidoId;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
@@ -228,6 +278,31 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{erro}</span>
+            </div>
+          )}
+
+          {/* Faixa Ambar de Falha de Recalculo */}
+          {avisoRecalculo && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold">
+                    Alterações gravadas, mas o recálculo das inconsistências falhou. Clique em Recalcular.
+                  </div>
+                  <div className="text-[11px] text-amber-700 font-mono mt-0.5">
+                    {avisoRecalculo}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={recalculando}
+                onClick={handleRecalcularManualmente}
+                className="shrink-0 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {recalculando ? 'Recalculando...' : 'Recalcular'}
+              </button>
             </div>
           )}
 
@@ -388,6 +463,10 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
                   );
                   const avisoOc = formatarAvisoOcupacao(ocupantes);
 
+                  // Linhas ESCOLHER, NADA ou cujo aluno e Atendimento Extra
+                  const requerResolucaoIndividual =
+                    plano.acao === 'ESCOLHER' || plano.acao === 'NADA' || !plano.depois.aluno_id;
+
                   return (
                     <label
                       key={it.id}
@@ -415,14 +494,20 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
                           </span>
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                              plano.acao === 'ATUALIZAR'
+                              requerResolucaoIndividual
+                                ? 'bg-amber-100 text-amber-800 border-amber-200'
+                                : plano.acao === 'ATUALIZAR'
                                 ? 'bg-blue-100 text-blue-800 border-blue-200'
                                 : plano.acao === 'CRIAR'
                                 ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
                                 : 'bg-slate-100 text-slate-700 border-slate-200'
                             }`}
                           >
-                            {plano.acao === 'ATUALIZAR' ? 'Atualizar Fixa' : plano.acao === 'CRIAR' ? 'Criar na Fixa' : 'Revisar'}
+                            {requerResolucaoIndividual
+                              ? 'resolver individualmente'
+                              : plano.acao === 'ATUALIZAR'
+                              ? 'Atualizar Fixa'
+                              : 'Criar na Fixa'}
                           </span>
                         </div>
 
@@ -467,9 +552,9 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
 
           <button
             type="button"
-            disabled={salvando}
+            disabled={confirmarDesabilitado}
             onClick={isLote ? handleConfirmarLote : handleConfirmarIndividual}
-            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50"
+            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {salvando ? (
               <span>Salvando...</span>
@@ -478,10 +563,12 @@ export const ModalPromoverParaFixa: React.FC<ModalPromoverParaFixaProps> = ({
                 <CheckCircle2 className="w-4 h-4" />
                 <span>
                   {isLote
-                    ? `Confirmar Atualização em Lote (${Object.values(itensLoteSelecionados).filter(Boolean).length})`
+                    ? `Confirmar Atualização em Lote (${totalSelecionadosLote})`
                     : candidatoEscolhidoId === 'NOVO'
                     ? 'Criar na Agenda Fixa'
-                    : 'Atualizar Registro na Fixa'}
+                    : candidatoEscolhidoId
+                    ? 'Atualizar Registro na Fixa'
+                    : 'Escolha uma opção'}
                 </span>
               </>
             )}

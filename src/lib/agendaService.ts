@@ -18,7 +18,11 @@ import {
   ItemNaoReaplicado,
   normalizarObservacao
 } from './agendaObservacoes';
-import { DadosDepoisPromocao } from './agendaPromocao';
+import {
+  DadosDepoisPromocao,
+  montarPayloadAtualizacaoFixa,
+  montarPayloadCriacaoFixa
+} from './agendaPromocao';
 
 export async function importarAgendaMensal(payload: ImportPayload) {
   if (!payload.turma || !payload.mes_referencia || !Array.isArray(payload.registros)) {
@@ -303,6 +307,7 @@ export interface ResultadoPromocaoFixa {
   atualizados: number;
   criados: number;
   erros: Array<{ paciente: string; erro: string }>;
+  erroRecalculo?: string;
 }
 
 /**
@@ -325,16 +330,7 @@ export async function promoverParaFixa(
   for (const sol of solicitacoes) {
     try {
       if (sol.acao === 'CRIAR') {
-        const payload = {
-          turma_id: turmaId,
-          aluno_id: sol.depois.aluno_id || null,
-          aluno: sol.depois.aluno_id ? (sol.depois.aluno || null) : (sol.depois.aluno || 'ATENDIMENTO EXTRA'),
-          paciente: sol.depois.paciente.trim(),
-          horario: sol.depois.horario,
-          dia_semana: sol.depois.dia_semana,
-          tipo_registro: 'paciente',
-          observacao: null
-        };
+        const payload = montarPayloadCriacaoFixa(turmaId, sol.depois);
 
         const { data, error } = await supabase
           .from('agenda_fixa')
@@ -353,14 +349,7 @@ export async function promoverParaFixa(
           throw new Error('ID do registro na agenda fixa nao fornecido para atualizacao');
         }
 
-        const payload = {
-          aluno_id: sol.depois.aluno_id || null,
-          aluno: sol.depois.aluno_id ? (sol.depois.aluno || null) : (sol.depois.aluno || 'ATENDIMENTO EXTRA'),
-          paciente: sol.depois.paciente.trim(),
-          horario: sol.depois.horario,
-          dia_semana: sol.depois.dia_semana,
-          updated_at: new Date().toISOString()
-        };
+        const payload = montarPayloadAtualizacaoFixa(sol.depois);
 
         const { data, error } = await supabase
           .from('agenda_fixa')
@@ -389,6 +378,7 @@ export async function promoverParaFixa(
       await recalcularInconsistenciasComPreservacao(turmaId, mesReferencia);
     } catch (err: any) {
       console.warn('Aviso ao recalcular inconsistencias apos promocao:', err);
+      resultado.erroRecalculo = err?.message || 'Falha ao recalcular inconsistencias apos promocao';
     }
   }
 

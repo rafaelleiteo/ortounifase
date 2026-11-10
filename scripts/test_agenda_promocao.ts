@@ -2,7 +2,13 @@
  * Testes automatizados das funcoes puras de promocao de paciente da mensal para a fixa.
  */
 
-import { planejarPromocao, planejarPromocaoLote } from '../src/lib/agendaPromocao';
+import {
+  planejarPromocao,
+  planejarPromocaoLote,
+  montarPayloadAtualizacaoFixa,
+  montarPayloadCriacaoFixa,
+  deveMarcarLinhaLote
+} from '../src/lib/agendaPromocao';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -359,6 +365,73 @@ console.log('================================================================\n'
   assert(lote.length === 2, 'Lote devolve 2 itens planejados');
   assert(lote[0].plano.acao === 'ATUALIZAR' && lote[0].selecionado === true, 'Item 1 atualiza e vem selecionado');
   assert(lote[1].plano.acao === 'CRIAR' && lote[1].selecionado === true, 'Item 2 cria e vem selecionado');
+}
+
+// 13. Testes dos payloads puros de atualizacao e criacao (F1 e F5)
+{
+  const dadosDepois = {
+    paciente: '  Carlos Eduardo Silveira  ',
+    dia_semana: 'SABADO',
+    horario: '08:30:00',
+    aluno_id: 'aluno-uuid-1',
+    aluno: 'Dr. Roberto'
+  };
+
+  // 13.1 Payload de Atualizacao: NAO contem paciente nem observacao
+  const payloadUpdate = montarPayloadAtualizacaoFixa(dadosDepois);
+  assert(!('paciente' in payloadUpdate), 'Payload de atualizacao NAO contem o campo paciente');
+  assert(!('observacao' in payloadUpdate), 'Payload de atualizacao NAO contem o campo observacao');
+  assert(payloadUpdate.dia_semana === 'SABADO', 'Payload de atualizacao contem dia_semana canonico');
+  assert(payloadUpdate.horario === '08:30:00', 'Payload de atualizacao contem horario correto');
+  assert(payloadUpdate.aluno_id === 'aluno-uuid-1', 'Payload de atualizacao contem aluno_id');
+  assert(payloadUpdate.aluno === 'Dr. Roberto', 'Payload de atualizacao contem nome textual do aluno');
+  assert('updated_at' in payloadUpdate, 'Payload de atualizacao contem updated_at');
+
+  // 13.2 Payload de Criacao: contem paciente aparado, tipo_registro 'paciente' e observacao nula
+  const payloadCreate = montarPayloadCriacaoFixa('turma-uuid-99', dadosDepois);
+  assert(payloadCreate.turma_id === 'turma-uuid-99', 'Payload de criacao contem turma_id');
+  assert(payloadCreate.paciente === 'Carlos Eduardo Silveira', 'Payload de criacao contem paciente devidamente aparado (trim)');
+  assert(payloadCreate.tipo_registro === 'paciente', 'Payload de criacao contem tipo_registro paciente');
+  assert(payloadCreate.observacao === null, 'Payload de criacao contem observacao nula');
+  assert(payloadCreate.dia_semana === 'SABADO', 'Payload de criacao contem dia_semana');
+  assert(payloadCreate.horario === '08:30:00', 'Payload de criacao contem horario');
+  assert(payloadCreate.aluno_id === 'aluno-uuid-1', 'Payload de criacao contem aluno_id');
+  assert(payloadCreate.aluno === 'Dr. Roberto', 'Payload de criacao contem aluno');
+}
+
+// 14. Regras puras de selecao padrao no lote (F3 e F5)
+{
+  const fixaMock = [
+    { id: 'f-exato', paciente: 'Paciente Exato', dia_semana: 'SEXTA', horario: '08:00:00', aluno_id: 'a1' },
+    { id: 'f-similar-longo', paciente: 'Mariana Aparecida De Souza Ferreira', dia_semana: 'SEXTA', horario: '08:00:00', aluno_id: 'a1' }
+  ];
+
+  // 14.1 ATUALIZAR de nome exato com aluno valido -> MARCADO
+  const itemAtualizar = { id: 'm1', paciente: 'Paciente Exato', dia_semana: 'SEXTA', horario: '09:00:00', aluno_id: 'a1' };
+  const planoAtualizar = planejarPromocao({ itemMensal: itemAtualizar, fixaItens: fixaMock });
+  assert(deveMarcarLinhaLote(planoAtualizar, itemAtualizar) === true, 'ATUALIZAR de nome exato vem marcado por padrao');
+
+  // 14.2 CRIAR de nome exato (sem candidatos na fixa) com aluno valido -> MARCADO
+  const itemCriar = { id: 'm2', paciente: 'Novo Paciente Sem Conflito', dia_semana: 'SEXTA', horario: '10:00:00', aluno_id: 'a2' };
+  const planoCriar = planejarPromocao({ itemMensal: itemCriar, fixaItens: fixaMock });
+  assert(deveMarcarLinhaLote(planoCriar, itemCriar) === true, 'CRIAR de nome exato vem marcado por padrao');
+
+  // 14.3 Atendimento Extra no lote (aluno_id nulo) -> DESMARCADO
+  const itemExtra = { id: 'm3', paciente: 'Paciente Extra Novo', dia_semana: 'SEXTA', horario: '11:00:00', aluno_id: null, aluno: 'ATENDIMENTO EXTRA' };
+  const planoExtra = planejarPromocao({ itemMensal: itemExtra, fixaItens: fixaMock });
+  assert(deveMarcarLinhaLote(planoExtra, itemExtra) === false, 'Atendimento Extra no lote vem desmarcado por padrao');
+
+  // 14.4 ESCOLHER (nome parecido ou multiplos candidatos) -> DESMARCADO
+  const itemSimilar = { id: 'm4', paciente: 'Mariana Aparecida De Souza Ferreir', dia_semana: 'SEXTA', horario: '08:30:00', aluno_id: 'a1' };
+  const planoSimilar = planejarPromocao({ itemMensal: itemSimilar, fixaItens: fixaMock });
+  assert(planoSimilar.acao === 'ESCOLHER', 'Nome parecido gera acao ESCOLHER');
+  assert(deveMarcarLinhaLote(planoSimilar, itemSimilar) === false, 'ESCOLHER vem desmarcado por padrao');
+
+  // 14.5 NADA (dados identicos) -> DESMARCADO
+  const itemIdentico = { id: 'm5', paciente: 'Paciente Exato', dia_semana: 'SEXTA', horario: '08:00:00', aluno_id: 'a1' };
+  const planoIdentico = planejarPromocao({ itemMensal: itemIdentico, fixaItens: fixaMock });
+  assert(planoIdentico.acao === 'NADA', 'Dados identicos geram acao NADA');
+  assert(deveMarcarLinhaLote(planoIdentico, itemIdentico) === false, 'NADA vem desmarcado por padrao');
 }
 
 console.log('\n================================================================');

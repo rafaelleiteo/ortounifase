@@ -211,6 +211,72 @@ export function planejarPromocao(params: {
 }
 
 /**
+ * Funcao pura para montar o payload de atualizacao de um registro na agenda fixa.
+ * O nome do paciente e a observacao NUNCA sao sobrescritos na atualizacao.
+ * A Fixa e a referencia oficial de nomes da instituicao.
+ */
+export function montarPayloadAtualizacaoFixa(depois: DadosDepoisPromocao) {
+  return {
+    dia_semana: depois.dia_semana,
+    horario: depois.horario,
+    aluno_id: depois.aluno_id || null,
+    aluno: depois.aluno_id ? (depois.aluno || null) : (depois.aluno || 'ATENDIMENTO EXTRA'),
+    updated_at: new Date().toISOString()
+  };
+}
+
+/**
+ * Funcao pura para montar o payload de criacao de um novo registro na agenda fixa.
+ * O nome do paciente e gravado devidamente aparado (trim), com observacao nula
+ * e tipo de registro 'paciente'.
+ */
+export function montarPayloadCriacaoFixa(turmaId: string, depois: DadosDepoisPromocao) {
+  return {
+    turma_id: turmaId,
+    paciente: depois.paciente.trim(),
+    dia_semana: depois.dia_semana,
+    horario: depois.horario,
+    aluno_id: depois.aluno_id || null,
+    aluno: depois.aluno_id ? (depois.aluno || null) : (depois.aluno || 'ATENDIMENTO EXTRA'),
+    tipo_registro: 'paciente' as const,
+    observacao: null
+  };
+}
+
+/**
+ * Funcao pura para determinar se uma linha do lote de promocao deve vir marcada por padrao.
+ * Regras:
+ * - Marcadas por padrao SOMENTE linhas com acao ATUALIZAR ou CRIAR por nome exato;
+ * - Linhas ESCOLHER e NADA desmarcadas por padrao;
+ * - Linhas cujo aluno da mensal e ATENDIMENTO EXTRA (aluno_id nulo) desmarcadas por padrao.
+ */
+export function deveMarcarLinhaLote(plano: PlanoPromocao, itemMensal?: any): boolean {
+  // 1. Aluno da mensal e Atendimento Extra (aluno_id nulo) -> desmarcado por padrao
+  const alunoId = plano.depois.aluno_id ?? itemMensal?.aluno_id ?? null;
+  if (!alunoId) {
+    return false;
+  }
+
+  // 2. ESCOLHER e NADA -> desmarcados por padrao
+  if (plano.acao === 'ESCOLHER' || plano.acao === 'NADA') {
+    return false;
+  }
+
+  // 3. ATUALIZAR por nome exato -> marcado por padrao
+  if (plano.acao === 'ATUALIZAR') {
+    const isExato = plano.candidatos.length === 1 && plano.candidatos[0].tipoMatch === 'exato';
+    return isExato;
+  }
+
+  // 4. CRIAR por nome exato (sem candidatos na fixa) -> marcado por padrao
+  if (plano.acao === 'CRIAR') {
+    return plano.candidatos.length === 0;
+  }
+
+  return false;
+}
+
+/**
  * Funcao pura para planejar a promocao de um lote de itens da agenda mensal.
  */
 export function planejarPromocaoLote(params: {
@@ -219,8 +285,7 @@ export function planejarPromocaoLote(params: {
 }): ItemLotePromocao[] {
   return (params.itensMensais || []).map((itemMensal) => {
     const plano = planejarPromocao({ itemMensal, fixaItens: params.fixaItens });
-    // Itens com alteracao ou criacao sao selecionados por padrao
-    const selecionado = plano.acao === 'ATUALIZAR' || plano.acao === 'CRIAR';
+    const selecionado = deveMarcarLinhaLote(plano, itemMensal);
     return {
       itemMensal,
       plano,

@@ -26,6 +26,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { ModalPromoverParaFixa } from './ModalPromoverParaFixa';
+import { recalcularInconsistenciasComPreservacao } from '@/lib/agendaService';
 
 interface InconsistenciasTabProps {
   turmaId?: string;
@@ -76,6 +77,8 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
     aberto: false,
     itens: []
   });
+  const [avisoRecalculo, setAvisoRecalculo] = useState<string | null>(null);
+  const [recalculando, setRecalculando] = useState(false);
 
   const converterInconsistenciaParaItemMensal = (inc: InconsistenciaItem) => {
     const matchMensal = agendaMensal.find(
@@ -290,6 +293,43 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
         </div>
       </div>
 
+            {/* Faixa Ambar de Falha de Recalculo */}
+      {avisoRecalculo && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">
+                Alterações gravadas, mas o recálculo das inconsistências falhou. Clique em Recalcular.
+              </div>
+              <div className="text-[11px] text-amber-700 font-mono mt-0.5">
+                {avisoRecalculo}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={recalculando}
+            onClick={async () => {
+              if (!turmaId) return;
+              try {
+                setRecalculando(true);
+                await recalcularInconsistenciasComPreservacao(turmaId, mesReferencia);
+                setAvisoRecalculo(null);
+                if (onPromocaoConcluida) await onPromocaoConcluida();
+              } catch (err: any) {
+                setAvisoRecalculo(err?.message || 'Falha ao recalcular inconsistencias.');
+              } finally {
+                setRecalculando(false);
+              }
+            }}
+            className="shrink-0 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {recalculando ? 'Recalculando...' : 'Recalcular'}
+          </button>
+        </div>
+      )}
+
       {/* Grid de 4 Colunas Kanban por Status */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
         {STATUS_COLUMNS.map((col) => {
@@ -468,7 +508,12 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
           mesReferencia={mesReferencia}
           agendaFixa={agendaFixa}
           itens={modalPromocao.itens}
-          onSucesso={async () => {
+          onSucesso={async (res) => {
+            if (res?.erroRecalculo) {
+              setAvisoRecalculo(res.erroRecalculo);
+            } else {
+              setAvisoRecalculo(null);
+            }
             if (onPromocaoConcluida) {
               await onPromocaoConcluida();
             }
