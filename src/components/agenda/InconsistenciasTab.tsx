@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import {
   InconsistenciaItem,
   AgendaAluno,
+  AgendaFixaItem,
+  AgendaMensalItem,
   DIAS_SEMANA,
   TurnoAgenda,
   OPCOES_TURNO,
   getTurnoDeHorario,
   formatarHorarioExibicao,
   isItemBloqueio,
-  mesmoDia
+  mesmoDia,
+  normalizarTextoComparacao
 } from '@/lib/agendaTypes';
 import {
   AlertTriangle,
@@ -19,14 +22,20 @@ import {
   FileEdit,
   Eye,
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  Sparkles
 } from 'lucide-react';
+import { ModalPromoverParaFixa } from './ModalPromoverParaFixa';
 
 interface InconsistenciasTabProps {
+  turmaId?: string;
+  agendaFixa?: AgendaFixaItem[];
+  agendaMensal?: AgendaMensalItem[];
   inconsistencias: InconsistenciaItem[];
   alunos: AgendaAluno[];
   mesReferencia: string;
   onAtualizarStatus: (id: string, novoStatus: InconsistenciaItem['status'], obs?: string) => Promise<void>;
+  onPromocaoConcluida?: () => Promise<void>;
   diaSelecionado?: string;
   onDiaSelecionadoChange?: (dia: string) => void;
   periodo?: TurnoAgenda;
@@ -48,10 +57,14 @@ const STATUS_COLUMNS: Array<{
 ];
 
 export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
+  turmaId,
+  agendaFixa = [],
+  agendaMensal = [],
   inconsistencias,
   alunos,
   mesReferencia,
   onAtualizarStatus,
+  onPromocaoConcluida,
   diaSelecionado,
   onDiaSelecionadoChange,
   periodo = 'TODOS',
@@ -59,6 +72,31 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
   turmaNome,
   onMesReferenciaChange
 }) => {
+  const [modalPromocao, setModalPromocao] = useState<{ aberto: boolean; itens: any[] }>({
+    aberto: false,
+    itens: []
+  });
+
+  const converterInconsistenciaParaItemMensal = (inc: InconsistenciaItem) => {
+    const matchMensal = agendaMensal.find(
+      (m) => normalizarTextoComparacao(m.paciente) === normalizarTextoComparacao(inc.paciente)
+    );
+    if (matchMensal) return matchMensal;
+
+    const alunoMatch = alunos.find(
+      (a) => normalizarTextoComparacao(a.nome) === normalizarTextoComparacao(inc.aluno_mensal || '')
+    );
+    return {
+      id: inc.id,
+      paciente: inc.paciente,
+      dia_semana: inc.dia_semana,
+      horario: inc.horario,
+      aluno: inc.aluno_mensal || null,
+      aluno_id: alunoMatch?.id || null,
+      turma_id: turmaId || inc.turma_id,
+      mes_referencia: mesReferencia
+    };
+  };
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS');
 
   // Estado local para dia se não fornecido
@@ -96,6 +134,10 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
     }
     return true;
   });
+
+  const itensElegiveisInconsistencias = itensFiltrados.filter((i) =>
+    ['HORARIO_ALTERADO', 'ALUNO_TROCADO', 'PACIENTE_NOVO'].includes(i.tipo)
+  );
 
   const getTipoBadge = (tipo?: string | null) => {
     const tNorm = (tipo || '').toUpperCase().trim();
@@ -163,8 +205,24 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
           </div>
         </div>
 
-        <div className="text-xs font-semibold text-slate-500">
-          Total de Inconsistências: <strong className="text-slate-800">{itensFiltrados.length}</strong> de {inconsistencias.length}
+        <div className="flex items-center gap-3">
+          {itensElegiveisInconsistencias.length > 0 && turmaId && (
+            <button
+              type="button"
+              onClick={() => {
+                const itensM = itensElegiveisInconsistencias.map(converterInconsistenciaParaItemMensal);
+                setModalPromocao({ aberto: true, itens: itensM });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Atualizar Fixa em Lote ({itensElegiveisInconsistencias.length})
+            </button>
+          )}
+
+          <div className="text-xs font-semibold text-slate-500">
+            Total de Inconsistências: <strong className="text-slate-800">{itensFiltrados.length}</strong> de {inconsistencias.length}
+          </div>
         </div>
       </div>
 
@@ -350,6 +408,23 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
                           />
                         </div>
 
+                        {/* Acao de Promocao para Fixa */}
+                        {['HORARIO_ALTERADO', 'ALUNO_TROCADO', 'PACIENTE_NOVO'].includes(item.tipo) && turmaId && (
+                          <div className="pt-2 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const itemM = converterInconsistenciaParaItemMensal(item);
+                                setModalPromocao({ aberto: true, itens: [itemM] });
+                              }}
+                              className="w-full text-[11px] font-bold py-1.5 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Sparkles className="w-3 h-3 text-emerald-600" />
+                              Atualizar na Fixa
+                            </button>
+                          </div>
+                        )}
+
                         {/* Ações de Transição de Status */}
                         <div className="pt-2 border-t border-slate-100">
                           <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase">
@@ -383,6 +458,23 @@ export const InconsistenciasTab: React.FC<InconsistenciasTabProps> = ({
           );
         })}
       </div>
+
+      {/* Modal de Promocao para Fixa */}
+      {modalPromocao.aberto && turmaId && (
+        <ModalPromoverParaFixa
+          aberto={modalPromocao.aberto}
+          onFechar={() => setModalPromocao({ aberto: false, itens: [] })}
+          turmaId={turmaId}
+          mesReferencia={mesReferencia}
+          agendaFixa={agendaFixa}
+          itens={modalPromocao.itens}
+          onSucesso={async () => {
+            if (onPromocaoConcluida) {
+              await onPromocaoConcluida();
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

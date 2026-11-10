@@ -36,6 +36,7 @@ export interface AgendaCardAtendimentoProps {
   onReagendar?: (item: AgendaCardItem) => void;
   onTrocarAluno?: (item: AgendaCardItem) => void;
   onExcluir?: (item: AgendaCardItem) => void;
+  onPromoverParaFixa?: (item: AgendaCardItem) => void;
 }
 
 export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
@@ -47,7 +48,8 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
   onEditar,
   onReagendar,
   onTrocarAluno,
-  onExcluir
+  onExcluir,
+  onPromoverParaFixa
 }) => {
   const isBloqueio = item.tipo_registro === 'bloqueio';
   const tipoBloqueio = isBloqueio ? (item.tipo_bloqueio || getTipoBloqueio(item)) : null;
@@ -247,6 +249,20 @@ export const AgendaCardAtendimento: React.FC<AgendaCardAtendimentoProps> = ({
               className="p-1 text-slate-500 hover:text-rose-600 rounded-md hover:bg-white/80 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+
+          {onPromoverParaFixa && (item.origem === 'mensal' || Boolean(item.mes_referencia)) && !isBloqueio && (
+            <button
+              type="button"
+              title="Atualizar / Promover para a Agenda Fixa"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPromoverParaFixa(item);
+              }}
+              className="p-1 text-slate-500 hover:text-emerald-600 rounded-md hover:bg-white/80 transition-colors"
+            >
+              <Sparkles className="w-3 h-3" />
             </button>
           )}
         </div>

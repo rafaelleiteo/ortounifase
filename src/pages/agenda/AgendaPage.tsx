@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -840,6 +840,7 @@ export const AgendaPage: React.FC = () => {
 
             {abaAtiva === 'mensal' && (
               <AgendaMensalTab
+                turmaId={turmaSelecionada.id}
                 turmaNome={turmaSelecionada.nome}
                 alunos={alunos}
                 agendaFixa={agendaFixa}
@@ -855,13 +856,17 @@ export const AgendaPage: React.FC = () => {
                 obsNaoReaplicadasImport={obsNaoReaplicadasImport}
                 onSalvarItem={handleSalvarItemMensal}
                 onRemoverItem={handleRemoverItemMensal}
+                onPromocaoConcluida={carregarDadosTurma}
                 isCoordenadorOrAdmin={isAuthorized}
               />
             )}
 
             {abaAtiva === 'inconsistencias' && (
               <InconsistenciasTab
+                turmaId={turmaSelecionada.id}
                 turmaNome={turmaSelecionada.nome}
+                agendaFixa={agendaFixa}
+                agendaMensal={agendaMensal}
                 inconsistencias={inconsistencias}
                 alunos={alunos}
                 mesReferencia={mesReferencia}
@@ -871,6 +876,7 @@ export const AgendaPage: React.FC = () => {
                 periodo={periodo}
                 onPeriodoChange={setPeriodo}
                 onAtualizarStatus={handleAtualizarStatusInconsistencia}
+                onPromocaoConcluida={carregarDadosTurma}
               />
             )}
           </div>

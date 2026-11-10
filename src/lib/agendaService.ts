@@ -18,6 +18,7 @@ import {
   ItemNaoReaplicado,
   normalizarObservacao
 } from './agendaObservacoes';
+import { DadosDepoisPromocao } from './agendaPromocao';
 
 export async function importarAgendaMensal(payload: ImportPayload) {
   if (!payload.turma || !payload.mes_referencia || !Array.isArray(payload.registros)) {
@@ -289,4 +290,107 @@ export async function recalcularInconsistenciasComPreservacao(
   }
 
   return compareResult;
+}
+
+export interface SolicitacaoPromocaoFixa {
+  acao: 'CRIAR' | 'ATUALIZAR';
+  fixaId?: string;
+  depois: DadosDepoisPromocao;
+}
+
+export interface ResultadoPromocaoFixa {
+  ok: number;
+  atualizados: number;
+  criados: number;
+  erros: Array<{ paciente: string; erro: string }>;
+}
+
+/**
+ * Promove ou atualiza registros na agenda fixa a partir dos dados consolidados da mensal.
+ * Executa cada operacao individualmente, validando que exatamente 1 linha foi afetada.
+ * Se mesReferencia for informado, recalcula as inconsistencias preservando revisoes manuais.
+ */
+export async function promoverParaFixa(
+  turmaId: string,
+  solicitacoes: SolicitacaoPromocaoFixa[],
+  mesReferencia?: string
+): Promise<ResultadoPromocaoFixa> {
+  const resultado: ResultadoPromocaoFixa = {
+    ok: 0,
+    atualizados: 0,
+    criados: 0,
+    erros: []
+  };
+
+  for (const sol of solicitacoes) {
+    try {
+      if (sol.acao === 'CRIAR') {
+        const payload = {
+          turma_id: turmaId,
+          aluno_id: sol.depois.aluno_id || null,
+          aluno: sol.depois.aluno_id ? (sol.depois.aluno || null) : (sol.depois.aluno || 'ATENDIMENTO EXTRA'),
+          paciente: sol.depois.paciente.trim(),
+          horario: sol.depois.horario,
+          dia_semana: sol.depois.dia_semana,
+          tipo_registro: 'paciente',
+          observacao: null
+        };
+
+        const { data, error } = await supabase
+          .from('agenda_fixa')
+          .insert(payload)
+          .select('id');
+
+        if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error('Nenhum registro inserido na agenda fixa');
+        }
+
+        resultado.ok += 1;
+        resultado.criados += 1;
+      } else if (sol.acao === 'ATUALIZAR') {
+        if (!sol.fixaId) {
+          throw new Error('ID do registro na agenda fixa nao fornecido para atualizacao');
+        }
+
+        const payload = {
+          aluno_id: sol.depois.aluno_id || null,
+          aluno: sol.depois.aluno_id ? (sol.depois.aluno || null) : (sol.depois.aluno || 'ATENDIMENTO EXTRA'),
+          paciente: sol.depois.paciente.trim(),
+          horario: sol.depois.horario,
+          dia_semana: sol.depois.dia_semana,
+          updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+          .from('agenda_fixa')
+          .update(payload)
+          .eq('id', sol.fixaId)
+          .select('id');
+
+        if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error(`Registro ${sol.fixaId} nao encontrado para atualizacao na agenda fixa`);
+        }
+
+        resultado.ok += 1;
+        resultado.atualizados += 1;
+      }
+    } catch (err: any) {
+      resultado.erros.push({
+        paciente: sol.depois.paciente,
+        erro: err?.message || 'Falha ao processar promocao'
+      });
+    }
+  }
+
+  if (mesReferencia) {
+    try {
+      await recalcularInconsistenciasComPreservacao(turmaId, mesReferencia);
+    } catch (err: any) {
+      console.warn('Aviso ao recalcular inconsistencias apos promocao:', err);
+    }
+  }
+
+  return resultado;
 }

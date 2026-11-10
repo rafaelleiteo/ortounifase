@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import {
   AgendaAluno,
   AgendaMensalItem,
@@ -60,8 +60,10 @@ import {
   ItemNaoReaplicado
 } from '@/lib/agendaObservacoes';
 import { AgendaFixaItem } from '@/lib/agendaTypes';
+import { ModalPromoverParaFixa } from './ModalPromoverParaFixa';
 
 interface AgendaMensalTabProps {
+  turmaId?: string;
   turmaNome: string;
   alunos: AgendaAluno[];
   agendaFixa?: AgendaFixaItem[];
@@ -86,10 +88,12 @@ interface AgendaMensalTabProps {
     observacao?: string | null;
   }) => Promise<void> | void;
   onRemoverItem?: (id: string, pacienteNome?: string) => Promise<void> | void;
+  onPromocaoConcluida?: () => Promise<void>;
   isCoordenadorOrAdmin?: boolean;
 }
 
 export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
+  turmaId,
   turmaNome,
   alunos,
   agendaFixa = [],
@@ -105,8 +109,13 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
   obsNaoReaplicadasImport = [],
   onSalvarItem,
   onRemoverItem,
+  onPromocaoConcluida,
   isCoordenadorOrAdmin = false
 }) => {
+  const [modalPromocao, setModalPromocao] = useState<{ aberto: boolean; itens: any[] }>({
+    aberto: false,
+    itens: []
+  });
   const [diaLocal, setDiaLocal] = useState<string>('QUINTA');
   const diaSelecionadoRaw = diaProp !== undefined ? diaProp : diaLocal;
   const diaSelecionado = (diaSelecionadoRaw && diaSelecionadoRaw !== 'TODOS') ? diaSelecionadoRaw : 'QUINTA';
@@ -1031,6 +1040,9 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
                                           onExcluir={(cardItem) =>
                                             onRemoverItem && onRemoverItem(cardItem.id, cardItem.paciente)
                                           }
+                                          onPromoverParaFixa={(cardItem) =>
+                                            setModalPromocao({ aberto: true, itens: [cardItem] })
+                                          }
                                         />
                                       );
                                     })}
@@ -1630,6 +1642,23 @@ export const AgendaMensalTab: React.FC<AgendaMensalTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Promocao para Fixa */}
+      {modalPromocao.aberto && turmaId && (
+        <ModalPromoverParaFixa
+          aberto={modalPromocao.aberto}
+          onFechar={() => setModalPromocao({ aberto: false, itens: [] })}
+          turmaId={turmaId}
+          mesReferencia={mesReferencia}
+          agendaFixa={agendaFixa}
+          itens={modalPromocao.itens}
+          onSucesso={async () => {
+            if (onPromocaoConcluida) {
+              await onPromocaoConcluida();
+            }
+          }}
+        />
       )}
     </div>
   );
