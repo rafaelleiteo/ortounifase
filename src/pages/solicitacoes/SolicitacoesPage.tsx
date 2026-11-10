@@ -18,17 +18,23 @@ import {
   Upload,
   Copy,
   FileText,
-  Check
+  Check,
+  Hourglass
 } from 'lucide-react';
 import {
   SolicitacaoAgendamento,
   TurmaItem,
   SituacaoFiltro,
+  AguardandoDe,
   LIMITE_CARACTERES_OBSERVACAO,
   calcularDiasDecorridos,
   formatarDiasDecorridos,
   formatarEsperaResolvida,
-  detectarDuplicidade
+  detectarDuplicidade,
+  derivarEstadoSolicitacao,
+  rotuloAguardandoDe,
+  diasAguardando,
+  alertaAguardando
 } from '@/lib/solicitacoesTypes';
 import {
   LinhaImportacaoAnalisada,
@@ -43,8 +49,12 @@ import {
   listarTurmas,
   listarSolicitacoes,
   listarPacientesPendentes,
+  obterContadoresSolicitacoes,
+  ContadoresSolicitacoes,
   criarSolicitacao,
   editarSolicitacao,
+  marcarAguardando,
+  voltarParaPendente,
   marcarResolvido,
   excluirSolicitacao,
   importarSolicitacoes
@@ -56,10 +66,26 @@ export const SolicitacoesPage: React.FC = () => {
   const [carregando, setCarregando] = useState<boolean>(true);
   const [erro, setErro] = useState<string | null>(null);
 
-  // Filtros
-  const [situacaoFiltro, setSituacaoFiltro] = useState<SituacaoFiltro>('pendentes');
+  // Filtros - visao padrao "Em aberto"
+  const [situacaoFiltro, setSituacaoFiltro] = useState<SituacaoFiltro>('aberto');
   const [turmaFiltro, setTurmaFiltro] = useState<string>('todas');
   const [buscaNome, setBuscaNome] = useState<string>('');
+
+  // Contadores dos tres estados
+  const [contadores, setContadores] = useState<ContadoresSolicitacoes>({
+    pendentes: 0,
+    aguardando: 0,
+    resolvidos: 0,
+    emAberto: 0,
+    total: 0
+  });
+
+  // Painel inline de Aguardando Confirmacao
+  const [painelAguardandoId, setPainelAguardandoId] = useState<string | null>(null);
+  const [painelDe, setPainelDe] = useState<AguardandoDe>('recepcao');
+  const [painelObs, setPainelObs] = useState<string>('');
+  const [salvandoAguardando, setSalvandoAguardando] = useState<boolean>(false);
+  const [erroPainelAguardando, setErroPainelAguardando] = useState<string | null>(null);
 
   // Sequencia de requisicoes para evitar race condition
   const requestSeqRef = useRef<number>(0);
@@ -102,7 +128,6 @@ export const SolicitacoesPage: React.FC = () => {
   const importandoRef = useRef<boolean>(false);
   const inputFileRef = useRef<HTMLInputElement>(null);
 
-
   // Carregar turmas no inicio
   useEffect(() => {
     let montado = true;
@@ -125,19 +150,23 @@ export const SolicitacoesPage: React.FC = () => {
     };
   }, []);
 
-  // Carregar solicitacoes com debounce na busca
+  // Carregar solicitacoes e contadores com debounce na busca
   const carregarDados = async (termoBusca?: string) => {
     const seq = ++requestSeqRef.current;
     try {
       setCarregando(true);
       setErro(null);
-      const lista = await listarSolicitacoes({
-        situacao: situacaoFiltro,
-        turma_id: turmaFiltro,
-        buscaNome: termoBusca !== undefined ? termoBusca : buscaNome
-      });
+      const [lista, conts] = await Promise.all([
+        listarSolicitacoes({
+          situacao: situacaoFiltro,
+          turma_id: turmaFiltro,
+          buscaNome: termoBusca !== undefined ? termoBusca : buscaNome
+        }),
+        obterContadoresSolicitacoes(turmaFiltro)
+      ]);
       if (seq === requestSeqRef.current) {
         setSolicitacoes(lista);
+        setContadores(conts);
       }
     } catch (err: any) {
       if (seq === requestSeqRef.current) {
@@ -362,6 +391,55 @@ export const SolicitacoesPage: React.FC = () => {
     }
   };
 
+  // Handlers para o painel de Aguardando Confirmacao
+  const handleAbrirPainelAguardando = (item: SolicitacaoAgendamento) => {
+    if (painelAguardandoId === item.id) {
+      setPainelAguardandoId(null);
+      return;
+    }
+    const estado = derivarEstadoSolicitacao(item);
+    setPainelAguardandoId(item.id);
+    if (estado === 'aguardando' && item.aguardando_de) {
+      setPainelDe(item.aguardando_de as AguardandoDe);
+    } else {
+      setPainelDe('recepcao');
+    }
+    setPainelObs(item.aguardando_obs || '');
+    setErroPainelAguardando(null);
+  };
+
+  const handleConfirmarAguardando = async (item: SolicitacaoAgendamento) => {
+    if (!painelDe) {
+      setErroPainelAguardando('É obrigatório escolher de quem se aguarda confirmação.');
+      return;
+    }
+    try {
+      setSalvandoAguardando(true);
+      setErroPainelAguardando(null);
+      await marcarAguardando(item.id, painelDe, painelObs);
+      setPainelAguardandoId(null);
+      await carregarDados();
+    } catch (err: any) {
+      setErroPainelAguardando(err.message || 'Erro ao marcar como aguardando confirmação.');
+    } finally {
+      setSalvandoAguardando(false);
+    }
+  };
+
+  const handleVoltarParaPendente = async (item: SolicitacaoAgendamento) => {
+    try {
+      setSalvandoAguardando(true);
+      setErroPainelAguardando(null);
+      await voltarParaPendente(item.id);
+      setPainelAguardandoId(null);
+      await carregarDados();
+    } catch (err: any) {
+      setErroPainelAguardando(err.message || 'Erro ao voltar solicitação para pendente.');
+    } finally {
+      setSalvandoAguardando(false);
+    }
+  };
+
   // Excluir solicitacao
   const handleConfirmarExclusao = async () => {
     if (!solicitacaoExcluindo) return;
@@ -394,40 +472,62 @@ export const SolicitacoesPage: React.FC = () => {
         {/* Barra Superior de Acoes e Filtros */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            {/* Situacao Tabs */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+            {/* Situacao Tabs: Em aberto, Pendentes, Aguardando, Resolvidos, Todos */}
+            <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl">
               <button
                 type="button"
-                onClick={() => setSituacaoFiltro('pendentes')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  situacaoFiltro === 'pendentes'
+                onClick={() => setSituacaoFiltro('aberto')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  situacaoFiltro === 'aberto'
                     ? 'bg-white text-brand-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Pendentes
+                Em aberto ({contadores.emAberto})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSituacaoFiltro('pendentes')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  situacaoFiltro === 'pendentes'
+                    ? 'bg-white text-slate-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Pendentes ({contadores.pendentes})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSituacaoFiltro('aguardando')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  situacaoFiltro === 'aguardando'
+                    ? 'bg-white text-amber-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Aguardando ({contadores.aguardando})
               </button>
               <button
                 type="button"
                 onClick={() => setSituacaoFiltro('resolvidos')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   situacaoFiltro === 'resolvidos'
                     ? 'bg-white text-emerald-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Resolvidos
+                Resolvidos ({contadores.resolvidos})
               </button>
               <button
                 type="button"
                 onClick={() => setSituacaoFiltro('todos')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   situacaoFiltro === 'todos'
                     ? 'bg-white text-slate-800 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Todos
+                Todos ({contadores.total})
               </button>
             </div>
 
@@ -486,10 +586,18 @@ export const SolicitacoesPage: React.FC = () => {
               </select>
             </div>
 
-            {/* Contador / Resumo */}
-            <div className="flex items-center justify-end text-xs text-slate-500 sm:col-span-2 md:col-span-1">
+            {/* Contadores nos Tres Estados no Topo */}
+            <div className="flex flex-wrap items-center justify-end text-xs text-slate-500 sm:col-span-2 md:col-span-1 gap-2">
               <span>
-                Total: <strong>{solicitacoes.length}</strong> registro(s)
+                Pendentes: <strong className="text-slate-800">{contadores.pendentes}</strong>
+              </span>
+              <span className="text-slate-300">|</span>
+              <span>
+                Aguardando: <strong className="text-amber-700">{contadores.aguardando}</strong>
+              </span>
+              <span className="text-slate-300">|</span>
+              <span>
+                Resolvidos: <strong className="text-emerald-700">{contadores.resolvidos}</strong>
               </span>
             </div>
           </div>
@@ -568,154 +676,324 @@ export const SolicitacoesPage: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-xs text-slate-700">
                   {solicitacoes.map((item) => {
-                    const diasEspera = item.resolvido
+                    const estado = derivarEstadoSolicitacao(item);
+                    const diasEspera = estado === 'resolvido'
                       ? calcularDiasDecorridos(item.created_at, item.resolvido_em || item.updated_at)
                       : calcularDiasDecorridos(item.created_at);
-                    const textoEspera = item.resolvido
+                    const textoEspera = estado === 'resolvido'
                       ? formatarEsperaResolvida(item.created_at, item.resolvido_em || item.updated_at)
                       : formatarDiasDecorridos(diasEspera);
 
+                    const diasAg = diasAguardando(item);
+                    const temAlerta = alertaAguardando(item);
+                    const rotuloQuem = rotuloAguardandoDe(item.aguardando_de);
+                    const dataFormatadaAguardando = item.aguardando_em
+                      ? new Date(item.aguardando_em).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        })
+                      : '';
+
                     return (
-                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                        {/* Nome do Paciente */}
-                        <td className="py-3.5 px-4 font-bold text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <div className="p-1.5 rounded-lg bg-slate-100 text-slate-600 shrink-0">
-                              <User className="w-3.5 h-3.5" />
+                      <React.Fragment key={item.id}>
+                        <tr className="hover:bg-slate-50/80 transition-colors">
+                          {/* Nome do Paciente */}
+                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-lg bg-slate-100 text-slate-600 shrink-0">
+                                <User className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="truncate max-w-xs">{item.paciente}</span>
                             </div>
-                            <span className="truncate max-w-xs">{item.paciente}</span>
-                          </div>
-                        </td>
+                          </td>
 
-                        {/* Agenda / Turma */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          {item.turmas?.nome ? (
-                            <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-brand-50 text-brand-700 border border-brand-200">
-                              {item.turmas.nome}
-                            </span>
-                          ) : (
-                            <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                              Nenhuma
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Observacao (ate 2 linhas com tooltip nativo) */}
-                        <td className="py-3.5 px-4 max-w-xs">
-                          {item.observacao ? (
-                            <p
-                              title={item.observacao}
-                              className="text-xs text-slate-600 line-clamp-2 cursor-help"
-                            >
-                              {item.observacao}
-                            </p>
-                          ) : (
-                            <span className="text-slate-400 italic text-[11px]">Sem observação</span>
-                          )}
-                        </td>
-
-                        {/* Data de Entrada */}
-                        <td className="py-3.5 px-4 whitespace-nowrap text-slate-500">
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span>
-                              {new Date(item.created_at).toLocaleDateString('pt-BR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric'
-                              })}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Tempo de Espera */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                              item.resolvido
-                                ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                                : diasEspera > 14
-                                ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                                : diasEspera === 0
-                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                : 'bg-slate-100 text-slate-700 border border-slate-200'
-                            }`}
-                          >
-                            {textoEspera}
-                          </span>
-                        </td>
-
-                        {/* Situacao */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          {item.resolvido ? (
-                            <div className="space-y-0.5">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                Resolvido
+                          {/* Agenda / Turma */}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            {item.turmas?.nome ? (
+                              <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-brand-50 text-brand-700 border border-brand-200">
+                                {item.turmas.nome}
                               </span>
-                              {item.resolvido_em && (
-                                <p className="text-[10px] text-slate-400">
-                                  {new Date(item.resolvido_em).toLocaleDateString('pt-BR', {
-                                    day: '2-digit',
-                                    month: '2-digit'
-                                  })}
-                                </p>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                              <Clock className="w-3 h-3 text-amber-600" />
-                              Pendente
-                            </span>
-                          )}
-                        </td>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                Nenhuma
+                              </span>
+                            )}
+                          </td>
 
-                        {/* Acoes */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1">
-                            {/* Botao Resolver ou Reabrir */}
-                            <button
-                              type="button"
-                              onClick={() => handleAlternarResolucao(item)}
-                              disabled={processandoId === item.id}
-                              title={item.resolvido ? 'Reabrir solicitação' : 'Marcar como resolvido'}
-                              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                item.resolvido
-                                  ? 'text-slate-500 hover:text-amber-700 hover:bg-amber-50'
-                                  : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
+                          {/* Observacao e Solucao Proposta se houver */}
+                          <td className="py-3.5 px-4 max-w-xs">
+                            {item.observacao ? (
+                              <p
+                                title={item.observacao}
+                                className="text-xs text-slate-600 line-clamp-2 cursor-help"
+                              >
+                                {item.observacao}
+                              </p>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">Sem observação</span>
+                            )}
+                            {item.aguardando_obs && (
+                              <div className="mt-1 flex items-start gap-1 text-[11px] text-amber-900 bg-amber-50/90 border border-amber-200 rounded px-1.5 py-0.5">
+                                <span className="font-bold shrink-0">Proposta:</span>
+                                <span className="line-clamp-2" title={item.aguardando_obs}>
+                                  {item.aguardando_obs}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Data de Entrada */}
+                          <td className="py-3.5 px-4 whitespace-nowrap text-slate-500">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>
+                                {new Date(item.created_at).toLocaleDateString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric'
+                                })}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Tempo de Espera */}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                estado === 'resolvido'
+                                  ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                                  : diasEspera > 14
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                  : diasEspera === 0
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
                               }`}
                             >
-                              {processandoId === item.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
-                              ) : item.resolvido ? (
-                                <RotateCcw className="w-4 h-4" />
-                              ) : (
-                                <CheckCircle2 className="w-4 h-4" />
+                              {textoEspera}
+                            </span>
+                          </td>
+
+                          {/* Situacao */}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            {estado === 'resolvido' ? (
+                              <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  Resolvido
+                                </span>
+                                {item.resolvido_em && (
+                                  <p className="text-[10px] text-slate-400">
+                                    {new Date(item.resolvido_em).toLocaleDateString('pt-BR', {
+                                      day: '2-digit',
+                                      month: '2-digit'
+                                    })}
+                                  </p>
+                                )}
+                              </div>
+                            ) : estado === 'aguardando' ? (
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                                  temAlerta
+                                    ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                                }`}
+                              >
+                                <Hourglass className="w-3 h-3 text-amber-700 shrink-0" />
+                                <span>
+                                  {temAlerta
+                                    ? `sem retorno há ${diasAg} dias`
+                                    : `Aguardando ${rotuloQuem} há ${diasAg} dias`}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                <Clock className="w-3 h-3 text-slate-500 shrink-0" />
+                                Pendente
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Acoes */}
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              {/* Botao Ampulheta (aguardando confirmacao) - ao lado do check, sem ampulheta ativa em resolvido */}
+                              {estado !== 'resolvido' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirPainelAguardando(item)}
+                                  title={
+                                    estado === 'aguardando'
+                                      ? `Aguardando ${rotuloQuem} desde ${dataFormatadaAguardando}`
+                                      : 'Marcar como aguardando confirmação'
+                                  }
+                                  className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                    estado === 'aguardando'
+                                      ? 'text-amber-800 bg-amber-100 border border-amber-300 hover:bg-amber-200 shadow-2xs'
+                                      : 'text-slate-400 hover:text-amber-700 hover:bg-amber-50'
+                                  }`}
+                                >
+                                  <Hourglass
+                                    className={`w-4 h-4 ${
+                                      estado === 'aguardando' ? 'fill-amber-600 text-amber-700' : ''
+                                    }`}
+                                  />
+                                </button>
                               )}
-                            </button>
 
-                            {/* Botao Editar */}
-                            <button
-                              type="button"
-                              onClick={() => handleAbrirEdicao(item)}
-                              title="Editar solicitação"
-                              className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors cursor-pointer"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
+                              {/* Botao Resolver ou Reabrir - resolve a partir de pendente OU aguardando */}
+                              <button
+                                type="button"
+                                onClick={() => handleAlternarResolucao(item)}
+                                disabled={processandoId === item.id}
+                                title={estado === 'resolvido' ? 'Reabrir solicitação' : 'Marcar como resolvido'}
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  estado === 'resolvido'
+                                    ? 'text-slate-500 hover:text-amber-700 hover:bg-amber-50'
+                                    : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
+                                }`}
+                              >
+                                {processandoId === item.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                                ) : estado === 'resolvido' ? (
+                                  <RotateCcw className="w-4 h-4" />
+                                ) : (
+                                  <CheckCircle2 className="w-4 h-4" />
+                                )}
+                              </button>
 
-                            {/* Botao Excluir */}
-                            <button
-                              type="button"
-                              onClick={() => setSolicitacaoExcluindo(item)}
-                              title="Excluir solicitação"
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                              {/* Botao Editar */}
+                              <button
+                                type="button"
+                                onClick={() => handleAbrirEdicao(item)}
+                                title="Editar solicitação"
+                                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+
+                              {/* Botao Excluir */}
+                              <button
+                                type="button"
+                                onClick={() => setSolicitacaoExcluindo(item)}
+                                title="Excluir solicitação"
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Painel Inline de Aguardando Confirmacao */}
+                        {painelAguardandoId === item.id && (
+                          <tr className="bg-amber-50/70 border-b border-amber-200">
+                            <td colSpan={7} className="p-3.5 sm:p-4">
+                              <div className="max-w-2xl space-y-3 bg-white p-3.5 sm:p-4 rounded-xl border border-amber-200 shadow-xs">
+                                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                                  <div className="flex items-center gap-2">
+                                    <Hourglass className="w-4 h-4 text-amber-600" />
+                                    <span className="text-xs font-bold text-slate-800">
+                                      {estado === 'aguardando'
+                                        ? `Atualizar confirmação de ${item.paciente}`
+                                        : `Aguardar confirmação para ${item.paciente}`}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPainelAguardandoId(null)}
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                {erroPainelAguardando && (
+                                  <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">
+                                    {erroPainelAguardando}
+                                  </div>
+                                )}
+
+                                <div className="space-y-1">
+                                  <label className="text-xs font-bold text-slate-700 block">
+                                    Aguardando confirmação de: <span className="text-rose-500">*</span>
+                                  </label>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {(['recepcao', 'paciente', 'dentista'] as AguardandoDe[]).map((entidade) => (
+                                      <button
+                                        key={entidade}
+                                        type="button"
+                                        onClick={() => setPainelDe(entidade)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                                          painelDe === entidade
+                                            ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        {rotuloAguardandoDe(entidade)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-700">
+                                      Solução proposta <span className="text-[11px] font-normal text-slate-400">(opcional)</span>
+                                    </label>
+                                    <span className="text-[11px] text-slate-400">
+                                      {painelObs.length}/500
+                                    </span>
+                                  </div>
+                                  <textarea
+                                    value={painelObs}
+                                    onChange={(e) => setPainelObs(e.target.value.slice(0, 500))}
+                                    maxLength={500}
+                                    rows={2}
+                                    placeholder="Ex: Oferecido horário de quinta-feira às 14h com a dupla..."
+                                    className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 bg-white resize-none"
+                                  />
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                                  <div>
+                                    {estado === 'aguardando' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleVoltarParaPendente(item)}
+                                        disabled={salvandoAguardando}
+                                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                                      >
+                                        Voltar para pendente
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setPainelAguardandoId(null)}
+                                      disabled={salvandoAguardando}
+                                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                                    >
+                                      Cancelar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmarAguardando(item)}
+                                      disabled={salvandoAguardando || !painelDe}
+                                      className="px-4 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                                    >
+                                      {salvandoAguardando && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                      <span>Confirmar</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

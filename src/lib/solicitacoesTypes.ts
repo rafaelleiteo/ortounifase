@@ -7,6 +7,9 @@ export interface TurmaItem {
   nome: string;
 }
 
+export type AguardandoDe = 'recepcao' | 'paciente' | 'dentista';
+export type EstadoSolicitacao = 'pendente' | 'aguardando' | 'resolvido';
+
 export interface SolicitacaoAgendamento {
   id: string;
   paciente: string;
@@ -14,6 +17,9 @@ export interface SolicitacaoAgendamento {
   observacao: string | null;
   resolvido: boolean;
   resolvido_em: string | null;
+  aguardando_em?: string | null;
+  aguardando_de?: AguardandoDe | string | null;
+  aguardando_obs?: string | null;
   criado_por: string | null;
   created_at: string;
   updated_at: string;
@@ -35,7 +41,7 @@ export interface EditarSolicitacaoParams {
   observacao?: string | null;
 }
 
-export type SituacaoFiltro = 'pendentes' | 'resolvidos' | 'todos';
+export type SituacaoFiltro = 'aberto' | 'pendentes' | 'aguardando' | 'resolvidos' | 'todos';
 
 export interface FiltroSolicitacoes {
   turma_id?: string; // 'todas' | 'nenhuma' | uuid
@@ -117,48 +123,267 @@ export function detectarDuplicidade(
 }
 
 /**
+ * Deriva o estado de uma solicitacao:
+ * - resolvido tem prioridade: resolvido = true vence
+ * - depois aguardando_em preenchido: estado 'aguardando'
+ * - senao 'pendente'
+ */
+export function derivarEstadoSolicitacao(
+  s?: { resolvido?: boolean | null; aguardando_em?: string | null } | null
+): EstadoSolicitacao {
+  if (!s) return 'pendente';
+  if (s.resolvido) return 'resolvido';
+  if (s.aguardando_em && String(s.aguardando_em).trim()) return 'aguardando';
+  return 'pendente';
+}
+
+/**
+ * Retorna o rotulo de exibicao formatado com acentos para a entidade aguardada.
+ */
+export function rotuloAguardandoDe(valor?: string | null): string {
+  if (!valor) return '';
+  const v = valor.trim().toLowerCase();
+  if (v === 'recepcao' || v === 'recepção') return 'Recepção';
+  if (v === 'paciente') return 'Paciente';
+  if (v === 'dentista') return 'Dentista';
+  return valor;
+}
+
+/**
+ * Calcula a diferenca de dias no calendario local em que a solicitacao esta aguardando confirmacao.
+ * Usa estritamente o calculo de calendario local de calcularDiasDecorridos.
+ */
+export function diasAguardando(
+  s: { aguardando_em?: string | null },
+  hoje?: string | Date
+): number {
+  if (!s.aguardando_em) return 0;
+  return calcularDiasDecorridos(s.aguardando_em, hoje);
+}
+
+/**
+ * Retorna true quando a solicitacao esta aguardando ha limiteDias ou mais (padrao: 3 dias).
+ */
+export function alertaAguardando(
+  s: { aguardando_em?: string | null },
+  hoje?: string | Date,
+  limiteDias: number = 3
+): boolean {
+  if (!s.aguardando_em) return false;
+  return diasAguardando(s, hoje) >= limiteDias;
+}
+
+export interface ValidarAguardandoResultado {
+  valido: boolean;
+  erro: string | null;
+  de: AguardandoDe | null;
+  obs: string | null;
+}
+
+/**
+ * Valida a entidade ('recepcao' | 'paciente' | 'dentista') e a observacao (maximo 500 caracteres).
+ * Apara espacos; caso a observacao esteja vazia ou contenha apenas espacos, converte para null.
+ */
+export function validarAguardando(
+  de?: unknown,
+  obs?: unknown
+): ValidarAguardandoResultado {
+  const deNormalizado = typeof de === 'string' ? de.trim().toLowerCase() : '';
+  if (
+    deNormalizado !== 'recepcao' &&
+    deNormalizado !== 'paciente' &&
+    deNormalizado !== 'dentista'
+  ) {
+    return {
+      valido: false,
+      erro: "Origem inválida. Escolha entre 'recepcao', 'paciente' ou 'dentista'.",
+      de: null,
+      obs: null
+    };
+  }
+
+  let obsLimpa: string | null = null;
+  if (typeof obs === 'string') {
+    const aparada = obs.trim();
+    obsLimpa = aparada.length > 0 ? aparada : null;
+  }
+
+  if (obsLimpa && obsLimpa.length > 500) {
+    return {
+      valido: false,
+      erro: 'A observação da proposta não pode exceder 500 caracteres.',
+      de: deNormalizado as AguardandoDe,
+      obs: obsLimpa
+    };
+  }
+
+  return {
+    valido: true,
+    erro: null,
+    de: deNormalizado as AguardandoDe,
+    obs: obsLimpa
+  };
+}
+
+/**
+ * Monta o payload para colocar a solicitacao em estado aguardando confirmacao.
+ * O parametro 'agora' e injetado para permitir testes deterministicos.
+ */
+export function montarPayloadAguardando(
+  de: unknown,
+  obs?: unknown,
+  agora: Date | string = new Date()
+): {
+  aguardando_em: string;
+  aguardando_de: AguardandoDe;
+  aguardando_obs: string | null;
+} {
+  const validacao = validarAguardando(de, obs);
+  if (!validacao.valido || !validacao.de) {
+    throw new Error(validacao.erro || 'Dados inválidos para aguardar confirmação.');
+  }
+
+  const timestamp = typeof agora === 'string' ? agora : agora.toISOString();
+
+  return {
+    aguardando_em: timestamp,
+    aguardando_de: validacao.de,
+    aguardando_obs: validacao.obs
+  };
+}
+
+/**
+ * Monta o payload para voltar a solicitacao para o estado pendente,
+ * limpando os tres campos de aguardando.
+ */
+export function montarPayloadVoltarPendente(): {
+  aguardando_em: null;
+  aguardando_de: null;
+  aguardando_obs: null;
+} {
+  return {
+    aguardando_em: null,
+    aguardando_de: null,
+    aguardando_obs: null
+  };
+}
+
+/**
+ * Monta o payload para resolver a solicitacao, mantendo os campos aguardando como historico.
+ */
+export function montarPayloadResolver(
+  agora: Date | string = new Date()
+): {
+  resolvido: true;
+  resolvido_em: string;
+  updated_at: string;
+} {
+  const timestamp = typeof agora === 'string' ? agora : agora.toISOString();
+  return {
+    resolvido: true,
+    resolvido_em: timestamp,
+    updated_at: timestamp
+  };
+}
+
+/**
+ * Monta o payload para reabrir a solicitacao, voltando para pendente:
+ * resolvido false, resolvido_em null e os tres campos aguardando limpos como null.
+ */
+export function montarPayloadReabrir(
+  agora: Date | string = new Date()
+): {
+  resolvido: false;
+  resolvido_em: null;
+  aguardando_em: null;
+  aguardando_de: null;
+  aguardando_obs: null;
+  updated_at: string;
+} {
+  const timestamp = typeof agora === 'string' ? agora : agora.toISOString();
+  return {
+    resolvido: false,
+    resolvido_em: null,
+    aguardando_em: null,
+    aguardando_de: null,
+    aguardando_obs: null,
+    updated_at: timestamp
+  };
+}
+
+/**
  * Ordena solicitacoes de agendamento de acordo com a situacao:
- * - pendentes: ordenadas por created_at crescente (mais antigas no topo)
- * - resolvidos: ordenadas por resolvido_em decrescente (mais recentes no topo; se nulo, usa updated_at)
- * - todos: pendentes primeiro (created_at crescente) e resolvidos depois (resolvido_em decrescente)
+ * - Em 'aberto' e 'todos':
+ *     1. Pendentes primeiro (created_at crescente: mais antigas no topo)
+ *     2. Aguardando (as com alerta primeiro; depois mais antigas no topo: aguardando_em crescente)
+ *     3. Resolvidos (resolvido_em decrescente: mais recentes no topo)
+ * - Em 'pendentes': pendentes primeiro (created_at crescente)
+ * - Em 'aguardando': aguardando primeiro (alerta primeiro, depois mais antigas no topo)
+ * - Em 'resolvidos': resolvidos primeiro (resolvido_em decrescente)
+ * Nao muta o array original.
  */
 export function ordenarSolicitacoes(
   lista: SolicitacaoAgendamento[],
-  situacao: SituacaoFiltro = 'pendentes'
+  situacao: SituacaoFiltro = 'aberto'
 ): SolicitacaoAgendamento[] {
   return [...lista].sort((a, b) => {
-    if (situacao === 'todos') {
-      if (a.resolvido !== b.resolvido) {
-        return a.resolvido ? 1 : -1;
+    const estadoA = derivarEstadoSolicitacao(a);
+    const estadoB = derivarEstadoSolicitacao(b);
+
+    const rankGrupo = (estado: EstadoSolicitacao): number => {
+      if (situacao === 'pendentes') {
+        return estado === 'pendente' ? 1 : estado === 'aguardando' ? 2 : 3;
       }
+      if (situacao === 'aguardando') {
+        return estado === 'aguardando' ? 1 : estado === 'pendente' ? 2 : 3;
+      }
+      if (situacao === 'resolvidos') {
+        return estado === 'resolvido' ? 1 : estado === 'pendente' ? 2 : 3;
+      }
+      // 'aberto', 'todos' ou qualquer outra visao geral:
+      // pendentes (1) -> aguardando (2) -> resolvidos (3)
+      return estado === 'pendente' ? 1 : estado === 'aguardando' ? 2 : 3;
+    };
+
+    const rankA = rankGrupo(estadoA);
+    const rankB = rankGrupo(estadoB);
+
+    if (rankA !== rankB) {
+      return rankA - rankB;
     }
 
-    // Se ambos sao pendentes
-    if (!a.resolvido && !b.resolvido) {
+    // Se ambos estao no mesmo estado:
+    if (estadoA === 'pendente') {
+      // Mais antigas no topo: created_at crescente
       const timeA = new Date(a.created_at).getTime();
       const timeB = new Date(b.created_at).getTime();
       return timeA - timeB;
     }
 
-    // Se ambos sao resolvidos
-    if (a.resolvido && b.resolvido) {
+    if (estadoA === 'aguardando') {
+      // As com alerta primeiro; depois mais antigas no topo (aguardando_em crescente)
+      const alertA = alertaAguardando(a);
+      const alertB = alertaAguardando(b);
+      if (alertA !== alertB) {
+        return alertA ? -1 : 1;
+      }
+      const dataA = a.aguardando_em || a.created_at;
+      const dataB = b.aguardando_em || b.created_at;
+      const timeA = new Date(dataA).getTime();
+      const timeB = new Date(dataB).getTime();
+      if (timeA !== timeB) {
+        return timeA - timeB;
+      }
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    }
+
+    if (estadoA === 'resolvido') {
+      // Mais recentes no topo: resolvido_em decrescente
       const dataA = a.resolvido_em || a.updated_at;
       const dataB = b.resolvido_em || b.updated_at;
       const timeA = new Date(dataA).getTime();
       const timeB = new Date(dataB).getTime();
       return timeB - timeA;
-    }
-
-    if (situacao === 'pendentes') {
-      if (a.resolvido !== b.resolvido) return a.resolvido ? 1 : -1;
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    }
-
-    if (situacao === 'resolvidos') {
-      if (a.resolvido !== b.resolvido) return a.resolvido ? -1 : 1;
-      const dataA = a.resolvido_em || a.updated_at;
-      const dataB = b.resolvido_em || b.updated_at;
-      return new Date(dataB).getTime() - new Date(dataA).getTime();
     }
 
     return 0;
