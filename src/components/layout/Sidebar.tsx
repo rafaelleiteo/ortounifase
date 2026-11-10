@@ -13,7 +13,9 @@ import {
   Calculator,
   Users,
   Calendar,
-  Smile
+  Smile,
+  CalendarCheck2,
+  ClipboardList
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import logoOfficial from '@/assets/logo/logo-official.png';
@@ -29,7 +31,7 @@ export interface NavItem {
   path: string;
   icon: React.ElementType;
   moduloKey: string;
-  section?: 'main' | 'ferramentas';
+  section?: 'main' | 'agenda' | 'ferramentas';
   roleRequired?: Array<'coordenador' | 'admin_master' | 'professor' | 'aluno'>;
   badge?: string;
   isExtraProtected?: boolean;
@@ -58,14 +60,6 @@ const navItems: NavItem[] = [
     section: 'main',
   },
   {
-    label: 'Agenda',
-    path: '/agenda',
-    icon: Calendar,
-    moduloKey: 'coordenador',
-    section: 'main',
-    roleRequired: ['coordenador', 'admin_master'],
-  },
-  {
     label: 'Alinhadores',
     path: '/alinhadores',
     icon: Smile,
@@ -90,6 +84,32 @@ const navItems: NavItem[] = [
     roleRequired: ['coordenador', 'admin_master'],
     badge: 'Camada Extra',
     isExtraProtected: true,
+  },
+
+  // GRUPO AGENDA
+  {
+    label: 'Agenda',
+    path: '/agenda',
+    icon: Calendar,
+    moduloKey: 'coordenador',
+    section: 'agenda',
+    roleRequired: ['coordenador', 'admin_master'],
+  },
+  {
+    label: 'Solicitações de agendamento',
+    path: '/agenda/solicitacoes',
+    icon: ClipboardList,
+    moduloKey: 'coordenador',
+    section: 'agenda',
+    roleRequired: ['coordenador', 'admin_master'],
+  },
+  {
+    label: 'Controle de agenda',
+    path: '/agenda/controle',
+    icon: CalendarCheck2,
+    moduloKey: 'coordenador',
+    section: 'agenda',
+    roleRequired: ['coordenador', 'admin_master'],
   },
 
   // SEÇÃO FERRAMENTAS CLÍNICAS
@@ -127,6 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
   const mainNavItems = visibleNavItems.filter((i) => !i.section || i.section === 'main');
+  const agendaNavItems = visibleNavItems.filter((i) => i.section === 'agenda');
   const ferramentasNavItems = visibleNavItems.filter((i) => i.section === 'ferramentas');
 
   const renderNavGroup = (items: NavItem[]) => (
@@ -137,6 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <NavLink
             key={item.path}
             to={item.path}
+            end={item.path === '/agenda' || item.path === '/coordenador'}
             title={isCollapsed ? item.label : undefined}
             className={({ isActive }) =>
               cn(
@@ -250,7 +272,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {renderNavGroup(mainNavItems)}
           </div>
 
-          {/* SEÇÃO 2: FERRAMENTAS CLÍNICAS */}
+          {/* SEÇÃO 2: AGENDA */}
+          {agendaNavItems.length > 0 && (
+            <div>
+              {!isCollapsed ? (
+                <div className="px-3 mb-2">
+                  <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                    Agenda
+                  </span>
+                </div>
+              ) : (
+                <div className="h-px bg-slate-200 my-2 mx-1" />
+              )}
+              {renderNavGroup(agendaNavItems)}
+            </div>
+          )}
+
+          {/* SEÇÃO 3: FERRAMENTAS CLÍNICAS */}
           {ferramentasNavItems.length > 0 && (
             <div>
               {!isCollapsed ? (
