@@ -17,6 +17,7 @@ import {
   proximoBloco,
   planejarSincronizacao
 } from './alinhadoresTypes';
+import { planejarSincronizacaoOrtopedicos } from './ortopedicosPure';
 
 /**
  * Utilitário para geração de UUID v4 universal (Browser / Node)
@@ -282,6 +283,8 @@ export async function criarPedidoOrtopedico(
   const aparelhoFinal = isObj ? pacienteIdOuParams.aparelho : aparelho;
   const observacaoFinal = isObj ? pacienteIdOuParams.observacao : observacao;
 
+  const nomeAparelhoLimpo = (aparelhoFinal && aparelhoFinal.trim()) || 'Aparelho Ortopedico';
+
   const { data, error } = await supabase
     .from('alinhadores_pedidos')
     .insert([
@@ -289,7 +292,7 @@ export async function criarPedidoOrtopedico(
         paciente_id: pacienteId,
         data_retorno: dataFinal,
         tipo: 'ortopedico',
-        aparelho: aparelhoFinal ? aparelhoFinal.trim() : null,
+        aparelho: nomeAparelhoLimpo,
         alinhador_de: null,
         alinhador_ate: null,
         observacao: observacaoFinal ? observacaoFinal.trim() : null
@@ -742,27 +745,26 @@ export async function sincronizarProximosPedidos(): Promise<{ criados: number; r
   // 1. Obter todos os pacientes cadastrados
   const { data: todosPacientes, error: pacientesError } = await supabase
     .from('alinhadores_pacientes')
-    .select('id, turma_id, ativo, tipo');
+    .select('id, turma_id, ativo, tipo, aparelho_previsto');
 
   if (pacientesError) {
-    console.error('Erro ao buscar pacientes para sincronização de retornos:', pacientesError);
-    throw new Error(`Erro ao buscar pacientes para sincronização: ${pacientesError.message}`);
+    console.error('Erro ao buscar pacientes para sincronizacao de retornos:', pacientesError);
+    throw new Error(`Erro ao buscar pacientes para sincronizacao: ${pacientesError.message}`);
   }
 
-  // Apenas pacientes de alinhadores entram no ciclo mensal automatico
-  const pacientes = (todosPacientes || []).filter(
+  const pacientesAlinhador = (todosPacientes || []).filter(
     (p: any) => !p.tipo || p.tipo === 'alinhador'
   );
+  const pacientesOrtopedico = (todosPacientes || []).filter(
+    (p: any) => p.tipo === 'ortopedico'
+  );
 
-  if (!pacientes || pacientes.length === 0) {
-    return { criados: 0, removidos: 0 };
-  }
-
-  // 2. Coletar turmas únicas dos pacientes
-  const turmasIds = Array.from(new Set(pacientes.map((p) => p.turma_id)));
+  const turmasIds = Array.from(
+    new Set((todosPacientes || []).map((p: any) => p.turma_id).filter(Boolean))
+  );
   const hojeISO = formatarDataISO(new Date());
 
-  // 3. Obter todas as datas do calendário dessas turmas
+  // 2. Obter todas as datas do calendario dessas turmas
   const { data: datasCalendario, error: calError } = await supabase
     .from('alinhadores_calendario')
     .select('turma_id, data')
@@ -770,20 +772,8 @@ export async function sincronizarProximosPedidos(): Promise<{ criados: number; r
     .order('data', { ascending: true });
 
   if (calError) {
-    console.error('Erro ao buscar calendário para sincronização de retornos:', calError);
-    throw new Error(`Erro ao buscar calendário para sincronização: ${calError.message}`);
-  }
-
-  // 4. Obter todos os pedidos existentes dos pacientes
-  const pacientesIds = pacientes.map((p) => p.id);
-  const { data: pedidosExistentes, error: pedError } = await supabase
-    .from('alinhadores_pedidos')
-    .select('id, paciente_id, data_retorno, solicitado_em')
-    .in('paciente_id', pacientesIds);
-
-  if (pedError) {
-    console.error('Erro ao consultar pedidos existentes para sincronização:', pedError);
-    throw new Error(`Erro ao consultar pedidos existentes para sincronização: ${pedError.message}`);
+    console.error('Erro ao buscar calendario para sincronizacao de retornos:', calError);
+    throw new Error(`Erro ao buscar calendario para sincronizacao: ${calError.message}`);
   }
 
   // Agrupar datas por turma
@@ -795,67 +785,123 @@ export async function sincronizarProximosPedidos(): Promise<{ criados: number; r
     datasPorTurma[item.turma_id].push(item.data);
   }
 
-  // 5. Planejar sincronização através da FUNÇÃO PURA
-  const plano = planejarSincronizacao({
-    pacientes: (pacientes || []).map((p) => ({
+  // 3. Obter todos os pedidos existentes dos pacientes
+  const pacientesIds = (todosPacientes || []).map((p: any) => p.id);
+  const { data: pedidosExistentes, error: pedError } = await supabase
+    .from('alinhadores_pedidos')
+    .select('id, paciente_id, data_retorno, solicitado_em, tipo, aparelho')
+    .in('paciente_id', pacientesIds);
+
+  if (pedError) {
+    console.error('Erro ao consultar pedidos existentes para sincronizacao:', pedError);
+    throw new Error(`Erro ao consultar pedidos existentes para sincronizacao: ${pedError.message}`);
+  }
+
+  let criadosCount = 0;
+  let removidosCount = 0;
+
+  // 4. Planejar sincronizacao de alinhadores atraves da funcao pura planejarSincronizacao
+  const planoAlinhadores = planejarSincronizacao({
+    pacientes: (pacientesAlinhador || []).map((p: any) => ({
       id: p.id,
       turma_id: p.turma_id,
       ativo: !!p.ativo
     })),
     datasPorTurma,
-    pedidosExistentes: (pedidosExistentes || []).map((p) => ({
-      id: p.id,
-      paciente_id: p.paciente_id,
-      data_retorno: p.data_retorno,
-      solicitado_em: p.solicitado_em
-    })),
+    pedidosExistentes: (pedidosExistentes || [])
+      .filter((ped: any) => !ped.tipo || ped.tipo === 'alinhador')
+      .map((p: any) => ({
+        id: p.id,
+        paciente_id: p.paciente_id,
+        data_retorno: p.data_retorno,
+        solicitado_em: p.solicitado_em
+      })),
     hoje: hojeISO
   });
 
-  let criadosCount = 0;
-  let removidosCount = 0;
-
-  // 6. Executar inserções planejadas com upsert seguro
-  if (plano.inserir.length > 0) {
-    const novosRegistros = plano.inserir.map((item) => ({
+  // Executar insercoes de alinhadores com upsert seguro compativel com uq_alinhadores_pedidos_chave
+  if (planoAlinhadores.inserir.length > 0) {
+    const novosAlinhadores = planoAlinhadores.inserir.map((item) => ({
       paciente_id: item.paciente_id,
       data_retorno: item.data_retorno,
+      tipo: 'alinhador' as const,
+      aparelho: '',
       alinhador_de: null,
       alinhador_ate: null
     }));
 
     const { data: insertedData, error: insertError } = await supabase
       .from('alinhadores_pedidos')
-      .upsert(novosRegistros, {
-        onConflict: 'paciente_id,data_retorno',
+      .upsert(novosAlinhadores, {
+        onConflict: 'paciente_id,data_retorno,tipo,aparelho',
         ignoreDuplicates: true
       })
       .select('id');
 
     if (insertError) {
-      console.error('Erro ao inserir pedidos planejados na sincronização:', insertError);
-      throw new Error(`Erro ao inserir pedidos na sincronização: ${insertError.message}`);
+      console.error('Erro ao inserir pedidos de alinhadores planejados:', insertError);
+      throw new Error(`Erro ao inserir pedidos de alinhadores na sincronizacao: ${insertError.message}`);
     }
 
-    criadosCount = (insertedData || []).length;
+    criadosCount += (insertedData || []).length;
   }
 
-  // 7. Executar exclusões planejadas com blindagem atômica no banco
-  if (plano.apagarIds.length > 0) {
+  // Executar exclusoes planejadas de alinhadores com blindagem atomica
+  if (planoAlinhadores.apagarIds.length > 0) {
     const { data: deletedData, error: deleteError } = await supabase
       .from('alinhadores_pedidos')
       .delete()
-      .in('id', plano.apagarIds)
+      .in('id', planoAlinhadores.apagarIds)
       .is('solicitado_em', null)
       .gt('data_retorno', hojeISO)
       .select('id');
 
     if (deleteError) {
-      console.error('Erro ao excluir pedidos obsoletos na sincronização:', deleteError);
-      throw new Error(`Erro ao excluir pedidos obsoletos na sincronização: ${deleteError.message}`);
+      console.error('Erro ao excluir pedidos obsoletos de alinhadores:', deleteError);
+      throw new Error(`Erro ao excluir pedidos obsoletos na sincronizacao: ${deleteError.message}`);
     }
 
-    removidosCount = (deletedData || []).length;
+    removidosCount += (deletedData || []).length;
+  }
+
+  // 5. Planejar sincronizacao de ortopedicos (regra: 1 pedido inicial por paciente, nunca apaga)
+  const planoOrtopedicos = planejarSincronizacaoOrtopedicos({
+    pacientes: (pacientesOrtopedico || []).map((p: any) => ({
+      id: p.id,
+      turma_id: p.turma_id,
+      ativo: !!p.ativo,
+      tipo: 'ortopedico',
+      aparelho_previsto: p.aparelho_previsto
+    })),
+    datasPorTurma,
+    pedidosExistentes: (pedidosExistentes || []).filter((ped: any) => ped.tipo === 'ortopedico'),
+    hoje: hojeISO
+  });
+
+  if (planoOrtopedicos.inserir.length > 0) {
+    const novosOrtopedicos = planoOrtopedicos.inserir.map((item) => ({
+      paciente_id: item.paciente_id,
+      data_retorno: item.data_retorno,
+      tipo: 'ortopedico' as const,
+      aparelho: item.aparelho,
+      alinhador_de: null,
+      alinhador_ate: null
+    }));
+
+    const { data: insertedOrt, error: insertOrtError } = await supabase
+      .from('alinhadores_pedidos')
+      .upsert(novosOrtopedicos, {
+        onConflict: 'paciente_id,data_retorno,tipo,aparelho',
+        ignoreDuplicates: true
+      })
+      .select('id');
+
+    if (insertOrtError) {
+      console.error('Erro ao inserir pedidos ortopedicos planejados:', insertOrtError);
+      throw new Error(`Erro ao inserir pedidos ortopedicos na sincronizacao: ${insertOrtError.message}`);
+    }
+
+    criadosCount += (insertedOrt || []).length;
   }
 
   return { criados: criadosCount, removidos: removidosCount };

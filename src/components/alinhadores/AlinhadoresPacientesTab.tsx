@@ -258,9 +258,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
           ativo: true,
           tipo
         });
-        if (tipo === 'alinhador') {
-          await sincronizarProximosPedidos();
-        }
+        await sincronizarProximosPedidos();
         setSucesso(`Paciente "${nomeLimpo}" cadastrado com sucesso!`);
       }
 

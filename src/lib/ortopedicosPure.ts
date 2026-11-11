@@ -4,7 +4,9 @@ import {
   formatarDataISO,
   formatarListaNomes,
   StatusPedido,
-  TipoTratamento
+  TipoTratamento,
+  agruparBlocos,
+  proximoBloco
 } from './alinhadoresTypes';
 import { normalizarTextoComparacao } from './agendaTypes';
 import { nomesParecidos } from './solicitacoesImportacao';
@@ -315,3 +317,97 @@ export function planejarNovoPedidoOrtopedico(
     mensagem_enviada_em: null
   };
 }
+
+export interface ParametrosPlanoSincronizacaoOrtopedicos {
+  pacientes: Array<{
+    id: string;
+    turma_id: string;
+    ativo: boolean;
+    tipo?: TipoTratamento;
+    aparelho_previsto?: string | null;
+  }>;
+  datasPorTurma: Record<string, string[]>;
+  pedidosExistentes: Array<{
+    id: string;
+    paciente_id: string;
+    data_retorno: string;
+    tipo?: TipoTratamento;
+    aparelho?: string | null;
+    solicitado_em?: string | null;
+  }>;
+  hoje: string | Date;
+}
+
+export interface PedidoOrtopedicoParaInserir {
+  paciente_id: string;
+  data_retorno: string;
+  tipo: 'ortopedico';
+  aparelho: string;
+}
+
+export interface PlanoSincronizacaoOrtopedicos {
+  inserir: PedidoOrtopedicoParaInserir[];
+}
+
+/**
+ * Planeja a sincronizacao de pedidos ortopedicos:
+ * Regra: um pedido por paciente (nao mensal, sob demanda).
+ * Prazo: data_retorno = primeira data do proximo bloco clinico da turma menos antecedencia_ortopedico_dias.
+ * Depois de solicitado, nao alerta de novo e nao gera novo pedido automatico nos proximos meses.
+ * Novo aparelho cadastrado gera novo pedido.
+ */
+export function planejarSincronizacaoOrtopedicos(
+  params: ParametrosPlanoSincronizacaoOrtopedicos
+): PlanoSincronizacaoOrtopedicos {
+  const { pacientes, datasPorTurma, pedidosExistentes, hoje } = params;
+  const hojeISO = typeof hoje === 'string' ? hoje.substring(0, 10) : formatarDataISO(hoje);
+
+  // Mapear pacientes ortopedicos que ja possuem algum pedido existente
+  // (mesmo que ja solicitado ou pendente, pois e 1 pedido por paciente, nao mensal)
+  const pacientesComPedido = new Set<string>();
+  for (const ped of pedidosExistentes) {
+    const tipo = ped.tipo || 'alinhador';
+    if (tipo === 'ortopedico') {
+      pacientesComPedido.add(ped.paciente_id);
+    }
+  }
+
+  // Identificar proximo bloco por turma
+  const proximaBasePorTurma: Record<string, string> = {};
+  for (const [turmaId, datas] of Object.entries(datasPorTurma)) {
+    if (!datas || datas.length === 0) continue;
+    const blocos = agruparBlocos(datas);
+    const prox = proximoBloco(blocos, hojeISO);
+    if (prox) {
+      proximaBasePorTurma[turmaId] = prox.base;
+    }
+  }
+
+  const inserir: PedidoOrtopedicoParaInserir[] = [];
+
+  for (const paciente of pacientes) {
+    const tipo = paciente.tipo || 'alinhador';
+    if (tipo !== 'ortopedico') continue;
+    if (!paciente.ativo) continue;
+
+    // Regra: se o paciente ja possui pedido de ortopedico, nao cria outro no ciclo automatico
+    if (pacientesComPedido.has(paciente.id)) continue;
+
+    const proxBase = proximaBasePorTurma[paciente.turma_id];
+    if (!proxBase) continue;
+
+    const aparelho = (paciente.aparelho_previsto && paciente.aparelho_previsto.trim()) || 'Aparelho Ortopedico';
+
+    inserir.push({
+      paciente_id: paciente.id,
+      data_retorno: proxBase,
+      tipo: 'ortopedico',
+      aparelho
+    });
+
+    pacientesComPedido.add(paciente.id);
+  }
+
+  return { inserir };
+}
+

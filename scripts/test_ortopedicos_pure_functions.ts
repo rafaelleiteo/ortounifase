@@ -6,305 +6,339 @@ import {
   verificarNomeExistenteOuParecido,
   filtrarPedidosPorTipo,
   filtrarPacientesPorTipo,
-  planejarNovoPedidoOrtopedico
+  planejarNovoPedidoOrtopedico,
+  planejarSincronizacaoOrtopedicos
 } from '../src/lib/ortopedicosPure';
 import {
   formatarDataISO,
   parseDataLocal,
   AlinhadorPedido,
   AlinhadorPaciente,
-  TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO
+  planejarSincronizacao
 } from '../src/lib/alinhadoresTypes';
 
-console.log('--- INICIANDO TESTES DE FUNCOES PURAS DE ORTOPEDICOS ---');
+console.log('================================================================');
+console.log('EXECUTANDO TESTES AUTOMATIZADOS: MODULO DE ORTOPEDICOS');
+console.log('Fuso do ambiente atual: America/Sao_Paulo');
+console.log('================================================================\n');
 
-// TESTE 1: Prazo com virada de mes e de ano
-{
-  console.log('Teste 1: Prazo com virada de mes e ano');
-  
-  // Virada de mes comum: 10 de marco com 20 dias de antecedencia -> 18 de fevereiro (em ano nao bissexto 2025)
-  const prazoMarco = calcularPrazoLimiteOrtopedico('2025-03-10', 20);
-  assert.equal(formatarDataISO(prazoMarco), '2025-02-18');
+let passou = 0;
+let falhou = 0;
 
-  // Virada de ano: 10 de janeiro de 2027 com 20 dias de antecedencia -> 21 de dezembro de 2026
-  const prazoAno = calcularPrazoLimiteOrtopedico('2027-01-10', 20);
-  assert.equal(formatarDataISO(prazoAno), '2026-12-21');
-
-  // Prazo dentro do mesmo mes: 25 de novembro com 10 dias -> 15 de novembro
-  const prazoMesmoMes = calcularPrazoLimiteOrtopedico('2026-11-25', 10);
-  assert.equal(formatarDataISO(prazoMesmoMes), '2026-11-15');
-  console.log('  [OK] Virada de mes e ano calculada corretamente.');
+function test(nome: string, fn: () => void) {
+  try {
+    fn();
+    console.log(`  [PASS] ${nome}`);
+    passou++;
+  } catch (err) {
+    console.error(`  [FAIL] ${nome}`);
+    console.error(err);
+    falhou++;
+  }
 }
 
-// TESTE 2: Estados pendente, vencendo, atrasado e solicitado
-{
-  console.log('Teste 2: Estados pendente, vencendo, atrasado e solicitado');
-  const hoje = parseDataLocal('2026-11-10');
-  const antecedencia = 20;
+// 1. calcularPrazoLimiteOrtopedico
+test('calcularPrazoLimiteOrtopedico: virada de mes comum (marco para fevereiro)', () => {
+  const prazo = calcularPrazoLimiteOrtopedico('2025-03-10', 20);
+  assert.equal(formatarDataISO(prazo), '2025-02-18');
+});
 
-  // Caso 1: Retorno em 2026-12-15 (prazo limite: 2026-11-25)
-  // Hoje (10/11) esta a 15 dias do prazo limite -> pendente
-  const pedidoPendente: AlinhadorPedido = {
-    id: 'p1',
-    paciente_id: 'pac1',
-    data_retorno: '2026-12-15',
-    alinhador_de: null,
-    alinhador_ate: null,
-    solicitado_em: null,
-    lote_id: null,
-    observacao: null,
-    mensagem_enviada_em: null,
-    tipo: 'ortopedico',
-    aparelho: 'Disjuntor de Hyrax'
-  };
-  assert.equal(calcularStatusPedidoOrtopedico(pedidoPendente, hoje, antecedencia), 'pendente');
+test('calcularPrazoLimiteOrtopedico: virada de ano (janeiro para dezembro)', () => {
+  const prazo = calcularPrazoLimiteOrtopedico('2027-01-10', 20);
+  assert.equal(formatarDataISO(prazo), '2026-12-21');
+});
 
-  // Caso 2: Retorno em 2026-11-30 (prazo limite: 2026-11-10)
-  // Hoje (10/11) e exatamente a data limite (faltam 0 dias) -> vencendo (<= 3 dias)
-  const pedidoVencendo: AlinhadorPedido = {
-    ...pedidoPendente,
-    id: 'p2',
-    data_retorno: '2026-11-30'
-  };
-  assert.equal(calcularStatusPedidoOrtopedico(pedidoVencendo, hoje, antecedencia), 'vencendo');
+test('calcularPrazoLimiteOrtopedico: prazo dentro do mesmo mes', () => {
+  const prazo = calcularPrazoLimiteOrtopedico('2026-11-25', 10);
+  assert.equal(formatarDataISO(prazo), '2026-11-15');
+});
 
-  // Caso 3: Retorno em 2026-11-20 (prazo limite: 2026-10-31)
-  // Hoje (10/11) ja passou do prazo limite (31/10) mas ainda nao passou da consulta (20/11) -> atrasado
-  const pedidoAtrasado: AlinhadorPedido = {
-    ...pedidoPendente,
-    id: 'p3',
-    data_retorno: '2026-11-20'
-  };
-  assert.equal(calcularStatusPedidoOrtopedico(pedidoAtrasado, hoje, antecedencia), 'atrasado');
+// 2. calcularStatusPedidoOrtopedico
+const pedidoBase: AlinhadorPedido = {
+  id: 'ped-base',
+  paciente_id: 'pac-1',
+  data_retorno: '2026-12-15',
+  alinhador_de: null,
+  alinhador_ate: null,
+  solicitado_em: null,
+  lote_id: null,
+  observacao: null,
+  mensagem_enviada_em: null,
+  tipo: 'ortopedico',
+  aparelho: 'Disjuntor de Hyrax'
+};
+const hojeRef = parseDataLocal('2026-11-10');
 
-  // Caso 4: Retorno em 2026-11-05 (hoje 10/11 ja passou do retorno) -> expirado
-  const pedidoExpirado: AlinhadorPedido = {
-    ...pedidoPendente,
-    id: 'p4',
-    data_retorno: '2026-11-05'
-  };
-  assert.equal(calcularStatusPedidoOrtopedico(pedidoExpirado, hoje, antecedencia), 'expirado');
+test('calcularStatusPedidoOrtopedico: status pendente quando prazo no futuro (> 5 dias)', () => {
+  const st = calcularStatusPedidoOrtopedico(pedidoBase, hojeRef, 20);
+  assert.equal(st, 'pendente');
+});
 
-  // Caso 5: Pedido ja solicitado
-  const pedidoSolicitado: AlinhadorPedido = {
-    ...pedidoAtrasado,
-    id: 'p5',
-    solicitado_em: '2026-10-25'
-  };
-  assert.equal(calcularStatusPedidoOrtopedico(pedidoSolicitado, hoje, antecedencia), 'solicitado');
-  console.log('  [OK] Estados calculados corretamente.');
-}
+test('calcularStatusPedidoOrtopedico: status vencendo quando faltam de 0 a 5 dias para o prazo', () => {
+  const st = calcularStatusPedidoOrtopedico({ ...pedidoBase, data_retorno: '2026-11-30' }, hojeRef, 20);
+  assert.equal(st, 'vencendo');
+});
 
-// TESTE 3: Solicitado nao alerta de novo
-{
-  console.log('Teste 3: Solicitado nao alerta de novo');
-  const hoje = parseDataLocal('2026-11-10');
-  const pedido: AlinhadorPedido = {
-    id: 'p_solic',
-    paciente_id: 'pac1',
-    data_retorno: '2026-11-12', // Prazo ja estaria super atrasado se nao solicitado
-    alinhador_de: null,
-    alinhador_ate: null,
-    solicitado_em: '2026-10-15',
-    lote_id: 'lote-123',
-    observacao: null,
-    mensagem_enviada_em: '2026-10-16',
-    tipo: 'ortopedico',
-    aparelho: 'Placa de Hawley'
-  };
+test('calcularStatusPedidoOrtopedico: status atrasado quando hoje passou do prazo limite mas antes do retorno', () => {
+  const st = calcularStatusPedidoOrtopedico({ ...pedidoBase, data_retorno: '2026-11-20' }, hojeRef, 20);
+  assert.equal(st, 'atrasado');
+});
 
-  const status = calcularStatusPedidoOrtopedico(pedido, hoje, 20);
-  assert.equal(status, 'solicitado');
-  assert.notEqual(status, 'atrasado');
-  assert.notEqual(status, 'vencendo');
-  console.log('  [OK] Pedido solicitado permanece estavel como solicitado sem disparar alerta.');
-}
+test('calcularStatusPedidoOrtopedico: status expirado quando hoje passou da data de retorno', () => {
+  const st = calcularStatusPedidoOrtopedico({ ...pedidoBase, data_retorno: '2026-11-05' }, hojeRef, 20);
+  assert.equal(st, 'expirado');
+});
 
-// TESTE 4: Novo aparelho gera novo pedido independente
-{
-  console.log('Teste 4: Novo aparelho gera novo pedido');
+test('calcularStatusPedidoOrtopedico: status solicitado quando solicitado_em preenchido (nao alerta de novo)', () => {
+  const st = calcularStatusPedidoOrtopedico(
+    { ...pedidoBase, data_retorno: '2026-11-05', solicitado_em: '2026-10-15' },
+    hojeRef,
+    20
+  );
+  assert.equal(st, 'solicitado');
+});
+
+// 3. planejarNovoPedidoOrtopedico
+test('planejarNovoPedidoOrtopedico: gera novo pedido com aparelho especificado', () => {
   const plano = planejarNovoPedidoOrtopedico({
     pacienteId: 'pac123',
     dataRetorno: '2026-12-10',
     aparelho: 'Bionator de Balters',
     observacao: 'Ajuste de mordida'
   });
-
   assert.equal(plano.paciente_id, 'pac123');
   assert.equal(plano.data_retorno, '2026-12-10');
   assert.equal(plano.aparelho, 'Bionator de Balters');
   assert.equal(plano.observacao, 'Ajuste de mordida');
   assert.equal(plano.tipo, 'ortopedico');
   assert.equal(plano.solicitado_em, null);
-  assert.equal(plano.mensagem_enviada_em, null);
-  console.log('  [OK] Planejamento de novo pedido ortopedico estruturado com sucesso.');
-}
+});
 
-// TESTE 5: Mensagem para laboratorio com 1, 2 e 3 pacientes
-{
-  console.log('Teste 5: Mensagem para laboratorio com 1, 2 e 3 pacientes');
+test('planejarNovoPedidoOrtopedico: lanca erro se data de retorno nao informada', () => {
+  assert.throws(() => {
+    planejarNovoPedidoOrtopedico({
+      pacienteId: 'pac123',
+      dataRetorno: '',
+      aparelho: 'Hyrax'
+    });
+  }, /Data de retorno e obrigatoria/);
+});
 
-  // 1 paciente com template padrao
-  const msg1 = gerarMensagemLaboratorioOrtopedico([
+// 4. gerarMensagemLaboratorioOrtopedico
+test('gerarMensagemLaboratorioOrtopedico: 1 paciente com template padrao', () => {
+  const msg = gerarMensagemLaboratorioOrtopedico([
     { paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' }
   ]);
-  assert.match(msg1, /Lucas Silva/);
-  assert.match(msg1, /Disjuntor de Hyrax/);
-  assert.match(msg1, /01\/12\/2026/);
+  assert.match(msg, /Lucas Silva/);
+  assert.match(msg, /Disjuntor de Hyrax/);
+  assert.match(msg, /01\/12\/2026/);
+});
 
-  // Template com marcador {pacientes} e {lista}
-  const templateComPacientes = 'Favor confeccionar para {pacientes}:\n\n{lista}';
-
-  const msg1Custom = gerarMensagemLaboratorioOrtopedico([
-    { paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' }
-  ], templateComPacientes);
-  assert.match(msg1Custom, /Favor confeccionar para Lucas Silva:/);
-  assert.match(msg1Custom, /Disjuntor de Hyrax/);
-
-  // 2 pacientes
-  const msg2 = gerarMensagemLaboratorioOrtopedico([
-    { paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' },
-    { paciente_nome: 'Mariana Costa', data_retorno: '2026-12-01', aparelho: 'Placa de Hawley' }
-  ], templateComPacientes);
-  assert.match(msg2, /Favor confeccionar para Lucas Silva e Mariana Costa:/);
-  assert.match(msg2, /Disjuntor de Hyrax/);
-  assert.match(msg2, /Placa de Hawley/);
-
-  // 3 pacientes
-  const msg3 = gerarMensagemLaboratorioOrtopedico([
-    { paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' },
-    { paciente_nome: 'Mariana Costa', data_retorno: '2026-12-01', aparelho: 'Placa de Hawley' },
-    { paciente_nome: 'Pedro Rocha', data_retorno: '2026-12-05', aparelho: 'Grade Palatina' }
-  ], templateComPacientes);
-  assert.match(msg3, /Favor confeccionar para Lucas Silva, Mariana Costa e Pedro Rocha:/);
-  assert.match(msg3, /Grade Palatina/);
-  assert.match(msg3, /05\/12\/2026/);
-  console.log('  [OK] Mensagens para 1, 2 e 3 pacientes geradas com formatacao correta.');
-}
-
-// TESTE 6: Template sem marcador
-{
-  console.log('Teste 6: Template sem marcador anexa lista detalhada ao final');
-  const templateSemMarcador = 'Ola laboratorio, favor confeccionar os aparelhos solicitados com urgencia.';
-  const msgCustom = gerarMensagemLaboratorioOrtopedico(
-    [{ paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' }],
-    templateSemMarcador
+test('gerarMensagemLaboratorioOrtopedico: 2 pacientes com template customizado', () => {
+  const template = 'Favor confeccionar para {pacientes}:\n\n{lista}';
+  const msg = gerarMensagemLaboratorioOrtopedico(
+    [
+      { paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' },
+      { paciente_nome: 'Mariana Costa', data_retorno: '2026-12-01', aparelho: 'Placa de Hawley' }
+    ],
+    template
   );
+  assert.match(msg, /Favor confeccionar para Lucas Silva e Mariana Costa:/);
+  assert.match(msg, /Disjuntor de Hyrax/);
+  assert.match(msg, /Placa de Hawley/);
+});
 
-  assert.ok(msgCustom.startsWith(templateSemMarcador));
-  assert.ok(msgCustom.includes('- Lucas Silva: Disjuntor de Hyrax, retorno previsto em 01/12/2026'));
-  console.log('  [OK] Template sem marcador anexa a lista automaticamente.');
+test('gerarMensagemLaboratorioOrtopedico: 3 pacientes com template customizado', () => {
+  const template = 'Favor confeccionar para {pacientes}:\n\n{lista}';
+  const msg = gerarMensagemLaboratorioOrtopedico(
+    [
+      { paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' },
+      { paciente_nome: 'Mariana Costa', data_retorno: '2026-12-01', aparelho: 'Placa de Hawley' },
+      { paciente_nome: 'Pedro Rocha', data_retorno: '2026-12-05', aparelho: 'Grade Palatina' }
+    ],
+    template
+  );
+  assert.match(msg, /Favor confeccionar para Lucas Silva, Mariana Costa e Pedro Rocha:/);
+  assert.match(msg, /Grade Palatina/);
+  assert.match(msg, /05\/12\/2026/);
+});
+
+test('gerarMensagemLaboratorioOrtopedico: template sem marcadores anexa lista ao final', () => {
+  const template = 'Ola laboratorio, segue pedido com urgencia.';
+  const msg = gerarMensagemLaboratorioOrtopedico(
+    [{ paciente_nome: 'Lucas Silva', data_retorno: '2026-12-01', aparelho: 'Disjuntor de Hyrax' }],
+    template
+  );
+  assert.ok(msg.startsWith(template));
+  assert.ok(msg.includes('- Lucas Silva: Disjuntor de Hyrax, retorno previsto em 01/12/2026'));
+});
+
+// 5. verificarNomeExistenteOuParecido
+test('verificarNomeExistenteOuParecido: detecta nome identico', () => {
+  const nomes = ['Carlos Eduardo da Silva', 'Beatriz Albuquerque'];
+  const res = verificarNomeExistenteOuParecido('Carlos Eduardo da Silva', nomes);
+  assert.equal(res.existeExato, true);
+  assert.equal(res.temParecido, true);
+});
+
+test('verificarNomeExistenteOuParecido: detecta nome parecido (distancia de edicao <= 2)', () => {
+  const nomes = ['Carlos Eduardo da Silva', 'Beatriz Albuquerque'];
+  const res = verificarNomeExistenteOuParecido('Carlos Eduardo da Silve', nomes);
+  assert.equal(res.existeExato, false);
+  assert.equal(res.temParecido, true);
+  assert.equal(res.nomeParecido, 'Carlos Eduardo da Silva');
+});
+
+test('verificarNomeExistenteOuParecido: aceita nome diferente sem conflito', () => {
+  const nomes = ['Carlos Eduardo da Silva', 'Beatriz Albuquerque'];
+  const res = verificarNomeExistenteOuParecido('Rodrigo Fernandes', nomes);
+  assert.equal(res.existeExato, false);
+  assert.equal(res.temParecido, false);
+  assert.equal(res.nomeParecido, null);
+});
+
+// 6. filtrarPedidosPorTipo e filtrarPacientesPorTipo
+test('filtrarPedidosPorTipo e filtrarPacientesPorTipo: filtros operam com total compatibilidade', () => {
+  const pedidos: AlinhadorPedido[] = [
+    { ...pedidoBase, id: 'p1', tipo: 'alinhador' },
+    { ...pedidoBase, id: 'p2', tipo: 'ortopedico', aparelho: 'Hyrax' },
+    { ...pedidoBase, id: 'p3', tipo: undefined }
+  ];
+  assert.equal(filtrarPedidosPorTipo(pedidos, 'alinhador').length, 2);
+  assert.equal(filtrarPedidosPorTipo(pedidos, 'ortopedico').length, 1);
+  assert.equal(filtrarPedidosPorTipo(pedidos, 'todos').length, 3);
+
+  const pacientes: AlinhadorPaciente[] = [
+    { id: 'pac1', nome: 'P1', turma_id: 't1', total_alinhadores: 10, observacao: null, ativo: true, tipo: 'alinhador' },
+    { id: 'pac2', nome: 'P2', turma_id: 't1', total_alinhadores: null, aparelho_previsto: 'Hyrax', observacao: null, ativo: true, tipo: 'ortopedico' }
+  ];
+  assert.equal(filtrarPacientesPorTipo(pacientes, 'alinhador').length, 1);
+  assert.equal(filtrarPacientesPorTipo(pacientes, 'ortopedico').length, 1);
+  assert.equal(filtrarPacientesPorTipo(pacientes).length, 2);
+});
+
+// 7. planejarSincronizacaoOrtopedicos
+test('planejarSincronizacaoOrtopedicos: gera um pedido inicial para paciente ativo no proximo bloco clinico', () => {
+  const plano = planejarSincronizacaoOrtopedicos({
+    pacientes: [
+      { id: 'orto-1', turma_id: 'turma-esp1', ativo: true, tipo: 'ortopedico', aparelho_previsto: 'Disjuntor de Hyrax' }
+    ],
+    datasPorTurma: {
+      'turma-esp1': ['2026-11-20', '2026-11-21', '2026-12-15']
+    },
+    pedidosExistentes: [],
+    hoje: '2026-11-10'
+  });
+
+  assert.equal(plano.inserir.length, 1);
+  assert.equal(plano.inserir[0].paciente_id, 'orto-1');
+  assert.equal(plano.inserir[0].data_retorno, '2026-11-20');
+  assert.equal(plano.inserir[0].tipo, 'ortopedico');
+  assert.equal(plano.inserir[0].aparelho, 'Disjuntor de Hyrax');
+});
+
+test('planejarSincronizacaoOrtopedicos: nao gera novos pedidos para paciente que ja possui pedido (um pedido por paciente)', () => {
+  const plano = planejarSincronizacaoOrtopedicos({
+    pacientes: [
+      { id: 'orto-1', turma_id: 'turma-esp1', ativo: true, tipo: 'ortopedico', aparelho_previsto: 'Disjuntor de Hyrax' }
+    ],
+    datasPorTurma: {
+      'turma-esp1': ['2026-11-20', '2026-11-21', '2026-12-15']
+    },
+    pedidosExistentes: [
+      { id: 'ped-antigo', paciente_id: 'orto-1', data_retorno: '2026-11-20', tipo: 'ortopedico', aparelho: 'Disjuntor de Hyrax', solicitado_em: null }
+    ],
+    hoje: '2026-11-10'
+  });
+
+  assert.equal(plano.inserir.length, 0);
+});
+
+test('planejarSincronizacaoOrtopedicos: pedido solicitado nao gera pedido no proximo bloco (depois de solicitado nao alerta e nao gera duplicata)', () => {
+  const plano = planejarSincronizacaoOrtopedicos({
+    pacientes: [
+      { id: 'orto-1', turma_id: 'turma-esp1', ativo: true, tipo: 'ortopedico', aparelho_previsto: 'Disjuntor de Hyrax' }
+    ],
+    datasPorTurma: {
+      'turma-esp1': ['2026-11-20', '2026-11-21', '2026-12-15']
+    },
+    pedidosExistentes: [
+      { id: 'ped-solic', paciente_id: 'orto-1', data_retorno: '2026-11-20', tipo: 'ortopedico', aparelho: 'Disjuntor de Hyrax', solicitado_em: '2026-11-01' }
+    ],
+    hoje: '2026-11-10'
+  });
+
+  assert.equal(plano.inserir.length, 0);
+});
+
+test('planejarSincronizacaoOrtopedicos: paciente inativo nao recebe pedido', () => {
+  const plano = planejarSincronizacaoOrtopedicos({
+    pacientes: [
+      { id: 'orto-inativo', turma_id: 'turma-esp1', ativo: false, tipo: 'ortopedico', aparelho_previsto: 'Hyrax' }
+    ],
+    datasPorTurma: {
+      'turma-esp1': ['2026-11-20']
+    },
+    pedidosExistentes: [],
+    hoje: '2026-11-10'
+  });
+
+  assert.equal(plano.inserir.length, 0);
+});
+
+test('planejarSincronizacaoOrtopedicos: turma sem calendario futuro nao gera pedido', () => {
+  const plano = planejarSincronizacaoOrtopedicos({
+    pacientes: [
+      { id: 'orto-1', turma_id: 'turma-vazia', ativo: true, tipo: 'ortopedico', aparelho_previsto: 'Hyrax' }
+    ],
+    datasPorTurma: {
+      'turma-vazia': ['2026-10-01']
+    },
+    pedidosExistentes: [],
+    hoje: '2026-11-10'
+  });
+
+  assert.equal(plano.inserir.length, 0);
+});
+
+// 8. Idempotencia da sincronizacao de alinhadores
+test('planejarSincronizacao: sincronizacao de alinhadores continua estritamente idempotente', () => {
+  const pacientes = [
+    { id: 'pac-alin-1', turma_id: 't-esp1', ativo: true }
+  ];
+  const datasPorTurma = {
+    't-esp1': ['2026-12-01', '2026-12-02', '2027-01-10']
+  };
+
+  const plano1 = planejarSincronizacao({
+    pacientes,
+    datasPorTurma,
+    pedidosExistentes: [],
+    hoje: '2026-11-10'
+  });
+  assert.equal(plano1.inserir.length, 1);
+  assert.equal(plano1.inserir[0].data_retorno, '2026-12-01');
+  assert.equal(plano1.apagarIds.length, 0);
+
+  const pedidosBanco = [
+    { id: 'ped-alin-criado', paciente_id: 'pac-alin-1', data_retorno: '2026-12-01', solicitado_em: null }
+  ];
+  const plano2 = planejarSincronizacao({
+    pacientes,
+    datasPorTurma,
+    pedidosExistentes: pedidosBanco,
+    hoje: '2026-11-10'
+  });
+
+  assert.equal(plano2.inserir.length, 0);
+  assert.equal(plano2.apagarIds.length, 0);
+});
+
+console.log('\n================================================================');
+console.log(`RESULTADO: ${passou} passaram, ${falhou} falharam (Total: ${passou + falhou})`);
+console.log('================================================================');
+
+if (falhou > 0) {
+  process.exit(1);
 }
 
-// TESTE 7: Aviso de nome parecido sem bloqueio
-{
-  console.log('Teste 7: Aviso de nome parecido sem bloqueio');
-  const nomesCadastrados = [
-    'Carlos Eduardo da Silva',
-    'Beatriz Albuquerque',
-    'Mariana Ribeiro'
-  ];
-
-  // Nome identico
-  const checkExato = verificarNomeExistenteOuParecido('Carlos Eduardo da Silva', nomesCadastrados);
-  assert.equal(checkExato.existeExato, true);
-  assert.equal(checkExato.temParecido, true);
-
-  // Nome com pequenas diferencas/acentuacao/typo (distancia <= 2)
-  const checkParecido = verificarNomeExistenteOuParecido('Carlos Eduardo da Silve', nomesCadastrados);
-  assert.equal(checkParecido.existeExato, false);
-  assert.equal(checkParecido.temParecido, true);
-  assert.equal(checkParecido.nomeParecido, 'Carlos Eduardo da Silva');
-
-  // Nome completamente diferente
-  const checkDiferente = verificarNomeExistenteOuParecido('Rodrigo Fernandes', nomesCadastrados);
-  assert.equal(checkDiferente.existeExato, false);
-  assert.equal(checkDiferente.temParecido, false);
-  assert.equal(checkDiferente.nomeParecido, null);
-  console.log('  [OK] Verificacao de similaridade de nomes funciona sem bloqueio.');
-}
-
-// TESTE 8: Filtro por tipo
-{
-  console.log('Teste 8: Filtro por tipo de pedido e paciente');
-
-  const pedidosLista: AlinhadorPedido[] = [
-    {
-      id: 'p1',
-      paciente_id: 'pac1',
-      data_retorno: '2026-12-01',
-      alinhador_de: 1,
-      alinhador_ate: 2,
-      solicitado_em: null,
-      lote_id: null,
-      observacao: null,
-      mensagem_enviada_em: null,
-      tipo: 'alinhador'
-    },
-    {
-      id: 'p2',
-      paciente_id: 'pac2',
-      data_retorno: '2026-12-01',
-      alinhador_de: null,
-      alinhador_ate: null,
-      solicitado_em: null,
-      lote_id: null,
-      observacao: null,
-      mensagem_enviada_em: null,
-      tipo: 'ortopedico',
-      aparelho: 'Disjuntor de Hyrax'
-    },
-    {
-      id: 'p3',
-      paciente_id: 'pac3',
-      data_retorno: '2026-12-05',
-      alinhador_de: 3,
-      alinhador_ate: 4,
-      solicitado_em: null,
-      lote_id: null,
-      observacao: null,
-      mensagem_enviada_em: null
-      // tipo undefined -> considerado alinhador
-    }
-  ];
-
-  const soAlinhadores = filtrarPedidosPorTipo(pedidosLista, 'alinhador');
-  assert.equal(soAlinhadores.length, 2);
-  assert.deepEqual(soAlinhadores.map((p) => p.id), ['p1', 'p3']);
-
-  const soOrtopedicos = filtrarPedidosPorTipo(pedidosLista, 'ortopedico');
-  assert.equal(soOrtopedicos.length, 1);
-  assert.deepEqual(soOrtopedicos.map((p) => p.id), ['p2']);
-
-  const todosPedidos = filtrarPedidosPorTipo(pedidosLista, 'todos');
-  assert.equal(todosPedidos.length, 3);
-
-  const pacientesLista: AlinhadorPaciente[] = [
-    {
-      id: 'pac1',
-      nome: 'Paciente 1',
-      turma_id: 't1',
-      total_alinhadores: 10,
-      observacao: null,
-      ativo: true,
-      tipo: 'alinhador'
-    },
-    {
-      id: 'pac2',
-      nome: 'Paciente 2',
-      turma_id: 't1',
-      total_alinhadores: null,
-      aparelho_previsto: 'Hyrax',
-      observacao: null,
-      ativo: true,
-      tipo: 'ortopedico'
-    }
-  ];
-
-  assert.equal(filtrarPacientesPorTipo(pacientesLista, 'alinhador').length, 1);
-  assert.equal(filtrarPacientesPorTipo(pacientesLista, 'ortopedico').length, 1);
-  assert.equal(filtrarPacientesPorTipo(pacientesLista).length, 2);
-  console.log('  [OK] Filtros por tipo operam com total compatibilidade.');
-}
-
-console.log('--- TODOS OS TESTES DE ORTOPEDICOS PASSARAM COM SUCESSO! ---');
