@@ -20,7 +20,8 @@ import {
   formatarDataBR,
   formatarDataISO,
   agruparBlocos,
-  BlocoClinica
+  BlocoClinica,
+  TipoTratamento
 } from '@/lib/alinhadoresTypes';
 import {
   listarPacientes,
@@ -29,21 +30,25 @@ import {
   listarDatasCalendario,
   listarPedidos,
   criarPedidosEmLote,
-  sincronizarProximosPedidos
+  sincronizarProximosPedidos,
+  criarPedidoOrtopedico
 } from '@/lib/alinhadoresService';
+import { verificarNomeExistenteOuParecido } from '@/lib/ortopedicosPure';
 
 interface AlinhadoresPacientesTabProps {
   turmas: Turma[];
   turmaSelecionadaId: string;
   onSelecionarTurma: (turmaId: string) => void;
   onIrParaCalendario: () => void;
+  tipo?: TipoTratamento;
 }
 
 export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = ({
   turmas,
   turmaSelecionadaId,
   onSelecionarTurma,
-  onIrParaCalendario
+  onIrParaCalendario,
+  tipo = 'alinhador'
 }) => {
   const [pacientes, setPacientes] = useState<AlinhadorPaciente[]>([]);
   const [pacientesComRetornoFuturo, setPacientesComRetornoFuturo] = useState<Set<string>>(new Set());
@@ -62,10 +67,12 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
   const [formNome, setFormNome] = useState('');
   const [formTurmaId, setFormTurmaId] = useState(turmaSelecionadaId);
   const [formTotalAlinhadores, setFormTotalAlinhadores] = useState<string>('');
+  const [formAparelhoPrevisto, setFormAparelhoPrevisto] = useState('');
   const [formObservacao, setFormObservacao] = useState('');
+  const [avisoSimilaridade, setAvisoSimilaridade] = useState<string | null>(null);
   const [salvandoPaciente, setSalvandoPaciente] = useState(false);
 
-  // Modal Adicionar Retornos
+  // Modal Adicionar Retornos (Alinhadores)
   const [pacienteParaRetornos, setPacienteParaRetornos] = useState<AlinhadorPaciente | null>(null);
   const [blocosFuturosCalendario, setBlocosFuturosCalendario] = useState<BlocoClinica[]>([]);
   const [carregandoCalendario, setCarregandoCalendario] = useState(false);
@@ -73,6 +80,13 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
   const [retornoAlinhadorDe, setRetornoAlinhadorDe] = useState<string>('');
   const [retornoAlinhadorAte, setRetornoAlinhadorAte] = useState<string>('');
   const [salvandoRetornos, setSalvandoRetornos] = useState(false);
+
+  // Modal Novo Aparelho Ortopedico (Ortopedicos)
+  const [pacienteParaNovoAparelho, setPacienteParaNovoAparelho] = useState<AlinhadorPaciente | null>(null);
+  const [dataRetornoAparelho, setDataRetornoAparelho] = useState<string>('');
+  const [nomeNovoAparelho, setNomeNovoAparelho] = useState<string>('');
+  const [obsNovoAparelho, setObsNovoAparelho] = useState<string>('');
+  const [salvandoNovoAparelho, setSalvandoNovoAparelho] = useState(false);
 
   const hojeISO = formatarDataISO(new Date());
 
@@ -92,7 +106,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
       setErro(null);
 
       const [listaPacientes, listaPedidos, datasTurma] = await Promise.all([
-        listarPacientes(turmaSelecionadaId, !mostrarInativos),
+        listarPacientes(turmaSelecionadaId, !mostrarInativos, tipo),
         listarPedidos({ turmaId: turmaSelecionadaId }),
         listarDatasCalendario(turmaSelecionadaId)
       ]);
@@ -112,7 +126,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
         return next;
       });
 
-      // Mapear pacientes que têm ao menos um retorno futuro (data_retorno > hoje)
+      // Mapear pacientes que tem ao menos um retorno futuro (data_retorno > hoje)
       const comFuturo = new Set<string>();
       for (const p of listaPedidos) {
         if (p.data_retorno > hojeISO) {
@@ -130,7 +144,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
 
   useEffect(() => {
     carregarDados();
-  }, [turmaSelecionadaId, mostrarInativos]);
+  }, [turmaSelecionadaId, mostrarInativos, tipo]);
 
   // Pacientes filtrados por busca
   const pacientesFiltrados = useMemo(() => {
@@ -148,7 +162,9 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     setFormNome('');
     setFormTurmaId(turmaSelecionadaId);
     setFormTotalAlinhadores('');
+    setFormAparelhoPrevisto('');
     setFormObservacao('');
+    setAvisoSimilaridade(null);
     setModalPacienteAberto(true);
   };
 
@@ -158,8 +174,30 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     setFormNome(paciente.nome);
     setFormTurmaId(paciente.turma_id);
     setFormTotalAlinhadores(paciente.total_alinhadores !== null ? String(paciente.total_alinhadores) : '');
+    setFormAparelhoPrevisto(paciente.aparelho_previsto || '');
     setFormObservacao(paciente.observacao || '');
+    setAvisoSimilaridade(null);
     setModalPacienteAberto(true);
+  };
+
+  // Tratar digitacao do nome com checagem de similaridade
+  const handleNomeChange = (val: string) => {
+    setFormNome(val);
+    if (!val.trim()) {
+      setAvisoSimilaridade(null);
+      return;
+    }
+    const outrosNomes = pacientes
+      .filter((p) => p.id !== pacienteEmEdicao?.id)
+      .map((p) => p.nome);
+    const checagem = verificarNomeExistenteOuParecido(val, outrosNomes);
+    if (checagem.temParecido && checagem.nomeParecido && checagem.nomeParecido.toLowerCase() !== val.trim().toLowerCase()) {
+      setAvisoSimilaridade(
+        `Atencao: nome similar ao paciente existente "${checagem.nomeParecido}". Se forem pessoas diferentes, prossiga normalmente.`
+      );
+    } else {
+      setAvisoSimilaridade(null);
+    }
   };
 
   // Salvar paciente (criar ou editar)
@@ -168,16 +206,16 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     const nomeLimpo = formNome.trim();
 
     if (!nomeLimpo) {
-      setErro('O nome do paciente é obrigatório.');
+      setErro('O nome do paciente e obrigatorio.');
       return;
     }
 
     if (!formTurmaId) {
-      setErro('Selecione uma turma válida.');
+      setErro('Selecione uma turma valida.');
       return;
     }
 
-    // Validação de unicidade por turma (case-insensitive)
+    // Validacao de unicidade por turma (case-insensitive)
     const nomeNormalizado = nomeLimpo.toLowerCase();
     const existeDuplicado = pacientes.some(
       (p) =>
@@ -187,13 +225,13 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     );
 
     if (existeDuplicado) {
-      setErro(`Já existe um paciente cadastrado com o nome "${nomeLimpo}" nesta turma.`);
+      setErro(`Ja existe um paciente cadastrado com o nome "${nomeLimpo}" nesta turma.`);
       return;
     }
 
     const totalAlinhadoresNum = formTotalAlinhadores.trim() !== '' ? parseInt(formTotalAlinhadores, 10) : null;
-    if (totalAlinhadoresNum !== null && (isNaN(totalAlinhadoresNum) || totalAlinhadoresNum < 1)) {
-      setErro('O total de alinhadores deve ser um número inteiro positivo.');
+    if (tipo === 'alinhador' && totalAlinhadoresNum !== null && (isNaN(totalAlinhadoresNum) || totalAlinhadoresNum < 1)) {
+      setErro('O total de alinhadores deve ser um numero inteiro positivo.');
       return;
     }
 
@@ -205,7 +243,8 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
         await editarPaciente(pacienteEmEdicao.id, {
           nome: nomeLimpo,
           turma_id: formTurmaId,
-          total_alinhadores: totalAlinhadoresNum,
+          total_alinhadores: tipo === 'ortopedico' ? null : totalAlinhadoresNum,
+          aparelho_previsto: tipo === 'ortopedico' ? (formAparelhoPrevisto.trim() || null) : undefined,
           observacao: formObservacao.trim() || null
         });
         setSucesso(`Paciente "${nomeLimpo}" atualizado com sucesso!`);
@@ -213,11 +252,15 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
         await criarPaciente({
           nome: nomeLimpo,
           turma_id: formTurmaId,
-          total_alinhadores: totalAlinhadoresNum,
+          total_alinhadores: tipo === 'ortopedico' ? null : totalAlinhadoresNum,
+          aparelho_previsto: tipo === 'ortopedico' ? (formAparelhoPrevisto.trim() || null) : undefined,
           observacao: formObservacao.trim() || null,
-          ativo: true
+          ativo: true,
+          tipo
         });
-        await sincronizarProximosPedidos();
+        if (tipo === 'alinhador') {
+          await sincronizarProximosPedidos();
+        }
         setSucesso(`Paciente "${nomeLimpo}" cadastrado com sucesso!`);
       }
 
@@ -338,11 +381,68 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
     }
   };
 
+  // Abrir modal Novo Aparelho Ortopedico
+  const handleAbrirNovoAparelho = async (paciente: AlinhadorPaciente) => {
+    setPacienteParaNovoAparelho(paciente);
+    setNomeNovoAparelho(paciente.aparelho_previsto || '');
+    setDataRetornoAparelho('');
+    setObsNovoAparelho('');
+    try {
+      setCarregandoCalendario(true);
+      const lista = await listarDatasCalendario(paciente.turma_id);
+      const blocos = agruparBlocos(lista.map((c) => c.data));
+      const futuros = blocos.filter((b) => b.base > hojeISO);
+      setBlocosFuturosCalendario(futuros);
+      if (futuros.length > 0) {
+        setDataRetornoAparelho(futuros[0].base);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErro(err.message || 'Erro ao carregar datas do calendario.');
+    } finally {
+      setCarregandoCalendario(false);
+    }
+  };
+
+  // Salvar novo pedido de aparelho ortopedico
+  const handleSalvarNovoAparelho = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pacienteParaNovoAparelho || !dataRetornoAparelho) {
+      setErro('Selecione uma data de retorno valida.');
+      return;
+    }
+    const nomeLimpo = nomeNovoAparelho.trim();
+    if (!nomeLimpo) {
+      setErro('Informe o nome do aparelho ortopedico.');
+      return;
+    }
+
+    try {
+      setSalvandoNovoAparelho(true);
+      setErro(null);
+      await criarPedidoOrtopedico({
+        paciente_id: pacienteParaNovoAparelho.id,
+        data_retorno: dataRetornoAparelho,
+        aparelho: nomeLimpo,
+        observacao: obsNovoAparelho.trim() || null
+      });
+
+      setPacienteParaNovoAparelho(null);
+      setSucesso(`Pedido de "${nomeLimpo}" para ${pacienteParaNovoAparelho.nome} registrado com sucesso!`);
+      await carregarDados();
+    } catch (err: any) {
+      console.error(err);
+      setErro(err.message || 'Erro ao criar pedido ortopedico.');
+    } finally {
+      setSalvandoNovoAparelho(false);
+    }
+  };
+
   const turmaAtual = turmas.find((t) => t.id === turmaSelecionadaId);
 
   return (
     <div className="space-y-6">
-      {/* Barra de Filtros e Ação */}
+      {/* Barra de Filtros e Acao */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3 flex-1 flex-wrap">
           {/* Seletor de Turma */}
@@ -385,14 +485,16 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
           </label>
         </div>
 
-        {/* Botão Novo Paciente */}
+        {/* Botao Novo Paciente */}
         <button
           type="button"
           onClick={abrirModalNovo}
           className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
-          <span>Novo Paciente</span>
+          <span>
+            {tipo === 'ortopedico' ? 'Novo Paciente Ortopedico' : 'Novo Paciente de Alinhadores'}
+          </span>
         </button>
       </div>
 
@@ -416,10 +518,12 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Pacientes ({pacientesFiltrados.length})
+              {tipo === 'ortopedico'
+                ? `Pacientes de Aparelhos Ortopedicos (${pacientesFiltrados.length})`
+                : `Pacientes de Alinhadores (${pacientesFiltrados.length})`}
             </h4>
             <p className="text-[11px] text-slate-500">
-              Acompanhamento de alinhadores da turma {turmaAtual?.nome}
+              Acompanhamento de {tipo === 'ortopedico' ? 'ortopedicos' : 'alinhadores'} da turma {turmaAtual?.nome}
             </p>
           </div>
           {carregando && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
@@ -435,7 +539,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
             <Users className="w-8 h-8 text-slate-300 mx-auto" />
             <p className="font-semibold text-slate-700">Nenhum paciente localizado.</p>
             <p className="text-[11px] text-slate-400">
-              {buscaNome ? 'Tente ajustar os termos da busca.' : 'Clique em "Novo Paciente" para cadastrar.'}
+              {buscaNome ? 'Tente ajustar os termos da busca.' : 'Clique no botao acima para cadastrar.'}
             </p>
           </div>
         ) : (
@@ -445,11 +549,13 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 text-[11px] font-bold uppercase tracking-wider">
                   <th className="py-3 px-4">Paciente</th>
                   <th className="py-3 px-4">Turma</th>
-                  <th className="py-3 px-4 text-center">Total Previsto</th>
+                  <th className="py-3 px-4 text-center">
+                    {tipo === 'ortopedico' ? 'Aparelho Previsto' : 'Total Previsto'}
+                  </th>
                   <th className="py-3 px-4">Status Retornos</th>
-                  <th className="py-3 px-4">Observações</th>
+                  <th className="py-3 px-4">Observacoes</th>
                   <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4 text-right">Ações</th>
+                  <th className="py-3 px-4 text-right">Acoes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -474,9 +580,17 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                         {turmas.find((t) => t.id === paciente.turma_id)?.nome || '-'}
                       </td>
 
-                      {/* Total alinhadores */}
-                      <td className="py-3 px-4 text-center font-mono">
-                        {paciente.total_alinhadores !== null ? paciente.total_alinhadores : '-'}
+                      {/* Total alinhadores ou Aparelho Previsto */}
+                      <td className="py-3 px-4 text-center">
+                        {tipo === 'ortopedico' ? (
+                          <span className="font-semibold text-purple-800 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                            {paciente.aparelho_previsto || '-'}
+                          </span>
+                        ) : (
+                          <span className="font-mono">
+                            {paciente.total_alinhadores !== null ? paciente.total_alinhadores : '-'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Status de Retorno com Alerta Proeminente */}
@@ -484,7 +598,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                         {precisaAlertaSemRetorno ? (
                           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
                             <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                            <span>Turma sem blocos futuros</span>
+                            <span>Sem pedidos futuros</span>
                           </div>
                         ) : (
                           <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium">
@@ -494,7 +608,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                         )}
                       </td>
 
-                      {/* Observações */}
+                      {/* Observacoes */}
                       <td className="py-3 px-4 text-slate-500 max-w-xs truncate text-[11px]" title={paciente.observacao || ''}>
                         {paciente.observacao || '-'}
                       </td>
@@ -512,19 +626,31 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                         </span>
                       </td>
 
-                      {/* Ações */}
+                      {/* Acoes */}
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {/* Adicionar Retornos */}
-                          <button
-                            type="button"
-                            onClick={() => handleAbrirAdicionarRetornos(paciente)}
-                            className="px-2.5 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                            title="Adicionar datas de retorno"
-                          >
-                            <CalendarPlus className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Retornos</span>
-                          </button>
+                          {/* Acao principal: Novo Aparelho (ortopedico) ou Retornos (alinhador) */}
+                          {tipo === 'ortopedico' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirNovoAparelho(paciente)}
+                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                              title="Registrar novo pedido de aparelho"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Novo Aparelho</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirAdicionarRetornos(paciente)}
+                              className="px-2.5 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                              title="Adicionar datas de retorno"
+                            >
+                              <CalendarPlus className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Retornos</span>
+                            </button>
+                          )}
 
                           {/* Editar */}
                           <button
@@ -566,12 +692,16 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-800">
-                {pacienteEmEdicao ? 'Editar Paciente' : 'Novo Paciente de Alinhadores'}
+                {pacienteEmEdicao
+                  ? 'Editar Paciente'
+                  : tipo === 'ortopedico'
+                  ? 'Novo Paciente Ortopedico'
+                  : 'Novo Paciente de Alinhadores'}
               </h3>
             </div>
 
             <form onSubmit={handleSalvarPaciente} className="space-y-4">
-              {/* Nome */}
+              {/* Nome com validacao em tempo real de similaridade */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Nome Completo <span className="text-rose-500">*</span>
@@ -579,11 +709,17 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                 <input
                   type="text"
                   value={formNome}
-                  onChange={(e) => setFormNome(e.target.value)}
+                  onChange={(e) => handleNomeChange(e.target.value)}
                   placeholder="Nome do paciente"
                   className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   required
                 />
+                {avisoSimilaridade && (
+                  <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800 flex items-start gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>{avisoSimilaridade}</span>
+                  </div>
+                )}
               </div>
 
               {/* Turma */}
@@ -605,31 +741,52 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                 </select>
               </div>
 
-              {/* Total previsto de alinhadores */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Total Previsto de Alinhadores (opcional)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={formTotalAlinhadores}
-                  onChange={(e) => setFormTotalAlinhadores(e.target.value)}
-                  placeholder="Ex: 14"
-                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
+              {/* Campo especifico do tipo: Aparelho Previsto (ortopedico) ou Total Alinhadores (alinhador) */}
+              {tipo === 'ortopedico' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Aparelho Previsto <span className="text-slate-400 font-normal">(opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formAparelhoPrevisto}
+                    onChange={(e) => setFormAparelhoPrevisto(e.target.value)}
+                    placeholder="Ex: Disjuntor de Hyrax, Bionator, Placa de Hawley"
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Total Previsto de Alinhadores (opcional)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formTotalAlinhadores}
+                    onChange={(e) => setFormTotalAlinhadores(e.target.value)}
+                    placeholder="Ex: 14"
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              )}
 
-              {/* Observação */}
+              {/* Observacoes com contador de caracteres ate 500 */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Observações (opcional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Observacoes (opcional)
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    {formObservacao.length} / 500
+                  </span>
+                </div>
                 <textarea
                   rows={3}
+                  maxLength={500}
                   value={formObservacao}
                   onChange={(e) => setFormObservacao(e.target.value)}
-                  placeholder="Informações adicionais do tratamento..."
+                  placeholder="Informacoes adicionais do tratamento..."
                   className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
@@ -649,7 +806,7 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                   className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   {salvandoPaciente && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>{pacienteEmEdicao ? 'Salvar Alterações' : 'Cadastrar Paciente'}</span>
+                  <span>{pacienteEmEdicao ? 'Salvar Alteracoes' : 'Cadastrar Paciente'}</span>
                 </button>
               </div>
             </form>
@@ -814,6 +971,127 @@ export const AlinhadoresPacientesTab: React.FC<AlinhadoresPacientesTabProps> = (
                 <span>Salvar {datasSelecionadas.length} Retorno(s)</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Novo Aparelho Ortopedico */}
+      {pacienteParaNovoAparelho && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">
+                  Novo Pedido de Aparelho Ortopedico
+                </h3>
+                <p className="text-xs text-purple-700 font-semibold mt-0.5">
+                  {pacienteParaNovoAparelho.nome} (Turma: {turmas.find((t) => t.id === pacienteParaNovoAparelho.turma_id)?.nome})
+                </p>
+              </div>
+            </div>
+
+            {carregandoCalendario ? (
+              <div className="p-8 text-center text-xs text-slate-500 flex flex-col items-center gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                <span>Buscando datas do calendario...</span>
+              </div>
+            ) : blocosFuturosCalendario.length === 0 ? (
+              <div className="p-6 bg-amber-50 border border-amber-200 rounded-xl space-y-3 text-xs text-amber-900">
+                <div className="flex items-center gap-2 font-bold text-amber-800">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Nenhum bloco futuro encontrado</span>
+                </div>
+                <p>
+                  Nao ha blocos de clinica futuros cadastrados no calendario desta turma.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPacienteParaNovoAparelho(null);
+                    onIrParaCalendario();
+                  }}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span>Cadastrar datas na aba Calendario</span>
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSalvarNovoAparelho} className="space-y-4">
+                {/* Data de Retorno (Bloco Clinico) */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Data de Retorno Prevista <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={dataRetornoAparelho}
+                    onChange={(e) => setDataRetornoAparelho(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    required
+                  >
+                    {blocosFuturosCalendario.map((b) => (
+                      <option key={b.base} value={b.base}>
+                        {formatarDataBR(b.base)} ({b.dias.length} {b.dias.length === 1 ? 'dia' : 'dias'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Nome do Aparelho */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nome do Aparelho Ortopedico <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={nomeNovoAparelho}
+                    onChange={(e) => setNomeNovoAparelho(e.target.value)}
+                    placeholder="Ex: Disjuntor de Hyrax, Bionator, Placa de Hawley"
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    required
+                  />
+                </div>
+
+                {/* Observacoes */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Observacoes do Pedido (opcional)
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      {obsNovoAparelho.length} / 500
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    maxLength={500}
+                    value={obsNovoAparelho}
+                    onChange={(e) => setObsNovoAparelho(e.target.value)}
+                    placeholder="Ex: Cor do acrilico, parafusos expansores, especificacoes tecnicas..."
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setPacienteParaNovoAparelho(null)}
+                    disabled={salvandoNovoAparelho}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={salvandoNovoAparelho}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    {salvandoNovoAparelho && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>Registrar Pedido de Aparelho</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

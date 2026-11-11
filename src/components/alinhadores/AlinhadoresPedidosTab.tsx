@@ -33,8 +33,15 @@ import {
   gerarMensagemEmpresa,
   agruparBlocos,
   proximoBloco,
-  PedidoParaMensagem
+  PedidoParaMensagem,
+  TipoTratamento,
+  TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO
 } from '@/lib/alinhadoresTypes';
+import {
+  calcularStatusPedidoOrtopedico,
+  calcularPrazoLimiteOrtopedico,
+  gerarMensagemLaboratorioOrtopedico
+} from '@/lib/ortopedicosPure';
 import {
   listarPedidos,
   editarPedido,
@@ -57,6 +64,7 @@ interface AlinhadoresPedidosTabProps {
 }
 
 type FiltroStatus = 'nao_solicitados' | 'todos' | 'atrasado' | 'vencendo' | 'pendente' | 'solicitado' | 'expirado';
+type FiltroTipo = 'todos' | 'alinhador' | 'ortopedico';
 type ModoVisao = 'proximo' | 'todos';
 
 export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
@@ -77,6 +85,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
   // Filtros
   const [filtroTurma, setFiltroTurma] = useState<string>(turmaSelecionadaId || 'todas');
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('nao_solicitados');
+  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos');
   const [filtroMes, setFiltroMes] = useState<string>('todos');
   const [buscaPaciente, setBuscaPaciente] = useState<string>('');
 
@@ -109,6 +118,21 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
   const hojeISO = formatarDataISO(new Date());
   const hojeDate = parseDataLocal(hojeISO);
   const antecedenciaDias = config?.antecedencia_dias || 20;
+  const antecedenciaOrtopedicoDias = config?.antecedencia_ortopedico_dias || 20;
+
+  const obterStatus = (p: PedidoComPaciente) => {
+    if (p.tipo === 'ortopedico') {
+      return calcularStatusPedidoOrtopedico(p, hojeDate, antecedenciaOrtopedicoDias);
+    }
+    return calcularStatusPedido(p, hojeDate, antecedenciaDias);
+  };
+
+  const obterPrazoLimite = (p: PedidoComPaciente) => {
+    if (p.tipo === 'ortopedico') {
+      return calcularPrazoLimiteOrtopedico(p.data_retorno, antecedenciaOrtopedicoDias);
+    }
+    return calcularPrazoLimite(p.data_retorno, antecedenciaDias);
+  };
 
   // Sincronizar filtroTurma caso a prop mude
   useEffect(() => {
@@ -203,7 +227,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     let solicitados = 0;
 
     for (const p of pedidosNoEscopoTurma) {
-      const st = calcularStatusPedido(p, hojeDate, antecedenciaDias);
+      const st = obterStatus(p);
       if (st === 'atrasado') atrasados++;
       else if (st === 'vencendo') vencendo++;
       else if (st === 'pendente') pendentes++;
@@ -212,7 +236,7 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     }
 
     return { atrasados, vencendo, pendentes, solicitados };
-  }, [pedidosNoEscopoTurma, hojeDate, antecedenciaDias]);
+  }, [pedidosNoEscopoTurma, hojeDate, antecedenciaDias, antecedenciaOrtopedicoDias]);
 
   // Pedidos aguardando comunicação à empresa (solicitados com mensagem_enviada_em null)
   const pedidosAguardandoComunicacao = useMemo(() => {
@@ -247,13 +271,18 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
       res = res.filter((p) => pedidosProximoRetornoIds.has(p.id));
     }
 
+    // Filtro por tipo
+    if (filtroTipo !== 'todos') {
+      res = res.filter((p) => (p.tipo || 'alinhador') === filtroTipo);
+    }
+
     // Filtro por status
     if (filtroStatus === 'nao_solicitados') {
-      res = res.filter((p) => !p.solicitado_em && calcularStatusPedido(p, hojeDate, antecedenciaDias) !== 'expirado');
+      res = res.filter((p) => !p.solicitado_em && obterStatus(p) !== 'expirado');
     } else if (filtroStatus === 'expirado') {
-      res = res.filter((p) => calcularStatusPedido(p, hojeDate, antecedenciaDias) === 'expirado');
+      res = res.filter((p) => obterStatus(p) === 'expirado');
     } else if (filtroStatus !== 'todos') {
-      res = res.filter((p) => calcularStatusPedido(p, hojeDate, antecedenciaDias) === filtroStatus);
+      res = res.filter((p) => obterStatus(p) === filtroStatus);
     }
 
     // Filtro por mês
@@ -269,8 +298,8 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
 
     // Ordenação padrão: Prazo limite ascendente (mais urgentes primeiro)
     res.sort((a, b) => {
-      const prazoA = calcularPrazoLimite(a.data_retorno, antecedenciaDias).getTime();
-      const prazoB = calcularPrazoLimite(b.data_retorno, antecedenciaDias).getTime();
+      const prazoA = obterPrazoLimite(a).getTime();
+      const prazoB = obterPrazoLimite(b).getTime();
       if (prazoA !== prazoB) {
         return prazoA - prazoB;
       }
@@ -282,19 +311,21 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     pedidosNoEscopoTurma,
     modoVisao,
     pedidosProximoRetornoIds,
+    filtroTipo,
     filtroStatus,
     filtroMes,
     buscaPaciente,
     hojeDate,
-    antecedenciaDias
+    antecedenciaDias,
+    antecedenciaOrtopedicoDias
   ]);
 
   // Apenas pedidos não solicitados (e não expirados) podem ser selecionados para solicitação
   const pedidosElegiveisParaSelecao = useMemo(() => {
     return pedidosFiltrados.filter(
-      (p) => !p.solicitado_em && calcularStatusPedido(p, hojeDate, antecedenciaDias) !== 'expirado'
+      (p) => !p.solicitado_em && obterStatus(p) !== 'expirado'
     );
-  }, [pedidosFiltrados, hojeDate, antecedenciaDias]);
+  }, [pedidosFiltrados, hojeDate, antecedenciaDias, antecedenciaOrtopedicoDias]);
 
   // Toggle selecionar todos os elegíveis
   const handleToggleSelecionarTodos = () => {
@@ -472,19 +503,40 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
     }
   };
 
-  // Abrir modal para gerar mensagem à empresa
+  // Abrir modal para gerar mensagem à empresa ou laboratório
   const abrirModalComunicacao = (lista: PedidoComPaciente[]) => {
     if (lista.length === 0) return;
 
-    const pedidosParaMsg: PedidoParaMensagem[] = lista.map((p) => ({
-      paciente_nome: p.paciente?.nome || 'Paciente Desconhecido',
-      data_retorno: p.data_retorno,
-      alinhador_de: p.alinhador_de,
-      alinhador_ate: p.alinhador_ate
-    }));
+    const alinhadores = lista.filter((p) => (p.tipo || 'alinhador') === 'alinhador');
+    const ortopedicos = lista.filter((p) => p.tipo === 'ortopedico');
 
-    const textoGerado = gerarMensagemEmpresa(pedidosParaMsg, config?.template_mensagem);
-    setTextoComunicacao(textoGerado);
+    const blocosTexto: string[] = [];
+
+    if (alinhadores.length > 0) {
+      const pedidosParaMsg: PedidoParaMensagem[] = alinhadores.map((p) => ({
+        paciente_nome: p.paciente?.nome || 'Paciente Desconhecido',
+        data_retorno: p.data_retorno,
+        alinhador_de: p.alinhador_de,
+        alinhador_ate: p.alinhador_ate
+      }));
+      blocosTexto.push(gerarMensagemEmpresa(pedidosParaMsg, config?.template_mensagem));
+    }
+
+    if (ortopedicos.length > 0) {
+      const pedidosParaMsg = ortopedicos.map((p) => ({
+        paciente_nome: p.paciente?.nome || 'Paciente Desconhecido',
+        data_retorno: p.data_retorno,
+        aparelho: p.aparelho || p.paciente?.aparelho_previsto || 'Aparelho Ortopedico'
+      }));
+      blocosTexto.push(
+        gerarMensagemLaboratorioOrtopedico(
+          pedidosParaMsg,
+          config?.template_mensagem_ortopedico || TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO
+        )
+      );
+    }
+
+    setTextoComunicacao(blocosTexto.join('\n\n\n'));
     setIdsParaComunicar(lista.map((p) => p.id));
     setCopiadoFeedback(false);
     setModalComunicacaoAberta(true);
@@ -869,6 +921,20 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
               </select>
             </div>
 
+            {/* Tipo */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-600">Tipo:</span>
+              <select
+                value={filtroTipo}
+                onChange={(e) => setFiltroTipo(e.target.value as FiltroTipo)}
+                className="text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="todos">Todos os Tipos</option>
+                <option value="alinhador">Alinhadores</option>
+                <option value="ortopedico">Ortopedicos</option>
+              </select>
+            </div>
+
             {/* Mês de Retorno */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-slate-600">Mês de Retorno:</span>
@@ -971,15 +1037,15 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                   <th className="py-3 px-3">Turma</th>
                   <th className="py-3 px-3">Data do Retorno</th>
                   <th className="py-3 px-3">Situação do Prazo</th>
-                  <th className="py-3 px-4 text-center">Alinhadores (De - Até)</th>
+                  <th className="py-3 px-4 text-center">Alinhador / Aparelho</th>
                   <th className="py-3 px-3 text-center">Status</th>
                   <th className="py-3 px-4 text-right">Ações / Detalhes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {pedidosFiltrados.map((pedido) => {
-                  const status = calcularStatusPedido(pedido, hojeDate, antecedenciaDias);
-                  const prazoLimite = calcularPrazoLimite(pedido.data_retorno, antecedenciaDias);
+                  const status = obterStatus(pedido);
+                  const prazoLimite = obterPrazoLimite(pedido);
                   const isSelecionado = selecionados.includes(pedido.id);
                   const edicao = valoresEdicao[pedido.id] || { de: '', ate: '' };
                   const jaSolicitado = !!pedido.solicitado_em;
@@ -1056,8 +1122,19 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
 
                       {/* Paciente */}
                       <td className="py-3 px-4">
-                        <div className="font-bold text-slate-800">
-                          {pedido.paciente?.nome || 'Paciente não identificado'}
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800">
+                            {pedido.paciente?.nome || 'Paciente não identificado'}
+                          </span>
+                          {pedido.tipo === 'ortopedico' ? (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                              Ortopédico
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
+                              Alinhador
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -1078,65 +1155,71 @@ export const AlinhadoresPedidosTab: React.FC<AlinhadoresPedidosTabProps> = ({
                         </span>
                       </td>
 
-                      {/* Alinhadores com Edição Inline e Botão Sugerir */}
+                      {/* Alinhadores ou Aparelho Ortopédico */}
                       <td className="py-3 px-4 text-center">
-                        <div className="inline-flex items-center justify-center gap-1.5">
-                          <input
-                            type="number"
-                            min="1"
-                            value={edicao.de}
-                            disabled={jaSolicitado || ehExpirado}
-                            onChange={(e) =>
-                              setValoresEdicao((prev) => ({
-                                ...prev,
-                                [pedido.id]: { ...prev[pedido.id], de: e.target.value }
-                              }))
-                            }
-                            onBlur={() => handleSalvarInline(pedido.id)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSalvarInline(pedido.id)}
-                            placeholder="De"
-                            className="w-14 text-center text-xs py-1 px-1 bg-slate-50 border border-slate-300 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-500"
-                            title="Alinhador inicial"
-                          />
-                          <span className="text-slate-400 font-bold">a</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={edicao.ate}
-                            disabled={jaSolicitado || ehExpirado}
-                            onChange={(e) =>
-                              setValoresEdicao((prev) => ({
-                                ...prev,
-                                [pedido.id]: { ...prev[pedido.id], ate: e.target.value }
-                              }))
-                            }
-                            onBlur={() => handleSalvarInline(pedido.id)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSalvarInline(pedido.id)}
-                            placeholder="Até"
-                            className="w-14 text-center text-xs py-1 px-1 bg-slate-50 border border-slate-300 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-500"
-                            title="Alinhador final"
-                          />
+                        {pedido.tipo === 'ortopedico' ? (
+                          <span className="font-semibold text-purple-900 bg-purple-50 px-2.5 py-1 rounded-md border border-purple-200 text-xs inline-block">
+                            {pedido.aparelho || pedido.paciente?.aparelho_previsto || 'Aparelho Ortopédico'}
+                          </span>
+                        ) : (
+                          <div className="inline-flex items-center justify-center gap-1.5">
+                            <input
+                              type="number"
+                              min="1"
+                              value={edicao.de}
+                              disabled={jaSolicitado || ehExpirado}
+                              onChange={(e) =>
+                                setValoresEdicao((prev) => ({
+                                  ...prev,
+                                  [pedido.id]: { ...prev[pedido.id], de: e.target.value }
+                                }))
+                              }
+                              onBlur={() => handleSalvarInline(pedido.id)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleSalvarInline(pedido.id)}
+                              placeholder="De"
+                              className="w-14 text-center text-xs py-1 px-1 bg-slate-50 border border-slate-300 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-500"
+                              title="Alinhador inicial"
+                            />
+                            <span className="text-slate-400 font-bold">a</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={edicao.ate}
+                              disabled={jaSolicitado || ehExpirado}
+                              onChange={(e) =>
+                                setValoresEdicao((prev) => ({
+                                  ...prev,
+                                  [pedido.id]: { ...prev[pedido.id], ate: e.target.value }
+                                }))
+                              }
+                              onBlur={() => handleSalvarInline(pedido.id)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleSalvarInline(pedido.id)}
+                              placeholder="Até"
+                              className="w-14 text-center text-xs py-1 px-1 bg-slate-50 border border-slate-300 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-500"
+                              title="Alinhador final"
+                            />
 
-                          {/* Botão Sugerir Numeração */}
-                          {!jaSolicitado && !ehExpirado && (
-                            <button
-                              type="button"
-                              onClick={() => handleSugerirNumeracao(pedido)}
-                              className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
-                              title="Sugerir numeração a partir do histórico"
-                            >
-                              <Sparkles className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                            {/* Botão Sugerir Numeração */}
+                            {!jaSolicitado && !ehExpirado && (
+                              <button
+                                type="button"
+                                onClick={() => handleSugerirNumeracao(pedido)}
+                                className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                                title="Sugerir numeração a partir do histórico"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                              </button>
+                            )}
 
-                          {/* Indicador de Salvamento Inline */}
-                          {edicao.salvando && (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                          )}
-                          {edicao.salvo && (
-                            <Check className="w-3.5 h-3.5 text-emerald-600 font-bold" />
-                          )}
-                        </div>
+                            {/* Indicador de Salvamento Inline */}
+                            {edicao.salvando && (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                            )}
+                            {edicao.salvo && (
+                              <Check className="w-3.5 h-3.5 text-emerald-600 font-bold" />
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* Status */}

@@ -9,6 +9,8 @@ import {
   StatusPedido,
   Turma,
   TEMPLATE_MENSAGEM_PADRAO,
+  TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO,
+  TipoTratamento,
   calcularStatusPedido,
   formatarDataISO,
   agruparBlocos,
@@ -31,15 +33,16 @@ function gerarUUID(): string {
 }
 
 // ==============================================================================
-// 1. PACIENTES DE ALINHADORES
+// 1. PACIENTES DE ALINHADORES E ORTOPEDICOS
 // ==============================================================================
 
 /**
- * Lista pacientes de alinhadores, opcionalmente filtrados por turma e status ativo.
+ * Lista pacientes de alinhadores e ortopedicos, opcionalmente filtrados por turma, status ativo e tipo.
  */
 export async function listarPacientes(
   turmaId?: string,
-  apenasAtivos: boolean = true
+  apenasAtivos: boolean = true,
+  tipo?: TipoTratamento
 ): Promise<AlinhadorPaciente[]> {
   let query = supabase
     .from('alinhadores_pacientes')
@@ -54,10 +57,14 @@ export async function listarPacientes(
     query = query.eq('ativo', true);
   }
 
+  if (tipo) {
+    query = query.eq('tipo', tipo);
+  }
+
   const { data, error } = await query;
   if (error) {
-    console.error('Erro ao listar pacientes de alinhadores:', error);
-    throw new Error(`Erro ao listar pacientes de alinhadores: ${error.message}`);
+    console.error('Erro ao listar pacientes:', error);
+    throw new Error(`Erro ao listar pacientes: ${error.message}`);
   }
 
   return (data || []) as AlinhadorPaciente[];
@@ -181,6 +188,7 @@ export async function listarPedidos(filtros?: {
   turmaId?: string;
   pacienteId?: string;
   status?: StatusPedido;
+  tipo?: 'todos' | 'alinhador' | 'ortopedico';
 }): Promise<PedidoComPaciente[]> {
   let query = supabase
     .from('alinhadores_pedidos')
@@ -191,7 +199,9 @@ export async function listarPedidos(filtros?: {
         nome,
         turma_id,
         total_alinhadores,
-        ativo
+        ativo,
+        tipo,
+        aparelho_previsto
       )
     `)
     .order('data_retorno', { ascending: true });
@@ -202,18 +212,26 @@ export async function listarPedidos(filtros?: {
 
   const { data, error } = await query;
   if (error) {
-    console.error('Erro ao listar pedidos de alinhadores:', error);
-    throw new Error(`Erro ao listar pedidos de alinhadores: ${error.message}`);
+    console.error('Erro ao listar pedidos:', error);
+    throw new Error(`Erro ao listar pedidos: ${error.message}`);
   }
 
   let lista = (data || []) as PedidoComPaciente[];
 
-  // Filtragem em memória por turma do paciente (se fornecido)
+  // Filtragem em memoria por turma do paciente (se fornecido)
   if (filtros?.turmaId) {
     lista = lista.filter((p) => p.paciente?.turma_id === filtros.turmaId);
   }
 
-  // Filtragem em memória por status calculado (se fornecido)
+  // Filtragem em memoria por tipo (se fornecido)
+  if (filtros?.tipo && filtros.tipo !== 'todos') {
+    lista = lista.filter((p) => {
+      const t = p.tipo || p.paciente?.tipo || 'alinhador';
+      return t === filtros.tipo;
+    });
+  }
+
+  // Filtragem em memoria por status calculado (se fornecido)
   if (filtros?.status) {
     lista = lista.filter((p) => calcularStatusPedido(p) === filtros.status);
   }
@@ -236,6 +254,53 @@ export async function criarPedido(
   if (error) {
     console.error('Erro ao criar pedido de alinhadores:', error);
     throw new Error(`Erro ao criar pedido de alinhadores: ${error.message}`);
+  }
+
+  return data as AlinhadorPedido;
+}
+
+export interface CriarPedidoOrtopedicoParams {
+  paciente_id: string;
+  data_retorno: string;
+  aparelho?: string | null;
+  observacao?: string | null;
+}
+
+/**
+ * Cria um novo pedido para paciente ortopedico.
+ * Suporta chamada posicional ou via objeto de parametros.
+ */
+export async function criarPedidoOrtopedico(
+  pacienteIdOuParams: string | CriarPedidoOrtopedicoParams,
+  dataRetorno?: string,
+  aparelho?: string | null,
+  observacao?: string | null
+): Promise<AlinhadorPedido> {
+  const isObj = typeof pacienteIdOuParams === 'object' && pacienteIdOuParams !== null;
+  const pacienteId = isObj ? pacienteIdOuParams.paciente_id : pacienteIdOuParams;
+  const dataFinal = isObj ? pacienteIdOuParams.data_retorno : dataRetorno!;
+  const aparelhoFinal = isObj ? pacienteIdOuParams.aparelho : aparelho;
+  const observacaoFinal = isObj ? pacienteIdOuParams.observacao : observacao;
+
+  const { data, error } = await supabase
+    .from('alinhadores_pedidos')
+    .insert([
+      {
+        paciente_id: pacienteId,
+        data_retorno: dataFinal,
+        tipo: 'ortopedico',
+        aparelho: aparelhoFinal ? aparelhoFinal.trim() : null,
+        alinhador_de: null,
+        alinhador_ate: null,
+        observacao: observacaoFinal ? observacaoFinal.trim() : null
+      }
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Erro ao criar pedido ortopedico:', error);
+    throw new Error(`Erro ao criar pedido ortopedico: ${error.message}`);
   }
 
   return data as AlinhadorPedido;
@@ -582,17 +647,26 @@ export async function obterConfig(): Promise<AlinhadorConfig> {
         id: true,
         antecedencia_dias: 20,
         quantidade_por_pedido: 2,
-        template_mensagem: TEMPLATE_MENSAGEM_PADRAO
+        template_mensagem: TEMPLATE_MENSAGEM_PADRAO,
+        antecedencia_ortopedico_dias: 20,
+        template_mensagem_ortopedico: TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO
       };
     }
 
-    return data as AlinhadorConfig;
+    const cfg = data as AlinhadorConfig;
+    return {
+      ...cfg,
+      antecedencia_ortopedico_dias: cfg.antecedencia_ortopedico_dias || 20,
+      template_mensagem_ortopedico: cfg.template_mensagem_ortopedico || TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO
+    };
   } catch {
     return {
       id: true,
       antecedencia_dias: 20,
       quantidade_por_pedido: 2,
-      template_mensagem: TEMPLATE_MENSAGEM_PADRAO
+      template_mensagem: TEMPLATE_MENSAGEM_PADRAO,
+      antecedencia_ortopedico_dias: 20,
+      template_mensagem_ortopedico: TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO
     };
   }
 }
@@ -610,6 +684,13 @@ export async function salvarConfig(
     }
   }
 
+  if (dados.antecedencia_ortopedico_dias !== undefined) {
+    const d = Number(dados.antecedencia_ortopedico_dias);
+    if (!Number.isInteger(d) || d < 1 || d > 90) {
+      throw new Error('A antecedência para ortopédicos deve ser um número inteiro entre 1 e 90 dias.');
+    }
+  }
+
   if (dados.quantidade_por_pedido !== undefined) {
     const q = Number(dados.quantidade_por_pedido);
     if (!Number.isInteger(q) || q < 1) {
@@ -620,6 +701,12 @@ export async function salvarConfig(
   if (dados.template_mensagem !== undefined) {
     if (!dados.template_mensagem || !dados.template_mensagem.trim()) {
       throw new Error('O modelo de mensagem não pode ser vazio.');
+    }
+  }
+
+  if (dados.template_mensagem_ortopedico !== undefined) {
+    if (!dados.template_mensagem_ortopedico || !dados.template_mensagem_ortopedico.trim()) {
+      throw new Error('O modelo de mensagem para ortopédicos não pode ser vazio.');
     }
   }
 
@@ -636,7 +723,7 @@ export async function salvarConfig(
     .single();
 
   if (error) {
-    console.error('Erro ao salvar configurações de alinhadores:', error);
+    console.error('Erro ao salvar configurações de alinhadores e ortopedicos:', error);
     throw new Error(`Erro ao salvar configurações: ${error.message}`);
   }
 
@@ -645,6 +732,7 @@ export async function salvarConfig(
 
 /**
  * Sincroniza os próximos pedidos de todos os pacientes ativos usando blocos de clínica:
+ * - Aplica-se exclusivamente aos pacientes de alinhador (pacientes ortopedicos possuem pedido sob demanda).
  * - Delega o cálculo estritamente à função pura planejarSincronizacao.
  * - Propaga qualquer erro das consultas sem inserir nem apagar nada.
  * - Se a turma não tiver nenhuma data no calendário ou não tiver bloco futuro, não apaga pedidos.
@@ -652,14 +740,19 @@ export async function salvarConfig(
  */
 export async function sincronizarProximosPedidos(): Promise<{ criados: number; removidos: number }> {
   // 1. Obter todos os pacientes cadastrados
-  const { data: pacientes, error: pacientesError } = await supabase
+  const { data: todosPacientes, error: pacientesError } = await supabase
     .from('alinhadores_pacientes')
-    .select('id, turma_id, ativo');
+    .select('id, turma_id, ativo, tipo');
 
   if (pacientesError) {
     console.error('Erro ao buscar pacientes para sincronização de retornos:', pacientesError);
     throw new Error(`Erro ao buscar pacientes para sincronização: ${pacientesError.message}`);
   }
+
+  // Apenas pacientes de alinhadores entram no ciclo mensal automatico
+  const pacientes = (todosPacientes || []).filter(
+    (p: any) => !p.tipo || p.tipo === 'alinhador'
+  );
 
   if (!pacientes || pacientes.length === 0) {
     return { criados: 0, removidos: 0 };

@@ -60,7 +60,7 @@ const navItems: NavItem[] = [
     section: 'main',
   },
   {
-    label: 'Alinhadores',
+    label: 'Alinhadores e Ortopédicos',
     path: '/alinhadores',
     icon: Smile,
     moduloKey: 'coordenador',

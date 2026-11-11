@@ -36,7 +36,7 @@ export const CoordenadorPage: React.FC = () => {
                 className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
               >
                 <Smile className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Alinhadores</span>
+                <span>Alinhadores e Ortopédicos</span>
               </Link>
 
               <Link
@@ -83,8 +83,8 @@ export const CoordenadorPage: React.FC = () => {
             >
               <Smile className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
               <div>
-                <h4 className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Módulo de Alinhadores</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5">Gestão de pedidos, datas de atendimento e controle de alinhadores dos pacientes.</p>
+                <h4 className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Módulo de Alinhadores e Ortopédicos</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">Gestão de pedidos, datas de atendimento e controle de alinhadores e aparelhos ortopédicos.</p>
               </div>
             </Link>
 

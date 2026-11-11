@@ -9,13 +9,19 @@
  */
 
 export const ANTECEDENCIA_PEDIDO_DIAS = 20;
+export const ANTECEDENCIA_ORTOPEDICO_DIAS = 20;
 
 export const TEMPLATE_MENSAGEM_PADRAO =
   'Olá, passando para informar que solicitamos alinhadores para os pacientes abaixo:\n\n{lista}\n\nAgradecemos a confirmação do recebimento do pedido.';
 
+export const TEMPLATE_MENSAGEM_ORTOPEDICO_PADRAO =
+  'Olá, passando para solicitar os aparelhos ortopédicos para os pacientes abaixo:\n\n{lista}\n\nAgradecemos a confirmação do recebimento do pedido.';
+
 // ------------------------------------------------------------------------------
 // INTERFACES E TIPOS DE DADOS
 // ------------------------------------------------------------------------------
+
+export type TipoTratamento = 'alinhador' | 'ortopedico';
 
 export interface Turma {
   id: string;
@@ -27,6 +33,8 @@ export interface AlinhadorConfig {
   antecedencia_dias: number;
   quantidade_por_pedido: number;
   template_mensagem: string;
+  antecedencia_ortopedico_dias?: number;
+  template_mensagem_ortopedico?: string;
   updated_at?: string;
 }
 
@@ -44,6 +52,8 @@ export interface AlinhadorPaciente {
   total_alinhadores: number | null;
   observacao: string | null;
   ativo: boolean;
+  tipo?: TipoTratamento;
+  aparelho_previsto?: string | null;
   created_at?: string;
 }
 
@@ -56,13 +66,18 @@ export interface AlinhadorPedido {
   solicitado_em: string | null; // ISO timestamptz
   lote_id: string | null;
   mensagem_enviada_em?: string | null; // ISO timestamptz
+  tipo?: TipoTratamento;
+  aparelho?: string | null;
   created_at?: string;
 }
 
 export type StatusPedido = 'solicitado' | 'expirado' | 'atrasado' | 'vencendo' | 'pendente';
 
 export interface PedidoComPaciente extends AlinhadorPedido {
-  paciente?: Pick<AlinhadorPaciente, 'id' | 'nome' | 'turma_id' | 'total_alinhadores' | 'ativo'> | null;
+  paciente?: Pick<
+    AlinhadorPaciente,
+    'id' | 'nome' | 'turma_id' | 'total_alinhadores' | 'ativo' | 'tipo' | 'aparelho_previsto'
+  > | null;
 }
 
 export interface PedidoParaMensagem {
@@ -70,6 +85,8 @@ export interface PedidoParaMensagem {
   data_retorno: string | Date;
   alinhador_de?: number | null;
   alinhador_ate?: number | null;
+  tipo?: TipoTratamento;
+  aparelho?: string | null;
 }
 
 export interface ResultadoSolicitacao {
