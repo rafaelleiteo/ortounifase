@@ -2,7 +2,6 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   ShieldAlert,
-  DollarSign,
   LogOut,
   ChevronRight,
   ChevronLeft,
@@ -74,16 +73,6 @@ const navItems: NavItem[] = [
     moduloKey: 'coordenador',
     section: 'main',
     roleRequired: ['coordenador', 'admin_master'],
-  },
-  {
-    label: 'Módulo Financeiro',
-    path: '/coordenador/financeiro',
-    icon: DollarSign,
-    moduloKey: 'coordenador',
-    section: 'main',
-    roleRequired: ['coordenador', 'admin_master'],
-    badge: 'Camada Extra',
-    isExtraProtected: true,
   },
 
   // GRUPO AGENDA

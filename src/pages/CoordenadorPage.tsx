@@ -1,6 +1,6 @@
 import React from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { ShieldAlert, Settings, FileSpreadsheet, Lock, SlidersHorizontal, Link2, Smile, FolderArchive } from 'lucide-react';
+import { ShieldAlert, Settings, FileSpreadsheet, Lock, SlidersHorizontal, Link2, FolderArchive } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const CoordenadorPage: React.FC = () => {
@@ -31,13 +31,6 @@ export const CoordenadorPage: React.FC = () => {
                 <span>Arquivos</span>
               </Link>
 
-              <Link
-                to="/alinhadores"
-                className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
-              >
-                <Smile className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Alinhadores e Ortopédicos</span>
-              </Link>
 
               <Link
                 to="/coordenador/links-uteis"
@@ -77,16 +70,6 @@ export const CoordenadorPage: React.FC = () => {
               </div>
             </Link>
 
-            <Link
-              to="/alinhadores"
-              className="p-4 bg-slate-50 hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-200 rounded-lg flex items-start gap-3 transition-all group"
-            >
-              <Smile className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
-              <div>
-                <h4 className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Módulo de Alinhadores e Ortopédicos</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5">Gestão de pedidos, datas de atendimento e controle de alinhadores e aparelhos ortopédicos.</p>
-              </div>
-            </Link>
 
             <Link
               to="/coordenador/links-uteis"
