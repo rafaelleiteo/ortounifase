@@ -234,7 +234,8 @@ export function gerarMenuPrincipalTelegram(): {
       { text: 'Novo paciente ortopedico', callback_data: 'menu:novo_ortopedico' }
     ],
     [
-      { text: 'Pedidos Pendentes', callback_data: 'menu:pendentes' }
+      { text: 'Pedidos Pendentes', callback_data: 'menu:pendentes' },
+      { text: 'Cancelar', callback_data: 'cancelar' }
     ]
   ];
 
@@ -596,4 +597,110 @@ export function validarDadosParaGravacao(dados: TelegramDadosCadastro): {
     return { valido: false, erro: 'Tipo de paciente invalido.' };
   }
   return { valido: true };
+}
+export interface TurmaTelegramItem {
+  id: string;
+  nome: string;
+}
+
+/**
+ * Gera o teclado inline com um botao por turma cadastrada.
+ * Se nao houver turmas, retorna temTurmas: false e mensagem clara de erro sem botoes de selecao.
+ */
+export function gerarTecladoTurmasTelegram(turmas: TurmaTelegramItem[]): {
+  temTurmas: boolean;
+  mensagem: string;
+  botoes: TelegramInlineKeyboardButton[][];
+} {
+  if (!turmas || turmas.length === 0) {
+    return {
+      temTurmas: false,
+      mensagem: 'Nenhuma turma cadastrada no sistema. O cadastro nao pode continuar.',
+      botoes: []
+    };
+  }
+
+  const botoes: TelegramInlineKeyboardButton[][] = turmas.map((t) => [
+    { text: t.nome, callback_data: 'turma:' + t.id + ':' + t.nome }
+  ]);
+  botoes.push([{ text: 'Cancelar', callback_data: 'cancelar' }]);
+
+  return {
+    temTurmas: true,
+    mensagem: 'Escolha a turma do paciente:',
+    botoes
+  };
+}
+
+/**
+ * Trata o caso em que o usuario digita texto no passo de selecao de turma.
+ * Nao aceita digitacao e reenvia a solicitacao com os botoes de turma.
+ */
+export function processarTextoEmCadastroTurma(
+  turmas: TurmaTelegramItem[],
+  nomePaciente: string
+): {
+  valido: boolean;
+  mensagem: string;
+  botoes: TelegramInlineKeyboardButton[][];
+} {
+  const teclado = gerarTecladoTurmasTelegram(turmas);
+  if (!teclado.temTurmas) {
+    return {
+      valido: false,
+      mensagem: teclado.mensagem,
+      botoes: []
+    };
+  }
+
+  return {
+    valido: false,
+    mensagem: 'Por favor, selecione a turma do paciente "' + nomePaciente + '" usando os botoes abaixo:',
+    botoes: teclado.botoes
+  };
+}
+
+/**
+ * Teclado inline para conflito de nomes parecidos:
+ * Gera botao "E este: Nome" para cada conflito, mais "Criar novo mesmo assim" e "Cancelar".
+ */
+export function gerarTecladoConflitoNome(
+  conflitos: Array<{ id: string; nome: string; turma?: string }>
+): TelegramInlineKeyboardButton[][] {
+  const botoes: TelegramInlineKeyboardButton[][] = (conflitos || []).map((c) => [
+    { text: 'E este: ' + c.nome + (c.turma ? ' (' + c.turma + ')' : ''), callback_data: 'conf_exist:' + c.id }
+  ]);
+  botoes.push([{ text: 'Criar novo mesmo assim', callback_data: 'conf_novo' }]);
+  botoes.push([{ text: 'Cancelar', callback_data: 'cancelar' }]);
+  return botoes;
+}
+
+/**
+ * Teclado inline para passo de quantidade/aparelho previsto (botao Pular e Cancelar).
+ */
+export function gerarTecladoPrevisto(): TelegramInlineKeyboardButton[][] {
+  return [
+    [{ text: 'Pular', callback_data: 'pular_previsto' }],
+    [{ text: 'Cancelar', callback_data: 'cancelar' }]
+  ];
+}
+
+/**
+ * Teclado inline para passo de observacao (botao Pular e Cancelar).
+ */
+export function gerarTecladoObservacao(): TelegramInlineKeyboardButton[][] {
+  return [
+    [{ text: 'Pular', callback_data: 'pular_obs' }],
+    [{ text: 'Cancelar', callback_data: 'cancelar' }]
+  ];
+}
+
+/**
+ * Teclado inline para passo de resumo/confirmacao (Confirmar e Cancelar).
+ */
+export function gerarTecladoConfirmacaoCadastro(): TelegramInlineKeyboardButton[][] {
+  return [
+    [{ text: 'Confirmar cadastro', callback_data: 'conf_gravar' }],
+    [{ text: 'Cancelar', callback_data: 'cancelar' }]
+  ];
 }

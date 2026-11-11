@@ -8,6 +8,12 @@ import {
   validarAparelhoPrevisto,
   validarObservacaoTelegram,
   gerarMenuPrincipalTelegram,
+  gerarTecladoTurmasTelegram,
+  processarTextoEmCadastroTurma,
+  gerarTecladoConflitoNome,
+  gerarTecladoPrevisto,
+  gerarTecladoObservacao,
+  gerarTecladoConfirmacaoCadastro,
   formatarResumoCadastro,
   formatarListaPendentes,
   montarAvisoDiarioTelegram,
@@ -251,13 +257,14 @@ test('validarObservacaoTelegram: rejeita observacao com mais de 500 caracteres',
 // -----------------------------------------------------------------------------
 // 8. Formatacao do menu principal e botoes
 // -----------------------------------------------------------------------------
-test('gerarMenuPrincipalTelegram: retorna texto com as 3 opcoes principais', () => {
+test('gerarMenuPrincipalTelegram: retorna texto com menu inicial (Novo paciente alinhador, Novo paciente ortopedico, Pendentes, Cancelar)', () => {
   const menu = gerarMenuPrincipalTelegram();
   assert.match(menu.texto, /Alinhadores e Ortopedicos/);
   assert.equal(menu.botoes.length, 2);
   assert.equal(menu.botoes[0][0].callback_data, 'menu:novo_alinhador');
   assert.equal(menu.botoes[0][1].callback_data, 'menu:novo_ortopedico');
   assert.equal(menu.botoes[1][0].callback_data, 'menu:pendentes');
+  assert.equal(menu.botoes[1][1].callback_data, 'cancelar');
 });
 
 // -----------------------------------------------------------------------------
@@ -570,6 +577,92 @@ test('paridade: calculo de data de retorno de ortopedicos no Telegram equivale a
   assert.equal(dataRetornoTelegram, dataRetornoApp);
   assert.equal(dataRetornoTelegram, '2026-11-25');
   assert.equal(planoApp.inserir[0].aparelho, 'Disjuntor de McNamara');
+});
+
+
+// -----------------------------------------------------------------------------
+// 15. Auditoria de teclados e passo de selecao de turmas
+// -----------------------------------------------------------------------------
+test('passo de turma retorna teclado com um botao por turma', () => {
+  const turmas = [
+    { id: 't1', nome: 'ESP1' },
+    { id: 't2', nome: 'ESP2' },
+    { id: 't3', nome: 'SERVICO' }
+  ];
+  const res = gerarTecladoTurmasTelegram(turmas);
+  assert.equal(res.temTurmas, true);
+  assert.match(res.mensagem, /Escolha a turma/);
+  assert.equal(res.botoes.length, 4); // 3 turmas + Cancelar
+  assert.equal(res.botoes[0][0].text, 'ESP1');
+  assert.equal(res.botoes[0][0].callback_data, 'turma:t1:ESP1');
+  assert.equal(res.botoes[1][0].text, 'ESP2');
+  assert.equal(res.botoes[1][0].callback_data, 'turma:t2:ESP2');
+  assert.equal(res.botoes[2][0].text, 'SERVICO');
+  assert.equal(res.botoes[2][0].callback_data, 'turma:t3:SERVICO');
+  assert.equal(res.botoes[3][0].text, 'Cancelar');
+  assert.equal(res.botoes[3][0].callback_data, 'cancelar');
+});
+
+test('passo de turma: turma vazia retorna erro sem pedir texto', () => {
+  const res = gerarTecladoTurmasTelegram([]);
+  assert.equal(res.temTurmas, false);
+  assert.match(res.mensagem, /Nenhuma turma cadastrada/);
+  assert.equal(res.botoes.length, 0);
+});
+
+test('passo de turma: texto digitado no passo de turma reenvia os botoes', () => {
+  const turmas = [
+    { id: 't1', nome: 'ESP1' },
+    { id: 't2', nome: 'ESP2' }
+  ];
+  const res = processarTextoEmCadastroTurma(turmas, 'Lucas Silva');
+  assert.equal(res.valido, false);
+  assert.match(res.mensagem, /Por favor, selecione a turma do paciente "Lucas Silva" usando os botoes abaixo:/);
+  assert.equal(res.botoes.length, 3); // 2 turmas + Cancelar
+  assert.equal(res.botoes[0][0].text, 'ESP1');
+  assert.equal(res.botoes[1][0].text, 'ESP2');
+  assert.equal(res.botoes[2][0].text, 'Cancelar');
+});
+
+test('auditoria de teclados: nome parecido retorna botoes E este, Criar novo mesmo assim e Cancelar', () => {
+  const conflitos = [
+    { id: 'c1', nome: 'Mariana Duarte', turma: 'ESP1' }
+  ];
+  const botoes = gerarTecladoConflitoNome(conflitos);
+  assert.equal(botoes.length, 3);
+  assert.equal(botoes[0][0].text, 'E este: Mariana Duarte (ESP1)');
+  assert.equal(botoes[0][0].callback_data, 'conf_exist:c1');
+  assert.equal(botoes[1][0].text, 'Criar novo mesmo assim');
+  assert.equal(botoes[1][0].callback_data, 'conf_novo');
+  assert.equal(botoes[2][0].text, 'Cancelar');
+  assert.equal(botoes[2][0].callback_data, 'cancelar');
+});
+
+test('auditoria de teclados: passo previsto retorna botao Pular e Cancelar', () => {
+  const botoes = gerarTecladoPrevisto();
+  assert.equal(botoes.length, 2);
+  assert.equal(botoes[0][0].text, 'Pular');
+  assert.equal(botoes[0][0].callback_data, 'pular_previsto');
+  assert.equal(botoes[1][0].text, 'Cancelar');
+  assert.equal(botoes[1][0].callback_data, 'cancelar');
+});
+
+test('auditoria de teclados: passo observacoes retorna botao Pular e Cancelar', () => {
+  const botoes = gerarTecladoObservacao();
+  assert.equal(botoes.length, 2);
+  assert.equal(botoes[0][0].text, 'Pular');
+  assert.equal(botoes[0][0].callback_data, 'pular_obs');
+  assert.equal(botoes[1][0].text, 'Cancelar');
+  assert.equal(botoes[1][0].callback_data, 'cancelar');
+});
+
+test('auditoria de teclados: passo resumo retorna Confirmar cadastro e Cancelar', () => {
+  const botoes = gerarTecladoConfirmacaoCadastro();
+  assert.equal(botoes.length, 2);
+  assert.equal(botoes[0][0].text, 'Confirmar cadastro');
+  assert.equal(botoes[0][0].callback_data, 'conf_gravar');
+  assert.equal(botoes[1][0].text, 'Cancelar');
+  assert.equal(botoes[1][0].callback_data, 'cancelar');
 });
 
 console.log('\n================================================================');

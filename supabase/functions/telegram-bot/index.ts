@@ -175,7 +175,8 @@ function menuPrincipalBotoes() {
         { text: "Novo paciente ortopedico", callback_data: "menu:novo_ortopedico" }
       ],
       [
-        { text: "Pedidos Pendentes", callback_data: "menu:pendentes" }
+        { text: "Pedidos Pendentes", callback_data: "menu:pendentes" },
+        { text: "Cancelar", callback_data: "cancelar" }
       ]
     ]
   };
@@ -531,8 +532,19 @@ serve(async (req) => {
 
     if (data === "conf_novo") {
       // Avanca para escolha de turma
-      const { data: turmas } = await supabase.from("turmas").select("id, nome").eq("ativo", true).order("nome");
-      const botoesTurma = (turmas || []).map((t: any) => [
+      const { data: turmas, error: turmasError } = await supabase.from("turmas").select("id, nome").order("nome");
+      if (turmasError || !turmas || turmas.length === 0) {
+        await supabase.from("telegram_estado").delete().eq("chat_id", chatId);
+        await telegramEnviarMensagem(
+          botToken,
+          chatId,
+          "Nenhuma turma cadastrada no sistema. O cadastro nao pode continuar.",
+          menuPrincipalBotoes()
+        );
+        return new Response("OK", { status: 200, headers: corsHeaders });
+      }
+
+      const botoesTurma = turmas.map((t: any) => [
         { text: t.nome, callback_data: `turma:${t.id}:${t.nome}` }
       ]);
       botoesTurma.push([{ text: "Cancelar", callback_data: "cancelar" }]);
@@ -824,8 +836,19 @@ serve(async (req) => {
       }
 
       // Nao ha conflitos: avanca para turma
-      const { data: turmas } = await supabase.from("turmas").select("id, nome").eq("ativo", true).order("nome");
-      const botoesTurma = (turmas || []).map((t: any) => [
+      const { data: turmas, error: turmasError } = await supabase.from("turmas").select("id, nome").order("nome");
+      if (turmasError || !turmas || turmas.length === 0) {
+        await supabase.from("telegram_estado").delete().eq("chat_id", chatId);
+        await telegramEnviarMensagem(
+          botToken,
+          chatId,
+          "Nenhuma turma cadastrada no sistema. O cadastro nao pode continuar.",
+          menuPrincipalBotoes()
+        );
+        return new Response("OK", { status: 200, headers: corsHeaders });
+      }
+
+      const botoesTurma = turmas.map((t: any) => [
         { text: t.nome, callback_data: `turma:${t.id}:${t.nome}` }
       ]);
       botoesTurma.push([{ text: "Cancelar", callback_data: "cancelar" }]);
@@ -834,6 +857,35 @@ serve(async (req) => {
         { chat_id: chatId, passo: "cadastro_turma", dados: { ...estado.dados, nome: nomeLimpo }, updated_at: new Date().toISOString() }
       ]);
       await telegramEnviarMensagem(botToken, chatId, `Nome: ${nomeLimpo}\n\nEscolha a turma do paciente:`, { inline_keyboard: botoesTurma });
+      return new Response("OK", { status: 200, headers: corsHeaders });
+    }
+
+    if (estado.passo === "cadastro_turma") {
+      // O usuario digitou texto no passo de turma. Digitar nome da turma nao e permitido:
+      // Reenviar os botoes de turma!
+      const { data: turmas, error: turmasError } = await supabase.from("turmas").select("id, nome").order("nome");
+      if (turmasError || !turmas || turmas.length === 0) {
+        await supabase.from("telegram_estado").delete().eq("chat_id", chatId);
+        await telegramEnviarMensagem(
+          botToken,
+          chatId,
+          "Nenhuma turma cadastrada no sistema. O cadastro nao pode continuar.",
+          menuPrincipalBotoes()
+        );
+        return new Response("OK", { status: 200, headers: corsHeaders });
+      }
+
+      const botoesTurma = turmas.map((t: any) => [
+        { text: t.nome, callback_data: `turma:${t.id}:${t.nome}` }
+      ]);
+      botoesTurma.push([{ text: "Cancelar", callback_data: "cancelar" }]);
+
+      await telegramEnviarMensagem(
+        botToken,
+        chatId,
+        `Por favor, selecione a turma do paciente "${estado.dados?.nome}" usando os botoes abaixo:`,
+        { inline_keyboard: botoesTurma }
+      );
       return new Response("OK", { status: 200, headers: corsHeaders });
     }
 
